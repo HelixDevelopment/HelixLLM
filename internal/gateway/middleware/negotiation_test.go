@@ -179,6 +179,50 @@ func TestGetContentFormat_WithoutMiddleware(t *testing.T) {
 	}
 }
 
+func TestWriteTOON_MarshalError(t *testing.T) {
+	// Passing a non-serializable value (channel) causes toon.Marshal to fail,
+	// which exercises the error branch in WriteTOON (returns 500).
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/toon-err", func(c *gin.Context) {
+		middleware.WriteTOON(c, 200, make(chan int)) // channel cannot be JSON-marshalled
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/toon-err", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500 for marshal error", w.Code)
+	}
+}
+
+func TestContentNegotiation_NonJSONBody(t *testing.T) {
+	// When the handler writes a body that is NOT valid JSON (plain text), the
+	// ContentNegotiation middleware must forward it as-is with the TOON content type.
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.ContentNegotiation())
+	r.GET("/plain", func(c *gin.Context) {
+		// Write plain text — not valid JSON.
+		c.Data(200, "text/plain", []byte("just plain text"))
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/plain", nil)
+	req.Header.Set("Accept", "application/toon")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	// Body must be forwarded as-is.
+	body := w.Body.String()
+	if !strings.Contains(body, "just plain text") {
+		t.Errorf("body = %q, expected to contain original plain-text payload", body)
+	}
+}
+
 func TestIsTOONRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
