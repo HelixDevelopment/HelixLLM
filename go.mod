@@ -3,18 +3,10 @@ module github.com/HelixDevelopment/HelixLLM
 go 1.26.1
 
 require (
-	dev.helix.agent/skillregistry v0.0.0-00010101000000-000000000000
-	digital.vasic.agentic v0.0.0-00010101000000-000000000000
 	digital.vasic.config v0.0.0
-	digital.vasic.conversation v0.0.0-00010101000000-000000000000
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
-	digital.vasic.llmorchestrator v0.0.0-00010101000000-000000000000
-	digital.vasic.mcp v0.0.0-00010101000000-000000000000
-	digital.vasic.memory v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
-	digital.vasic.planning v0.0.0-00010101000000-000000000000
 	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
-	digital.vasic.toolschema v0.0.0-00010101000000-000000000000
 	github.com/andybalholm/brotli v1.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
