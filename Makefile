@@ -48,6 +48,12 @@ test-automation:
 test-usecases:
 	@echo "TODO: Phase 7 — real-world use case validation"
 
+test-challenges:
+	./bin/helixllm --challenges --banks-dir=challenges/banks/ --base-url=https://localhost:8443
+
+test-challenges-api:
+	./bin/helixllm --challenges --banks-dir=challenges/banks/api/ --base-url=https://localhost:8443
+
 test-all: test-unit test-integration
 
 COVERAGE_THRESHOLD := 85
