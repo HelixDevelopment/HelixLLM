@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
 	"github.com/HelixDevelopment/HelixLLM/internal/server"
@@ -71,10 +72,20 @@ func main() {
 		Checker: checker,
 	})
 
+	// Create Brain — registers whichever providers are configured.
+	brainSvc := brain.New(brain.Config{
+		LlamaCppURL:     fmt.Sprintf("http://localhost:%d", cfg.LLM.LocalRPCPort),
+		LlamaCppModels:  []string{cfg.LLM.LocalModel},
+		OpenAIKey:       cfg.LLM.OpenAIKey,
+		AnthropicKey:    cfg.LLM.AnthropicKey,
+		DefaultProvider: cfg.LLM.DefaultProvider,
+	})
+
 	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
 		APIKeys:   cfg.Auth.APIKeys,
 		RateLimit: 0, // TODO: add to config
+		Brain:     brainSvc,
 	})
 
 	// Graceful shutdown

@@ -93,3 +93,33 @@ func TestGatewayRouterWithAuth(t *testing.T) {
 		t.Errorf("with key: status = %d, want 200", w.Code)
 	}
 }
+
+func TestGatewayRouterWithBrain(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	gateway.RegisterRoutes(r, gateway.RouterOptions{Brain: b})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("GET /v1/models status = %d, want 200", w.Code)
+	}
+
+	var list api.ModelList
+	json.Unmarshal(w.Body.Bytes(), &list)
+	if list.Object != "list" {
+		t.Errorf("object = %q, want list", list.Object)
+	}
+	// Brain has 1 available provider with 1 model.
+	if len(list.Data) != 1 {
+		t.Errorf("len(models) = %d, want 1", len(list.Data))
+	}
+}

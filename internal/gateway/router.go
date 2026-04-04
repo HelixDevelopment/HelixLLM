@@ -3,6 +3,7 @@ package gateway
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	gwmw "github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware"
 )
 
@@ -14,6 +15,9 @@ type RouterOptions struct {
 	// RateLimit is the maximum number of requests per minute per IP.
 	// 0 disables rate limiting.
 	RateLimit int
+	// Brain is the LLM coordination service. When non-nil, handlers delegate
+	// to it instead of returning canned stub responses.
+	Brain *brain.Brain
 }
 
 // RegisterRoutes attaches all gateway endpoint handlers and middleware to r
@@ -26,12 +30,12 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1.Use(gwmw.ContentNegotiation())
 
 	// OpenAI-compatible endpoints
-	v1.POST("/chat/completions", HandleChatCompletions)
-	v1.POST("/completions", HandleCompletions)
-	v1.GET("/models", HandleListModels)
-	v1.GET("/models/:id", HandleGetModel)
-	v1.POST("/embeddings", HandleEmbeddings)
+	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain))
+	v1.POST("/completions", HandleCompletions(opts.Brain))
+	v1.GET("/models", HandleListModels(opts.Brain))
+	v1.GET("/models/:id", HandleGetModel(opts.Brain))
+	v1.POST("/embeddings", HandleEmbeddings(opts.Brain))
 
 	// Anthropic-compatible endpoints
-	v1.POST("/messages", HandleMessages)
+	v1.POST("/messages", HandleMessages(opts.Brain))
 }
