@@ -7,12 +7,16 @@ require (
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
 	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
+	digital.vasic.streaming v0.0.0-00010101000000-000000000000
 	digital.vasic.toon v0.0.0
+	digital.vasic.vectordb v0.0.0-00010101000000-000000000000
 	github.com/andybalholm/brotli v1.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.59.0
+	golang.org/x/crypto v0.49.0
 )
 
 require (
@@ -60,7 +64,6 @@ require (
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.22.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
