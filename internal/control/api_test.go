@@ -318,6 +318,26 @@ func TestNopSSHClient_RunAndIsReachable(t *testing.T) {
 	}
 }
 
+func TestNopSSHClient_Run(t *testing.T) {
+	// nopSSHClient.Run must return empty string and nil error.
+	c := &nopSSHClient{}
+	out, err := c.Run(nil, "any-host", "any-command")
+	if err != nil {
+		t.Errorf("Run() error = %v, want nil", err)
+	}
+	if out != "" {
+		t.Errorf("Run() output = %q, want empty", out)
+	}
+}
+
+func TestNopSSHClient_IsReachable(t *testing.T) {
+	// nopSSHClient.IsReachable must always return false.
+	c := &nopSSHClient{}
+	if c.IsReachable(nil, "any-host") {
+		t.Error("IsReachable() = true, want false")
+	}
+}
+
 func TestAPI_ClusterStatus_Timestamps(t *testing.T) {
 	r, _ := setupTestRouter()
 
