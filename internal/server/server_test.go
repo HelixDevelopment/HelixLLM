@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/server"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/observability"
 )
 
 func TestNewServer(t *testing.T) {
@@ -355,3 +357,112 @@ func TestRequestIDMiddleware(t *testing.T) {
 		t.Error("X-Request-ID header not set by middleware")
 	}
 }
+
+func TestMetricsEndpoint_NoObs_DefaultRegistry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	checker := health.NewChecker()
+	srv := server.New(server.Options{
+		Host:    "127.0.0.1",
+		Port:    0,
+		Checker: checker,
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/internal/metrics", nil)
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("metrics status = %d, want 200", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/plain") {
+		t.Errorf("metrics Content-Type = %q, want text/plain", ct)
+	}
+}
+
+func TestMetricsEndpoint_WithObs_PrometheusFormat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	checker := health.NewChecker()
+
+	obs, err := observability.New(observability.Options{
+		ServiceName: "test",
+		Exporter:    "none",
+		Namespace:   "helixllm_test",
+	})
+	if err != nil {
+		t.Fatalf("observability.New: %v", err)
+	}
+	defer obs.Shutdown()
+
+	srv := server.New(server.Options{
+		Host:    "127.0.0.1",
+		Port:    0,
+		Checker: checker,
+		Obs:     obs,
+	})
+
+	// Make a request so the metrics middleware records something.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/internal/health", nil)
+	srv.Handler().ServeHTTP(w, req)
+
+	// Now fetch /internal/metrics.
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/internal/metrics", nil)
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("metrics status = %d, want 200", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/plain") {
+		t.Errorf("metrics Content-Type = %q, want text/plain", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "# HELP") && !strings.Contains(body, "# TYPE") {
+		preview := body
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		t.Errorf("metrics body does not look like Prometheus format: %q", preview)
+	}
+}
+
+func TestMetricsMiddleware_RecordsRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	checker := health.NewChecker()
+
+	obs, err := observability.New(observability.Options{
+		ServiceName: "test",
+		Exporter:    "none",
+		Namespace:   "helixllm_mw",
+	})
+	if err != nil {
+		t.Fatalf("observability.New: %v", err)
+	}
+	defer obs.Shutdown()
+
+	srv := server.New(server.Options{
+		Host:    "127.0.0.1",
+		Port:    0,
+		Checker: checker,
+		Obs:     obs,
+	})
+
+	// Fire several requests.
+	for i := 0; i < 3; i++ {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/internal/health", nil)
+		srv.Handler().ServeHTTP(w, req)
+	}
+
+	// Scrape metrics — the counter and histogram should be present.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/internal/metrics", nil)
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("metrics status = %d, want 200", w.Code)
+	}
+}
+

@@ -32,6 +32,7 @@ type Options struct {
 type Observability struct {
 	tracer    *obstrace.Tracer
 	collector obsmetrics.Collector
+	gatherer  prometheus.Gatherer
 }
 
 // New initialises tracing and metrics from the given options.
@@ -68,6 +69,7 @@ func New(opts Options) (*Observability, error) {
 	return &Observability{
 		tracer:    tracer,
 		collector: collector,
+		gatherer:  registry,
 	}, nil
 }
 
@@ -79,6 +81,12 @@ func (o *Observability) Tracer() *obstrace.Tracer {
 // Metrics returns the Prometheus metrics collector.
 func (o *Observability) Metrics() obsmetrics.Collector {
 	return o.collector
+}
+
+// Gatherer returns the prometheus.Gatherer for this instance's registry,
+// suitable for use with promhttp.HandlerFor to expose a /metrics endpoint.
+func (o *Observability) Gatherer() prometheus.Gatherer {
+	return o.gatherer
 }
 
 // Shutdown gracefully flushes and shuts down the tracer provider.

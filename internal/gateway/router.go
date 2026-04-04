@@ -38,4 +38,7 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 
 	// Anthropic-compatible endpoints
 	v1.POST("/messages", HandleMessages(opts.Brain))
+
+	// WebSocket endpoint for bidirectional chat
+	r.GET("/ws", HandleWebSocket(opts.Brain))
 }

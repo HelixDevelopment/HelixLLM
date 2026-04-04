@@ -188,8 +188,21 @@ func main() {
 	// Create conversation context for multi-turn sessions.
 	convCtx := agents.NewConversationContext(100)
 
-	// Register agent routes.
-	agents.RegisterAgentRoutes(srv.Router(), agentSvc, convCtx)
+	// Create three-tier memory manager (working + episodic + semantic via RAG).
+	memMgr := agents.NewMemoryManager(convCtx, pipeline)
+
+	// Create multi-agent coordinator (phase-based: investigation → synthesis → implementation → verification).
+	coordinator := agents.NewCoordinator(agents.CoordinatorConfig{
+		Brain:   brainSvc,
+		Tools:   toolReg,
+		RAGHook: knowledge.RAGHook(pipeline, "default"),
+	})
+
+	// Create task planner (LLM-driven goal decomposition into ordered steps).
+	planner := agents.NewPlanner(brainSvc)
+
+	// Register agent routes (chat, tools, coordinate, plan, memory/remember, memory/recall).
+	agents.RegisterAgentRoutesWithExtras(srv.Router(), agentSvc, convCtx, coordinator, planner, memMgr)
 
 	control.RegisterRoutes(srv.Router(), cp)
 

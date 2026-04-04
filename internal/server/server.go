@@ -11,10 +11,14 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/quic-go/quic-go/http3"
+
+	obsgin "digital.vasic.observability/pkg/gin"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/server/middleware"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/observability"
 )
 
 // Options configures the Server.
@@ -30,6 +34,10 @@ type Options struct {
 	TLSKey string
 	// Checker is used to serve the /internal/health endpoint.
 	Checker *health.Checker
+	// Obs is the optional observability instance. When non-nil, Prometheus
+	// metrics middleware is applied to all requests and /internal/metrics is
+	// registered.
+	Obs *observability.Observability
 }
 
 // Server wraps a Gin engine with HTTP/3 and HTTP/2 transports.
@@ -47,6 +55,11 @@ func New(opts Options) *Server {
 
 	// Alt-Svc middleware — advertises the HTTP/3 endpoint on every response.
 	engine.Use(altSvcMiddleware(opts.Host, opts.Port))
+
+	// Observability metrics middleware (optional).
+	if opts.Obs != nil {
+		engine.Use(obsgin.MetricsMiddleware(opts.Obs.Metrics()))
+	}
 
 	s := &Server{opts: opts, engine: engine}
 	s.registerRoutes()
@@ -152,6 +165,15 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 func (s *Server) registerRoutes() {
 	s.engine.GET("/internal/health", healthHandler(s.opts.Checker))
+
+	// Expose Prometheus metrics. When an Observability instance is provided,
+	// serve its isolated registry; otherwise fall back to the default registry.
+	if s.opts.Obs != nil {
+		h := promhttp.HandlerFor(s.opts.Obs.Gatherer(), promhttp.HandlerOpts{})
+		s.engine.GET("/internal/metrics", gin.WrapH(h))
+	} else {
+		s.engine.GET("/internal/metrics", gin.WrapH(promhttp.Handler()))
+	}
 }
 
 func healthHandler(checker *health.Checker) gin.HandlerFunc {

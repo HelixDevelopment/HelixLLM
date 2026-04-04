@@ -10,7 +10,6 @@ require (
 	digital.vasic.mcp v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
 	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
-	digital.vasic.streaming v0.0.0-00010101000000-000000000000
 	digital.vasic.toon v0.0.0
 	digital.vasic.vectordb v0.0.0-00010101000000-000000000000
 	digital.vasic.watcher v0.0.0-00010101000000-000000000000
