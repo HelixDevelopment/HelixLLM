@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/agents"
 	"github.com/HelixDevelopment/HelixLLM/internal/agents/tools"
@@ -24,8 +25,18 @@ import (
 )
 
 func main() {
-	modeFlag := flag.String("mode", "", "Operating mode (overrides HELIX_MODE env)")
+	modeFlag       := flag.String("mode", "", "Operating mode (overrides HELIX_MODE env)")
+	monitorFlag    := flag.Bool("monitor", false, "Launch the TUI cluster status monitor instead of the server")
+	challengesFlag := flag.Bool("challenges", false, "Run challenge banks instead of starting server")
+	banksDirFlag   := flag.String("banks-dir", "challenges/banks/", "Directory containing YAML challenge banks")
+	baseURLFlag    := flag.String("base-url", "https://localhost:8443", "Base URL for challenge HTTP requests")
+	categoryFlag   := flag.String("category", "", "Run only challenges matching this category")
+	priorityFlag   := flag.String("priority", "", "Run only challenges matching this priority")
 	flag.Parse()
+
+	if *challengesFlag {
+		os.Exit(runChallenges(*baseURLFlag, *banksDirFlag, *categoryFlag, *priorityFlag))
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -64,6 +75,48 @@ func main() {
 	}
 	defer obs.Shutdown()
 
+	// Build the Control Plane — needed by both the server and the monitor.
+	cpOpts := control.ControlPlaneOptions{
+		Hosts:    cfg.HostList(),
+		SSHUser:  cfg.SSHUser,
+		SSHKey:   cfg.SSHKey,
+		Strategy: cfg.ScheduleStrategy,
+	}
+	if len(cfg.HostList()) > 0 {
+		sshClient, sshErr := control.NewSSHClient(
+			cfg.HostList()[0], 22, cfg.SSHUser, cfg.SSHKey,
+		)
+		if sshErr != nil {
+			log.WithError(sshErr).Warn("SSH key unavailable; control plane running in no-op mode")
+		} else {
+			cpOpts.SSH = sshClient
+		}
+	}
+	cp := control.NewControlPlane(cpOpts)
+
+	// Graceful shutdown context — shared by both code paths.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Info("shutting down...")
+		bus.Publish(events.TopicServerStopped, "main", nil)
+		cancel()
+	}()
+
+	// --monitor: show the TUI cluster status display and exit.
+	if *monitorFlag {
+		log.Info("starting cluster monitor")
+		if err := control.RunMonitor(ctx, cp, 2*time.Second); err != nil {
+			log.WithError(err).Error("monitor error")
+			os.Exit(1)
+		}
+		return
+	}
+
 	checker := health.NewChecker()
 
 	log.WithField("mode", m.String()).Info("starting HelixLLM")
@@ -92,9 +145,22 @@ func main() {
 		Brain:     brainSvc,
 	})
 
-	// Create knowledge pipeline with in-memory components.
-	embedder := knowledge.NewHashEmbedder(768)
-	store := knowledge.NewMemoryStore()
+	// Create knowledge pipeline using configured backends.
+	embedder, err := knowledge.NewEmbedder(
+		cfg.Knowledge.EmbeddingProvider,
+		cfg.LLM.OpenAIKey,
+		cfg.Knowledge.EmbeddingModel,
+		768,
+	)
+	if err != nil {
+		log.WithError(err).Error("failed to create embedder, falling back to hash embedder")
+		embedder = knowledge.NewHashEmbedder(768)
+	}
+	store, err := knowledge.NewVectorStore(cfg.Knowledge.VectorDB, "localhost", 6333)
+	if err != nil {
+		log.WithError(err).Error("failed to connect to vector store, falling back to memory store")
+		store = knowledge.NewMemoryStore()
+	}
 	chunker := knowledge.NewFixedSizeChunker(cfg.Knowledge.RAGChunkSize, cfg.Knowledge.RAGChunkOverlap)
 	pipeline := knowledge.NewPipeline(knowledge.PipelineConfig{
 		Embedder:          embedder,
@@ -125,40 +191,7 @@ func main() {
 	// Register agent routes.
 	agents.RegisterAgentRoutes(srv.Router(), agentSvc, convCtx)
 
-	// Create Control Plane for cluster management.
-	// When hosts are configured, build a real SSH client; otherwise
-	// the control plane falls back to its built-in no-op client.
-	cpOpts := control.ControlPlaneOptions{
-		Hosts:    cfg.HostList(),
-		SSHUser:  cfg.SSHUser,
-		SSHKey:   cfg.SSHKey,
-		Strategy: cfg.ScheduleStrategy,
-	}
-	if len(cfg.HostList()) > 0 {
-		sshClient, sshErr := control.NewSSHClient(
-			cfg.HostList()[0], 22, cfg.SSHUser, cfg.SSHKey,
-		)
-		if sshErr != nil {
-			log.WithError(sshErr).Warn("SSH key unavailable; control plane running in no-op mode")
-		} else {
-			cpOpts.SSH = sshClient
-		}
-	}
-	cp := control.NewControlPlane(cpOpts)
 	control.RegisterRoutes(srv.Router(), cp)
-
-	// Graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Info("shutting down...")
-		bus.Publish(events.TopicServerStopped, "main", nil)
-		cancel()
-	}()
 
 	bus.Publish(events.TopicServerStarted, "main", m.String())
 	log.WithField("addr", fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)).
