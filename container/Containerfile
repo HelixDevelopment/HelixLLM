@@ -1,0 +1,27 @@
+# ── Builder ──────────────────────────────────────────────
+FROM docker.io/library/golang:1.24-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /build
+
+# Cache dependencies
+COPY go.mod go.sum ./
+COPY submodules/ submodules/
+RUN go mod download
+
+# Build binary
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o helixllm ./cmd/helixllm
+
+# ── Runtime ──────────────────────────────────────────────
+FROM docker.io/library/alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=builder /build/helixllm /usr/local/bin/helixllm
+
+EXPOSE 8443/tcp 8443/udp
+
+ENTRYPOINT ["helixllm"]
+CMD ["--mode=full"]
