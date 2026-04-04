@@ -10,6 +10,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
+	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
 	"github.com/HelixDevelopment/HelixLLM/internal/server"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/config"
@@ -87,6 +88,20 @@ func main() {
 		RateLimit: 0, // TODO: add to config
 		Brain:     brainSvc,
 	})
+
+	// Create knowledge pipeline with in-memory components.
+	embedder := knowledge.NewHashEmbedder(768)
+	store := knowledge.NewMemoryStore()
+	chunker := knowledge.NewFixedSizeChunker(cfg.Knowledge.RAGChunkSize, cfg.Knowledge.RAGChunkOverlap)
+	pipeline := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          embedder,
+		Store:             store,
+		Chunker:           chunker,
+		DefaultCollection: "default",
+		DefaultTopK:       cfg.Knowledge.RAGTopK,
+	})
+	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline)
+	_ = knowledge.RAGHook(pipeline, "default") // available for future Brain middleware wiring
 
 	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
