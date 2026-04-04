@@ -43,3 +43,15 @@
 [submodule "submodules/Formatters"]
 	path = submodules/Formatters
 	url = git@github.com:vasic-digital/Formatters.git
+[submodule "submodules/LLMProvider"]
+	path = submodules/LLMProvider
+	url = git@github.com:vasic-digital/LLMProvider.git
+[submodule "submodules/Optimization"]
+	path = submodules/Optimization
+	url = git@github.com:vasic-digital/Optimization.git
+[submodule "submodules/Cache"]
+	path = submodules/Cache
+	url = git@github.com:vasic-digital/Cache.git
+[submodule "submodules/Recovery"]
+	path = submodules/Recovery
+	url = git@github.com:vasic-digital/Recovery.git

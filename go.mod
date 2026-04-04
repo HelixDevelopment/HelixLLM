@@ -71,6 +71,7 @@ require (
 
 replace (
 	digital.vasic.auth => ./submodules/Auth
+	digital.vasic.cache => ./submodules/Cache
 	digital.vasic.challenges => ./submodules/Challenges
 	digital.vasic.concurrency => ./submodules/Concurrency
 	digital.vasic.config => ./submodules/Config
@@ -79,9 +80,12 @@ replace (
 	digital.vasic.formatters => ./submodules/Formatters
 	digital.vasic.i18n => ./submodules/I18n
 	digital.vasic.lazy => ./submodules/Lazy
+	digital.vasic.llmprovider => ./submodules/LLMProvider
 	digital.vasic.middleware => ./submodules/Middleware
 	digital.vasic.observability => ./submodules/Observability
+	digital.vasic.optimization => ./submodules/Optimization
 	digital.vasic.ratelimiter => ./submodules/RateLimiter
+	digital.vasic.recovery => ./submodules/Recovery
 	digital.vasic.security => ./submodules/Security
 	digital.vasic.streaming => ./submodules/Streaming
 	digital.vasic.watcher => ./submodules/Watcher
