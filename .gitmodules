@@ -103,3 +103,6 @@
 [submodule "submodules/HelixQA"]
 	path = submodules/HelixQA
 	url = git@github.com:HelixDevelopment/HelixQA.git
+[submodule "submodules/TOON"]
+	path = submodules/TOON
+	url = git@github.com:vasic-digital/TOON.git

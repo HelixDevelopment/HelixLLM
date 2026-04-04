@@ -103,6 +103,7 @@ replace (
 	digital.vasic.security => ./submodules/Security
 	digital.vasic.streaming => ./submodules/Streaming
 	digital.vasic.toolschema => ./submodules/ToolSchema
+	digital.vasic.toon => ./submodules/TOON
 	digital.vasic.vectordb => ./submodules/VectorDB
 	digital.vasic.watcher => ./submodules/Watcher
 )
