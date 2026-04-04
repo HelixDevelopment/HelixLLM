@@ -76,3 +76,27 @@
 [submodule "submodules/BackgroundTasks"]
 	path = submodules/BackgroundTasks
 	url = git@github.com:vasic-digital/BackgroundTasks.git
+[submodule "submodules/Agentic"]
+	path = submodules/Agentic
+	url = git@github.com:vasic-digital/Agentic.git
+[submodule "submodules/Planning"]
+	path = submodules/Planning
+	url = git@github.com:vasic-digital/Planning.git
+[submodule "submodules/ToolSchema"]
+	path = submodules/ToolSchema
+	url = git@github.com:vasic-digital/ToolSchema.git
+[submodule "submodules/conversation"]
+	path = submodules/conversation
+	url = git@github.com:vasic-digital/conversation.git
+[submodule "submodules/SkillRegistry"]
+	path = submodules/SkillRegistry
+	url = git@github.com:vasic-digital/SkillRegistry.git
+[submodule "submodules/MCP_Module"]
+	path = submodules/MCP_Module
+	url = git@github.com:vasic-digital/MCP_Module.git
+[submodule "submodules/LLMOrchestrator"]
+	path = submodules/LLMOrchestrator
+	url = git@github.com:vasic-digital/LLMOrchestrator.git
+[submodule "submodules/Memory"]
+	path = submodules/Memory
+	url = git@github.com:vasic-digital/Memory.git

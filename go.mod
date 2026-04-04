@@ -3,12 +3,21 @@ module github.com/HelixDevelopment/HelixLLM
 go 1.26.1
 
 require (
+	dev.helix.agent/skillregistry v0.0.0-00010101000000-000000000000
+	digital.vasic.agentic v0.0.0-00010101000000-000000000000
 	digital.vasic.config v0.0.0
+	digital.vasic.conversation v0.0.0-00010101000000-000000000000
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
+	digital.vasic.llmorchestrator v0.0.0-00010101000000-000000000000
+	digital.vasic.mcp v0.0.0-00010101000000-000000000000
+	digital.vasic.memory v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
+	digital.vasic.planning v0.0.0-00010101000000-000000000000
 	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
+	digital.vasic.toolschema v0.0.0-00010101000000-000000000000
 	github.com/andybalholm/brotli v1.1.1
 	github.com/gin-gonic/gin v1.12.0
+	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.59.0
 )
@@ -30,7 +39,6 @@ require (
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
@@ -44,7 +52,7 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
@@ -70,6 +78,8 @@ require (
 )
 
 replace (
+	dev.helix.agent/skillregistry => ./submodules/SkillRegistry
+	digital.vasic.agentic => ./submodules/Agentic
 	digital.vasic.auth => ./submodules/Auth
 	digital.vasic.background => ./submodules/BackgroundTasks
 	digital.vasic.cache => ./submodules/Cache
@@ -77,6 +87,7 @@ replace (
 	digital.vasic.concurrency => ./submodules/Concurrency
 	digital.vasic.config => ./submodules/Config
 	digital.vasic.containers => ./submodules/Containers
+	digital.vasic.conversation => ./submodules/conversation
 	digital.vasic.database => ./submodules/Database
 	digital.vasic.document => ./submodules/Document
 	digital.vasic.embeddings => ./submodules/Embeddings
@@ -85,15 +96,20 @@ replace (
 	digital.vasic.formatters => ./submodules/Formatters
 	digital.vasic.i18n => ./submodules/I18n
 	digital.vasic.lazy => ./submodules/Lazy
+	digital.vasic.llmorchestrator => ./submodules/LLMOrchestrator
 	digital.vasic.llmprovider => ./submodules/LLMProvider
+	digital.vasic.mcp => ./submodules/MCP_Module
+	digital.vasic.memory => ./submodules/Memory
 	digital.vasic.middleware => ./submodules/Middleware
 	digital.vasic.observability => ./submodules/Observability
 	digital.vasic.optimization => ./submodules/Optimization
+	digital.vasic.planning => ./submodules/Planning
 	digital.vasic.rag => ./submodules/RAG
 	digital.vasic.ratelimiter => ./submodules/RateLimiter
 	digital.vasic.recovery => ./submodules/Recovery
 	digital.vasic.security => ./submodules/Security
 	digital.vasic.streaming => ./submodules/Streaming
+	digital.vasic.toolschema => ./submodules/ToolSchema
 	digital.vasic.vectordb => ./submodules/VectorDB
 	digital.vasic.watcher => ./submodules/Watcher
 )
