@@ -482,3 +482,65 @@ func TestOpenAIProvider_NetworkError(t *testing.T) {
 		t.Fatal("expected error for connection reset, got nil")
 	}
 }
+
+func TestOpenAIProvider_CompleteStream_CtxDoneInLoop(t *testing.T) {
+	// Cancel the context immediately after CompleteStream returns so the
+	// SSE reader goroutine hits the ctx.Done() select case.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		chunk := api.ChatCompletionChunk{
+			ID:    "burst",
+			Model: "gpt-4o",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "x"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		for i := 0; i < 1000; i++ {
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	ch, err := p.CompleteStream(ctx, &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream returned error: %v", err)
+	}
+	cancel()
+	for range ch {
+	}
+}
+
+func TestOpenAIProvider_CompleteStream_NetworkError(t *testing.T) {
+	// Server closes the connection immediately, causing httpClient.Do to error.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", 500)
+			return
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	_, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error for connection reset in CompleteStream, got nil")
+	}
+}

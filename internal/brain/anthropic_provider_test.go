@@ -469,6 +469,67 @@ func TestAnthropicProvider_Complete_DecodeError(t *testing.T) {
 	}
 }
 
+func TestAnthropicProvider_CompleteStream_CtxDoneInLoop(t *testing.T) {
+	// Cancel the context immediately after CompleteStream returns.
+	// The SSE reader goroutine will see ctx.Done() in the select after
+	// its first scanner.Scan() succeeds.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		// Keep writing events so the scanner has data to scan.
+		for i := 0; i < 1000; i++ {
+			fmt.Fprintf(w,
+				"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"x\"}}\n\n")
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+	ch, err := p.CompleteStream(ctx, &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream returned error: %v", err)
+	}
+	// Cancel immediately — goroutine will hit ctx.Done() in its select loop.
+	cancel()
+	for range ch {
+	}
+}
+
+func TestAnthropicProvider_CompleteStream_DoError(t *testing.T) {
+	// Server closes the connection immediately, causing httpClient.Do to error
+	// for the CompleteStream request (covers the Do-error branch in CompleteStream).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", 500)
+			return
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	_, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error for connection reset in CompleteStream, got nil")
+	}
+}
+
 func TestAnthropicProvider_FromMessageResponse_NoContent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return a response with no content blocks.
