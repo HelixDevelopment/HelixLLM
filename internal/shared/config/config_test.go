@@ -1,0 +1,69 @@
+package config_test
+
+import (
+	"os"
+	"testing"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/config"
+)
+
+func TestLoadDefaults(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Mode != "full" {
+		t.Errorf("Mode = %q, want %q", cfg.Mode, "full")
+	}
+	if cfg.Server.Host != "0.0.0.0" {
+		t.Errorf("Server.Host = %q, want %q", cfg.Server.Host, "0.0.0.0")
+	}
+	if cfg.Server.Port != 8443 {
+		t.Errorf("Server.Port = %d, want %d", cfg.Server.Port, 8443)
+	}
+	if cfg.Log.Level != "info" {
+		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")
+	}
+}
+
+func TestLoadFromEnv(t *testing.T) {
+	os.Setenv("HELIX_MODE", "gateway")
+	os.Setenv("HELIX_PORT", "9999")
+	os.Setenv("HELIX_LOG_LEVEL", "debug")
+	defer func() {
+		os.Unsetenv("HELIX_MODE")
+		os.Unsetenv("HELIX_PORT")
+		os.Unsetenv("HELIX_LOG_LEVEL")
+	}()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Mode != "gateway" {
+		t.Errorf("Mode = %q, want %q", cfg.Mode, "gateway")
+	}
+	if cfg.Server.Port != 9999 {
+		t.Errorf("Server.Port = %d, want %d", cfg.Server.Port, 9999)
+	}
+	if cfg.Log.Level != "debug" {
+		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "debug")
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	cfg := &config.HelixConfig{Mode: "invalid"}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() should fail for invalid mode")
+	}
+
+	cfg = &config.HelixConfig{Mode: "full"}
+	cfg.Server.Port = 8443
+	cfg.Log.Level = "info"
+	cfg.Log.Format = "text"
+	err = cfg.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v for valid config", err)
+	}
+}

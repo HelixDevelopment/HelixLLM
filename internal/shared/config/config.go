@@ -1,0 +1,143 @@
+// Package config provides HelixLLM configuration loading from environment
+// variables with defaults and validation.
+package config
+
+import (
+	"fmt"
+	"strings"
+
+	"digital.vasic.config/pkg/env"
+)
+
+// HelixConfig holds all configuration sections for HelixLLM.
+// Top-level fields are loaded directly; nested structs rely on their own
+// env tags (no prefix applied to nested fields).
+type HelixConfig struct {
+	Mode              string `env:"HELIX_MODE" default:"full"`
+	Hosts             string `env:"HELIX_HOSTS" default:"nezha.local"`
+	SSHUser           string `env:"HELIX_SSH_USER" default:"milosvasic"`
+	SSHKey            string `env:"HELIX_SSH_KEY" default:"~/.ssh/id_ed25519"`
+	ContainerRuntime  string `env:"HELIX_CONTAINER_RUNTIME" default:"auto"`
+	ScheduleStrategy  string `env:"HELIX_SCHEDULE_STRATEGY" default:"auto"`
+	Server            ServerConfig
+	LLM               LLMConfig
+	Knowledge         KnowledgeConfig
+	DB                DatabaseConfig
+	Cache             CacheConfig
+	Messaging         MessagingConfig
+	Log               LogConfig
+	Auth              AuthConfig
+	Features          FeatureConfig
+}
+
+// ServerConfig holds HTTP/TLS server settings.
+type ServerConfig struct {
+	Host    string `env:"HELIX_HOST" default:"0.0.0.0"`
+	Port    int    `env:"HELIX_PORT" default:"8443"`
+	TLSCert string `env:"HELIX_TLS_CERT" default:"./certs/cert.pem"`
+	TLSKey  string `env:"HELIX_TLS_KEY" default:"./certs/key.pem"`
+}
+
+// LLMConfig holds large-language-model provider settings.
+type LLMConfig struct {
+	LocalModel      string `env:"HELIX_LLM_LOCAL_MODEL" default:"Llama-3.1-70B-Instruct-Q4_K_M"`
+	LocalRPCPort    int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
+	OpenAIKey       string `env:"HELIX_LLM_OPENAI_KEY"`
+	AnthropicKey    string `env:"HELIX_LLM_ANTHROPIC_KEY"`
+	DefaultProvider string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
+}
+
+// KnowledgeConfig holds RAG / vector-store settings.
+type KnowledgeConfig struct {
+	VectorDB          string `env:"HELIX_VECTOR_DB" default:"qdrant"`
+	EmbeddingProvider string `env:"HELIX_EMBEDDING_PROVIDER" default:"local"`
+	EmbeddingModel    string `env:"HELIX_EMBEDDING_MODEL" default:"all-mpnet-base-v2"`
+	RAGChunkSize      int    `env:"HELIX_RAG_CHUNK_SIZE" default:"1000"`
+	RAGChunkOverlap   int    `env:"HELIX_RAG_CHUNK_OVERLAP" default:"200"`
+	RAGTopK           int    `env:"HELIX_RAG_TOP_K" default:"5"`
+}
+
+// DatabaseConfig holds PostgreSQL settings.
+type DatabaseConfig struct {
+	Host     string `env:"HELIX_DB_HOST" default:"localhost"`
+	Port     int    `env:"HELIX_DB_PORT" default:"5432"`
+	Name     string `env:"HELIX_DB_NAME" default:"helixllm"`
+	User     string `env:"HELIX_DB_USER" default:"helix"`
+	Password string `env:"HELIX_DB_PASSWORD"`
+}
+
+// CacheConfig holds Redis settings.
+type CacheConfig struct {
+	RedisHost     string `env:"HELIX_REDIS_HOST" default:"localhost"`
+	RedisPort     int    `env:"HELIX_REDIS_PORT" default:"6379"`
+	RedisPassword string `env:"HELIX_REDIS_PASSWORD"`
+}
+
+// MessagingConfig holds Kafka settings.
+type MessagingConfig struct {
+	KafkaBrokers string `env:"HELIX_KAFKA_BROKERS" default:"localhost:9092"`
+}
+
+// LogConfig holds logging and observability settings.
+type LogConfig struct {
+	Level        string `env:"HELIX_LOG_LEVEL" default:"info"`
+	Format       string `env:"HELIX_LOG_FORMAT" default:"text"`
+	OTELExporter string `env:"HELIX_OTEL_EXPORTER" default:"none"`
+	OTELEndpoint string `env:"HELIX_OTEL_ENDPOINT" default:"http://localhost:4317"`
+}
+
+// AuthConfig holds authentication settings.
+type AuthConfig struct {
+	JWTSecret string `env:"HELIX_AUTH_JWT_SECRET"`
+	APIKeys   string `env:"HELIX_AUTH_API_KEYS"`
+}
+
+// FeatureConfig holds feature-flag settings.
+type FeatureConfig struct {
+	GRPC        bool `env:"HELIX_FEATURE_GRPC" default:"true"`
+	TOON        bool `env:"HELIX_FEATURE_TOON" default:"true"`
+	SelfImprove bool `env:"HELIX_FEATURE_SELFIMPROVE" default:"false"`
+}
+
+// Load reads configuration from environment variables, applying defaults
+// where no value is set.
+func Load() (*HelixConfig, error) {
+	cfg := &HelixConfig{}
+	if err := env.Load(cfg); err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+	return cfg, nil
+}
+
+// Validate checks that the configuration values are semantically valid.
+func (c *HelixConfig) Validate() error {
+	validModes := map[string]bool{
+		"full": true, "gateway": true, "brain": true,
+		"knowledge": true, "agents": true, "control": true,
+	}
+	if !validModes[strings.ToLower(c.Mode)] {
+		return fmt.Errorf("invalid mode: %q", c.Mode)
+	}
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid port: %d", c.Server.Port)
+	}
+	validLevels := map[string]bool{
+		"debug": true, "info": true, "warn": true, "error": true,
+	}
+	if !validLevels[strings.ToLower(c.Log.Level)] {
+		return fmt.Errorf("invalid log level: %q", c.Log.Level)
+	}
+	return nil
+}
+
+// HostList splits the comma-separated Hosts string into a slice.
+func (c *HelixConfig) HostList() []string {
+	if c.Hosts == "" {
+		return nil
+	}
+	hosts := strings.Split(c.Hosts, ",")
+	for i := range hosts {
+		hosts[i] = strings.TrimSpace(hosts[i])
+	}
+	return hosts
+}
