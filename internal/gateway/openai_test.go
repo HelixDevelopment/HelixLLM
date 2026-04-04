@@ -650,3 +650,29 @@ func TestListModels_WithBrain(t *testing.T) {
 		t.Errorf("len(models) = %d, want 2", len(list.Data))
 	}
 }
+
+func TestHandleCompletions_EmptyModel(t *testing.T) {
+	// When model is omitted in the request, HandleCompletions defaults to
+	// "llama-3.1-70b" (covers the model == "" branch).
+	r := setupOpenAIRouter()
+
+	body, _ := json.Marshal(api.CompletionRequest{
+		// Model intentionally omitted.
+		Prompt: "Hello",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var resp api.CompletionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Model != "llama-3.1-70b" {
+		t.Errorf("model = %q, want llama-3.1-70b (default)", resp.Model)
+	}
+}

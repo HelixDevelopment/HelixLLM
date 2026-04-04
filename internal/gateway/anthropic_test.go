@@ -419,3 +419,42 @@ func TestMessages_WithBrain_Streaming(t *testing.T) {
 		t.Error("stream missing expected content token")
 	}
 }
+
+func TestMessages_WithBrain_Streaming_NoFinishReason(t *testing.T) {
+	// Stream where no chunk has FinishReason → stopReason stays "" and gets
+	// replaced with "end_turn" (covers the stopReason == "" branch).
+	mock := &mockBrainProvider{
+		name:      "anthropic",
+		available: true,
+		models:    []string{"claude-opus-4-5"},
+		chunks: []types.StreamChunk{
+			{Content: "Hello"},
+			{Content: " world"}, // no FinishReason on any chunk
+		},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(b))
+
+	body, _ := json.Marshal(api.MessageRequest{
+		Model:     "claude-opus-4-5",
+		Messages:  []api.AnthropicMessage{{Role: "user", Content: "Hi"}},
+		MaxTokens: 1024,
+		Stream:    true,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Header().Get("Content-Type") != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", w.Header().Get("Content-Type"))
+	}
+	bodyStr := w.Body.String()
+	// The default stop reason "end_turn" should appear in the message_delta event.
+	if !strings.Contains(bodyStr, "end_turn") {
+		t.Error("expected default stop reason 'end_turn' in stream output")
+	}
+}

@@ -223,6 +223,30 @@ func TestContentNegotiation_NonJSONBody(t *testing.T) {
 	}
 }
 
+func TestContentNegotiation_TOON_EmptyBody(t *testing.T) {
+	// Handler writes nothing (empty body) → the "len(raw) == 0" early-return
+	// branch in the TOON middleware is exercised.
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.ContentNegotiation())
+	r.GET("/empty", func(c *gin.Context) {
+		// Write status only, no body.
+		c.Status(204)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/empty", nil)
+	req.Header.Set("Accept", "application/toon")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 204 {
+		t.Errorf("status = %d, want 204", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("expected empty body, got %q", w.Body.String())
+	}
+}
+
 func TestIsTOONRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
