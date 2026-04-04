@@ -2,7 +2,9 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -448,5 +450,170 @@ func TestAPI_ClusterStatus_Timestamps(t *testing.T) {
 
 	if status.CheckedAt.Before(before) {
 		t.Error("CheckedAt should be >= test start time")
+	}
+}
+
+// partialFailSSH succeeds for probe commands (returning probe output)
+// but makes the deploy run command fail by counting calls per host.
+type partialFailSSH struct {
+	probeOutput string
+	runCounts   map[string]int
+}
+
+func newPartialFailSSH(probeOutput string) *partialFailSSH {
+	return &partialFailSSH{
+		probeOutput: probeOutput,
+		runCounts:   make(map[string]int),
+	}
+}
+
+func (p *partialFailSSH) Run(
+	ctx context.Context, host, command string,
+) (string, error) {
+	p.runCounts[host]++
+	// The first Run call per host is the probe compound command.
+	// Subsequent calls are deployer commands — fail the second host.
+	if p.runCounts[host] == 1 {
+		return p.probeOutput, nil
+	}
+	// Fail deployments on the second host to exercise the errors loop.
+	if host == "badhost" {
+		return "", fmt.Errorf("ssh: deploy failed on %s", host)
+	}
+	return "", nil
+}
+
+func (p *partialFailSSH) IsReachable(_ context.Context, host string) bool {
+	return true
+}
+
+func TestAPI_PostClusterDeploy_AutoProbe_NoProfiles(t *testing.T) {
+	// Deploy WITHOUT probing first → handleDeploy auto-probes and
+	// then schedules. Uses the standard two-host setup so both
+	// hosts are reachable and the auto-probe path is exercised.
+	mock := newMockSSHClient()
+	mock.reachable["host1"] = true
+	mock.outputs["host1"] = linuxProbeOutput()
+
+	cp := NewControlPlane(ControlPlaneOptions{
+		Hosts:    []string{"host1"},
+		SSHUser:  "user",
+		SSHKey:   "key",
+		Strategy: "auto",
+		SSH:      mock,
+	})
+	r := gin.New()
+	RegisterRoutes(r, cp)
+
+	// Do NOT probe first — profiles are empty.
+	body := deployRequest{
+		Services: []ServiceRequirement{
+			{Name: "redis", Image: "redis:7", CPUCores: 1, MemoryMB: 512},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost,
+		"/internal/cluster/deploy",
+		bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Should auto-probe and succeed.
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d: %s",
+			w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
+func TestAPI_PostClusterDeploy_PartialDeployFailure(t *testing.T) {
+	// Two hosts: host1 deploys successfully, badhost fails.
+	// Exercises the errors-appending loop in handleDeploy.
+	mock := newPartialFailSSH(linuxProbeOutput())
+	cp := NewControlPlane(ControlPlaneOptions{
+		Hosts:    []string{"host1", "badhost"},
+		SSHUser:  "user",
+		SSHKey:   "key",
+		Strategy: "spread",
+		SSH:      mock,
+	})
+
+	// Probe first to populate profiles.
+	r := gin.New()
+	RegisterRoutes(r, cp)
+	r.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost,
+			"/internal/cluster/probe", nil))
+
+	body := deployRequest{
+		Services: []ServiceRequirement{
+			{Name: "svc1", Image: "img:1", CPUCores: 1, MemoryMB: 512},
+			{Name: "svc2", Image: "img:2", CPUCores: 1, MemoryMB: 512},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost,
+		"/internal/cluster/deploy",
+		bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Some deployments should fail but the endpoint itself returns 200.
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d: %s",
+			w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp deployResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// At least one error should be reported.
+	if len(resp.Errors) == 0 {
+		t.Error("expected at least one deploy error in response")
+	}
+}
+
+func TestAPI_PostClusterRebalance_PartialDeployFailure(t *testing.T) {
+	// Exercises the errors-appending loop in handleRebalance.
+	// host1 deploys successfully; badhost fails its deploy commands.
+	mock := newPartialFailSSH(linuxProbeOutput())
+	cp := NewControlPlane(ControlPlaneOptions{
+		Hosts:    []string{"host1", "badhost"},
+		SSHUser:  "user",
+		SSHKey:   "key",
+		Strategy: "spread",
+		SSH:      mock,
+	})
+
+	// Probe to populate profiles.
+	r := gin.New()
+	RegisterRoutes(r, cp)
+	r.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost,
+			"/internal/cluster/probe", nil))
+
+	// Seed deployments so rebalance has work to do.
+	cp.deployments = []DeploymentInfo{
+		{ServiceName: "svc1", HostName: "host1", State: "running"},
+		{ServiceName: "svc2", HostName: "badhost", State: "running"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/internal/cluster/rebalance", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d: %s",
+			w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp rebalanceResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// At least one error from the partial deploy failure.
+	if len(resp.Errors) == 0 {
+		t.Error("expected at least one rebalance deploy error in response")
 	}
 }

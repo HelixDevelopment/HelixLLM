@@ -456,6 +456,50 @@ func TestScheduler_Schedule_ResourceAware_NeedsGPU_HostNoGPU(t *testing.T) {
 	}
 }
 
+func TestScheduler_Schedule_ResourceAware_DiskRequirement(t *testing.T) {
+	// DiskMB > 0 triggers the disk fitness branch in scoreResourceAware.
+	hosts := []HostProfile{
+		makeHost("host1", 16, 65536, 1000000, false),
+	}
+	services := []ServiceRequirement{
+		{Name: "db", Image: "postgres:16", CPUCores: 2,
+			MemoryMB: 4096, DiskMB: 50000},
+	}
+	sched := NewScheduler("resource_aware")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Score <= 0 {
+		t.Errorf("Score = %f, want > 0", results[0].Score)
+	}
+}
+
+func TestScheduler_Schedule_MemoryFirst_WithCPURequirement(t *testing.T) {
+	// CPUCores > 0 in memory_first strategy hits the if-branch in scoreMemoryFirst.
+	hosts := []HostProfile{
+		makeHost("host1", 32, 65536, 1000000, false),
+	}
+	services := []ServiceRequirement{
+		{Name: "svc", Image: "app:1", CPUCores: 4, MemoryMB: 4096,
+			Strategy: "memory_first"},
+	}
+	sched := NewScheduler("auto")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Score <= 0 {
+		t.Errorf("Score = %f, want > 0", results[0].Score)
+	}
+}
+
 func TestScheduler_MapStrategy(t *testing.T) {
 	tests := []struct {
 		input string
