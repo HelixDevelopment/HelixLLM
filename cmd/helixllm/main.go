@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/agents"
+	"github.com/HelixDevelopment/HelixLLM/internal/agents/tools"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
@@ -101,7 +103,26 @@ func main() {
 		DefaultTopK:       cfg.Knowledge.RAGTopK,
 	})
 	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline)
-	_ = knowledge.RAGHook(pipeline, "default") // available for future Brain middleware wiring
+
+	// Create tool registry with built-in tools.
+	toolReg := agents.NewToolRegistry()
+	toolReg.Register(&tools.EchoTool{})
+	toolReg.Register(&tools.TimeTool{})
+	toolReg.Register(tools.NewKnowledgeQueryTool(pipeline, "default"))
+
+	// Create agent with Brain, tools, and RAG hook.
+	agentSvc := agents.NewAgent(agents.AgentConfig{
+		Brain:    brainSvc,
+		Tools:    toolReg,
+		RAGHook:  knowledge.RAGHook(pipeline, "default"),
+		MaxTurns: 10,
+	})
+
+	// Create conversation context for multi-turn sessions.
+	convCtx := agents.NewConversationContext(100)
+
+	// Register agent routes.
+	agents.RegisterAgentRoutes(srv.Router(), agentSvc, convCtx)
 
 	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
