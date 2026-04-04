@@ -1,2 +1,29 @@
+# Environment
 .env
+
+# Superpowers
 .superpowers/
+
+# Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# TLS certs (dev)
+certs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
