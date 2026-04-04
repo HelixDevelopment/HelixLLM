@@ -1,0 +1,120 @@
+# =============================================================================
+# Prometheus Configuration for Light Local LLM System
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'llm-system'
+    replica: '{{.ExternalURL}}'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load alert rules
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Scrape configurations
+scrape_configs:
+  # ========================================================================
+  # Prometheus Self-Monitoring
+  # ========================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: /metrics
+
+  # ========================================================================
+  # Node Exporter - System Metrics
+  # ========================================================================
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          instance: 'host-machine'
+    metrics_path: /metrics
+
+  # ========================================================================
+  # cAdvisor - Container Metrics
+  # ========================================================================
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    metrics_path: /metrics
+
+  # ========================================================================
+  # Ollama LLM Service
+  # ========================================================================
+  - job_name: 'ollama'
+    static_configs:
+      - targets: ['ollama:11434']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # ========================================================================
+  # ChromaDB Vector Database
+  # ========================================================================
+  - job_name: 'chromadb'
+    static_configs:
+      - targets: ['chromadb:8000']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # ========================================================================
+  # RAG Service
+  # ========================================================================
+  - job_name: 'rag-service'
+    static_configs:
+      - targets: ['rag-service:9090']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # ========================================================================
+  # MCP Tool Server
+  # ========================================================================
+  - job_name: 'mcp-server'
+    static_configs:
+      - targets: ['mcp-server:9091']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # ========================================================================
+  # API Gateway
+  # ========================================================================
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:9092']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # ========================================================================
+  # Traefik Reverse Proxy
+  # ========================================================================
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik:8080']
+    metrics_path: /metrics
+
+  # ========================================================================
+  # Docker Daemon Metrics (if enabled)
+  # ========================================================================
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+    metrics_path: /metrics
+
+  # ========================================================================
+  # Custom Application Metrics (via file SD)
+  # ========================================================================
+  - job_name: 'custom-apps'
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/*.json
+        refresh_interval: 5m

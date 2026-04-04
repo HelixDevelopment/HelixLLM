@@ -1,0 +1,273 @@
+# =============================================================================
+# Prometheus Alert Rules for Light Local LLM System
+# =============================================================================
+
+groups:
+  # ==========================================================================
+  # System Alerts
+  # ==========================================================================
+  - name: system
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for more than 5 minutes on {{ $labels.instance }}"
+
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is above 95% for more than 2 minutes on {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85% for more than 5 minutes on {{ $labels.instance }}"
+
+      - alert: CriticalMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is above 95% for more than 2 minutes on {{ $labels.instance }}"
+
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is below 10% on {{ $labels.instance }}"
+
+      - alert: CriticalDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical disk space"
+          description: "Disk space is below 5% on {{ $labels.instance }}"
+
+  # ==========================================================================
+  # Container Alerts
+  # ==========================================================================
+  - name: containers
+    rules:
+      - alert: ContainerDown
+        expr: up{job=~"ollama|chromadb|rag-service|mcp-server|api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.job }} is down"
+          description: "Container {{ $labels.job }} has been down for more than 1 minute"
+
+      - alert: ContainerHighCPU
+        expr: (rate(container_cpu_usage_seconds_total[5m]) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high CPU usage"
+          description: "Container {{ $labels.name }} is using more than 80% CPU"
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container high memory usage"
+          description: "Container {{ $labels.name }} is using more than 90% of its memory limit"
+
+      - alert: ContainerRestarting
+        expr: rate(container_last_seen[5m]) > 0 and up{job=~"ollama|chromadb|rag-service|mcp-server|api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container is restarting frequently"
+          description: "Container {{ $labels.job }} is restarting frequently"
+
+  # ==========================================================================
+  # LLM Service Alerts
+  # ==========================================================================
+  - name: llm-service
+    rules:
+      - alert: LLMHighLatency
+        expr: histogram_quantile(0.95, rate(llm_inference_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM inference latency is high"
+          description: "95th percentile LLM inference latency is above 30 seconds"
+
+      - alert: LLMErrorRate
+        expr: rate(llm_inference_errors_total[5m]) / rate(llm_inference_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High LLM error rate"
+          description: "LLM error rate is above 10%"
+
+      - alert: LLMQueueBacklog
+        expr: llm_queue_length > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM request queue backlog"
+          description: "LLM request queue has {{ $value }} pending requests"
+
+      - alert: LLMModelNotLoaded
+        expr: llm_model_loaded == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM model not loaded"
+          description: "LLM model is not loaded in Ollama"
+
+  # ==========================================================================
+  # RAG Service Alerts
+  # ==========================================================================
+  - name: rag-service
+    rules:
+      - alert: RAGHighLatency
+        expr: histogram_quantile(0.95, rate(rag_query_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG query latency is high"
+          description: "95th percentile RAG query latency is above 5 seconds"
+
+      - alert: RAGLowRetrievalScore
+        expr: avg(rag_retrieval_score) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low RAG retrieval scores"
+          description: "Average RAG retrieval score is below 0.5"
+
+      - alert: RAGChromaDBDisconnected
+        expr: rag_chromadb_connected == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ChromaDB connection lost"
+          description: "RAG service cannot connect to ChromaDB"
+
+      - alert: RAGIndexSizeAnomaly
+        expr: abs(rag_index_document_count - avg_over_time(rag_index_document_count[1h])) > 100
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "RAG index size changed significantly"
+          description: "RAG index document count changed by {{ $value }} documents"
+
+  # ==========================================================================
+  # API Gateway Alerts
+  # ==========================================================================
+  - name: api-gateway
+    rules:
+      - alert: APIHighErrorRate
+        expr: rate(api_requests_total{status=~"5.."}[5m]) / rate(api_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is above 5%"
+
+      - alert: APIHighLatency
+        expr: histogram_quantile(0.95, rate(api_request_duration_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "95th percentile API latency is above 10 seconds"
+
+      - alert: APIRateLimitHit
+        expr: rate(api_rate_limit_hits_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API rate limit being hit frequently"
+          description: "Rate limit is being hit {{ $value }} times per second"
+
+      - alert: APITrafficSpike
+        expr: rate(api_requests_total[5m]) > 2 * avg_over_time(rate(api_requests_total[1h])[1h:])
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "API traffic spike detected"
+          description: "API traffic is significantly higher than average"
+
+  # ==========================================================================
+  # MCP Server Alerts
+  # ==========================================================================
+  - name: mcp-server
+    rules:
+      - alert: MCPHighToolErrorRate
+        expr: rate(mcp_tool_errors_total[5m]) / rate(mcp_tool_calls_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High MCP tool error rate"
+          description: "MCP tool error rate is above 10%"
+
+      - alert: MCPToolLatencyHigh
+        expr: histogram_quantile(0.95, rate(mcp_tool_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MCP tool latency is high"
+          description: "95th percentile MCP tool execution time is above 5 seconds"
+
+  # ==========================================================================
+  # Database Alerts
+  # ==========================================================================
+  - name: database
+    rules:
+      - alert: ChromaDBHighLatency
+        expr: histogram_quantile(0.95, rate(chromadb_query_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ChromaDB query latency is high"
+          description: "95th percentile ChromaDB query latency is above 2 seconds"
+
+      - alert: ChromaDBCollectionLarge
+        expr: chromadb_collection_size > 100000
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "Large ChromaDB collection"
+          description: "ChromaDB collection has {{ $value }} documents"

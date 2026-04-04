@@ -1,0 +1,17 @@
+# =============================================================================
+# Grafana Dashboards Configuration
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: 'LLM System Dashboards'
+    orgId: 1
+    folder: 'LLM System'
+    folderUid: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

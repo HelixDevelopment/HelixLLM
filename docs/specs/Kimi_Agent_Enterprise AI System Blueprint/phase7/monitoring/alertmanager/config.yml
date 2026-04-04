@@ -1,0 +1,128 @@
+# =============================================================================
+# Alertmanager Configuration
+# =============================================================================
+
+global:
+  smtp_smarthost: '${SMTP_SMARTHOST:-localhost:587}'
+  smtp_from: '${SMTP_FROM:-alerts@localhost}'
+  smtp_auth_username: '${SMTP_AUTH_USERNAME:-}'
+  smtp_auth_password: '${SMTP_AUTH_PASSWORD:-}'
+  slack_api_url: '${SLACK_WEBHOOK_URL:-}'
+  resolve_timeout: 5m
+
+# Templates for notification messages
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route configuration - defines how alerts are routed
+route:
+  group_by: ['alertname', 'severity', 'job']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'default'
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      continue: true
+    
+    # Warning alerts - batched notification
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 5m
+      repeat_interval: 4h
+    
+    # LLM-specific alerts
+    - match:
+        job: ollama
+      receiver: 'llm-team'
+      group_by: ['alertname']
+    
+    # RAG-specific alerts
+    - match:
+        job: rag-service
+      receiver: 'rag-team'
+      group_by: ['alertname']
+    
+    # API Gateway alerts
+    - match:
+        job: api-gateway
+      receiver: 'api-team'
+      group_by: ['alertname']
+
+# Inhibition rules - prevent notification flood
+inhibit_rules:
+  # If a critical alert is firing, don't send warnings for the same alert
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
+# Receiver configurations
+receivers:
+  # Default receiver - logs only
+  - name: 'default'
+
+  # Critical alerts - multiple channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'oncall@example.com'
+        subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          Severity: {{ .Labels.severity }}
+          Time: {{ .StartsAt }}
+          {{ end }}
+    slack_configs:
+      - channel: '#alerts-critical'
+        title: 'Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Instance: {{ .Labels.instance }}
+          {{ end }}
+        send_resolved: true
+
+  # Warning alerts - email and Slack
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'team@example.com'
+        subject: '[WARNING] {{ .GroupLabels.alertname }}'
+    slack_configs:
+      - channel: '#alerts-warning'
+        title: 'Warning: {{ .GroupLabels.alertname }}'
+        send_resolved: true
+
+  # LLM team notifications
+  - name: 'llm-team'
+    slack_configs:
+      - channel: '#llm-alerts'
+        title: 'LLM Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+
+  # RAG team notifications
+  - name: 'rag-team'
+    slack_configs:
+      - channel: '#rag-alerts'
+        title: 'RAG Alert: {{ .GroupLabels.alertname }}'
+        send_resolved: true
+
+  # API team notifications
+  - name: 'api-team'
+    slack_configs:
+      - channel: '#api-alerts'
+        title: 'API Gateway Alert: {{ .GroupLabels.alertname }}'
+        send_resolved: true

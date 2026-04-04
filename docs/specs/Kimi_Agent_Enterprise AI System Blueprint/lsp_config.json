@@ -1,0 +1,194 @@
+{
+  "version": "1.0.0",
+  "workspace": {
+    "rootUri": "file:///workspace",
+    "workspaceFolders": [
+      {
+        "uri": "file:///workspace",
+        "name": "main"
+      }
+    ]
+  },
+  "servers": {
+    "typescript": {
+      "enabled": true,
+      "command": ["typescript-language-server", "--stdio"],
+      "filetypes": [
+        "typescript",
+        "javascript",
+        "typescriptreact",
+        "javascriptreact"
+      ],
+      "rootPatterns": [
+        "package.json",
+        "tsconfig.json",
+        ".git"
+      ],
+      "initializationOptions": {
+        "preferences": {
+          "includeCompletionsForModuleExports": true,
+          "includeCompletionsWithInsertText": true,
+          "allowTextChangesInNewFiles": true
+        }
+      },
+      "settings": {
+        "typescript": {
+          "inlayHints": {
+            "parameterNames": {
+              "enabled": "all"
+            },
+            "parameterTypes": {
+              "enabled": true
+            },
+            "variableTypes": {
+              "enabled": true
+            },
+            "functionLikeReturnTypes": {
+              "enabled": true
+            }
+          },
+          "suggest": {
+            "completeFunctionCalls": true
+          }
+        },
+        "javascript": {
+          "inlayHints": {
+            "parameterNames": {
+              "enabled": "all"
+            }
+          }
+        }
+      }
+    },
+    "python": {
+      "enabled": true,
+      "command": ["pyright-langserver", "--stdio"],
+      "filetypes": ["python"],
+      "rootPatterns": [
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        ".git"
+      ],
+      "settings": {
+        "python": {
+          "analysis": {
+            "typeCheckingMode": "basic",
+            "autoImportCompletions": true,
+            "diagnosticSeverityOverrides": {
+              "reportGeneralTypeIssues": "error",
+              "reportPropertyTypeMismatch": "error",
+              "reportMissingImports": "error"
+            },
+            "inlayHints": {
+              "variableTypes": true,
+              "functionReturnTypes": true
+            }
+          }
+        }
+      }
+    },
+    "rust": {
+      "enabled": true,
+      "command": ["rust-analyzer"],
+      "filetypes": ["rust"],
+      "rootPatterns": ["Cargo.toml", ".git"],
+      "initializationOptions": {
+        "cargo": {
+          "buildScripts": {
+            "enable": true
+          },
+          "features": "all"
+        },
+        "checkOnSave": {
+          "command": "clippy",
+          "extraArgs": ["--tests"]
+        },
+        "procMacro": {
+          "enable": true
+        },
+        "inlayHints": {
+          "bindingModeHints": {
+            "enable": true
+          },
+          "closureReturnTypeHints": {
+            "enable": true
+          },
+          "lifetimeElisionHints": {
+            "enable": true
+          }
+        }
+      }
+    },
+    "go": {
+      "enabled": true,
+      "command": ["gopls"],
+      "filetypes": ["go", "gomod", "gowork", "gotmpl"],
+      "rootPatterns": ["go.work", "go.mod", ".git"],
+      "settings": {
+        "gopls": {
+          "ui.diagnostic.annotations": {
+            "bounds": true,
+            "escape": true,
+            "inline": true,
+            "nil": true
+          },
+          "ui.diagnostic.vulncheck": "Imports",
+          "formatting.gofumpt": true,
+          "ui.diagnostic.staticcheck": true,
+          "hints": {
+            "assignVariableTypes": true,
+            "compositeLiteralFields": true,
+            "compositeLiteralTypes": true,
+            "constantValues": true,
+            "functionTypeParameters": true,
+            "parameterNames": true,
+            "rangeVariableTypes": true
+          }
+        }
+      }
+    },
+    "java": {
+      "enabled": true,
+      "command": ["jdtls"],
+      "args": ["-data", "/tmp/jdtls-workspace"],
+      "filetypes": ["java"],
+      "rootPatterns": [".git", "pom.xml", "build.gradle", ".project"],
+      "initializationOptions": {
+        "bundles": []
+      },
+      "settings": {
+        "java": {
+          "format": {
+            "enabled": true
+          },
+          "completion": {
+            "favoriteStaticMembers": [
+              "org.junit.Assert.*",
+              "org.junit.Assume.*",
+              "org.junit.jupiter.api.Assertions.*",
+              "org.junit.jupiter.api.Assumptions.*"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "llm_completion": {
+    "enabled": true,
+    "backend": {
+      "type": "local",
+      "url": "http://localhost:8080/completion",
+      "request_body": {
+        "prompt": "{prompt}",
+        "max_tokens": 150,
+        "temperature": 0.2,
+        "stop": ["\n\n", "\r\n\r\n"]
+      },
+      "response_path": "$.content"
+    },
+    "context_window": 4096,
+    "max_new_tokens": 150
+  }
+}

@@ -1,0 +1,552 @@
+# =============================================================================
+# Light Local LLM System - Docker Compose Configuration
+# Phase 7: Testing, Monitoring & Deployment
+# =============================================================================
+# This configuration sets up a complete distributed LLM system with:
+# - RAG Service (ChromaDB + Embeddings)
+# - LLM Inference Service (Ollama)
+# - MCP Tool Server
+# - API Gateway
+# - Monitoring Stack (Prometheus + Grafana + Loki)
+# - Reverse Proxy (Traefik)
+# =============================================================================
+
+version: '3.8'
+
+# =============================================================================
+# NETWORK CONFIGURATION
+# =============================================================================
+networks:
+  llm-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  monitoring-network:
+    driver: bridge
+    internal: true  # Internal network for monitoring only
+
+# =============================================================================
+# VOLUME CONFIGURATION
+# =============================================================================
+volumes:
+  chroma-data:
+    driver: local
+  ollama-models:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  traefik-certs:
+    driver: local
+  rag-cache:
+    driver: local
+  mcp-tools-data:
+    driver: local
+
+# =============================================================================
+# SERVICES CONFIGURATION
+# =============================================================================
+services:
+  # ==========================================================================
+  # TRAEFIK - Reverse Proxy & Load Balancer
+  # ==========================================================================
+  traefik:
+    image: traefik:v3.0
+    container_name: llm-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@localhost}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--ping=true"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--metrics.prometheus.addServicesLabels=true"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - llm-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # OLLAMA - LLM Inference Service
+  # ==========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: llm-ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_MODELS=/root/.ollama/models
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-5m}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-}
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - llm-network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ollama.rule=Host(`ollama.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.ollama.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ollama.loadbalancer.server.port=11434"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=11434"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # CHROMA DB - Vector Database for RAG
+  # ==========================================================================
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: llm-chromadb
+    environment:
+      - IS_PERSISTENT=TRUE
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["*"]
+      - CHROMA_SERVER_AUTHN_PROVIDER=${CHROMA_AUTH_PROVIDER:-}
+      - CHROMA_SERVER_AUTHN_CREDENTIALS=${CHROMA_AUTH_CREDENTIALS:-}
+      - ANONYMIZED_TELEMETRY=FALSE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    volumes:
+      - chroma-data:/chroma/chroma
+    ports:
+      - "8000:8000"
+    networks:
+      - llm-network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chromadb.rule=Host(`chromadb.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.chromadb.tls.certresolver=letsencrypt"
+      - "traefik.http.services.chromadb.loadbalancer.server.port=8000"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8000"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # RAG SERVICE - Document Processing & Retrieval
+  # ==========================================================================
+  rag-service:
+    build:
+      context: ./rag-service
+      dockerfile: Dockerfile
+    container_name: llm-rag-service
+    environment:
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - CHROMA_COLLECTION=${CHROMA_COLLECTION:-documents}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      - EMBEDDING_DEVICE=${EMBEDDING_DEVICE:-cpu}
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - RAG_TOP_K=${RAG_TOP_K:-5}
+      - RAG_CHUNK_SIZE=${RAG_CHUNK_SIZE:-512}
+      - RAG_CHUNK_OVERLAP=${RAG_CHUNK_OVERLAP:-50}
+      - CACHE_DIR=/app/cache
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - METRICS_PORT=9090
+    volumes:
+      - rag-cache:/app/cache
+      - ./documents:/app/documents:ro
+    ports:
+      - "8001:8000"
+      - "9090:9090"  # Metrics endpoint
+    networks:
+      - llm-network
+      - monitoring-network
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rag-service.rule=Host(`rag.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.rag-service.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rag-service.loadbalancer.server.port=8000"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9090"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # MCP TOOL SERVER - Model Context Protocol Tools
+  # ==========================================================================
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: llm-mcp-server
+    environment:
+      - MCP_SERVER_NAME=${MCP_SERVER_NAME:-llm-tools}
+      - MCP_SERVER_VERSION=${MCP_SERVER_VERSION:-1.0.0}
+      - MCP_PORT=3000
+      - TOOLS_CONFIG_PATH=/app/config/tools.yaml
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - METRICS_PORT=9091
+    volumes:
+      - mcp-tools-data:/app/data
+      - ./mcp-server/config:/app/config:ro
+    ports:
+      - "3000:3000"
+      - "9091:9091"  # Metrics endpoint
+    networks:
+      - llm-network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mcp-server.rule=Host(`mcp.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.mcp-server.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mcp-server.loadbalancer.server.port=3000"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9091"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # API GATEWAY - Main API Entry Point
+  # ==========================================================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: llm-api-gateway
+    environment:
+      - API_PORT=8080
+      - RAG_SERVICE_URL=http://rag-service:8000
+      - OLLAMA_URL=http://ollama:11434
+      - MCP_SERVER_URL=http://mcp-server:3000
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - API_KEY_HEADER=X-API-Key
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-100}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - METRICS_PORT=9092
+      - ENABLE_AUTH=${ENABLE_AUTH:-false}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    ports:
+      - "8080:8080"
+      - "9092:9092"  # Metrics endpoint
+    networks:
+      - llm-network
+      - monitoring-network
+    depends_on:
+      rag-service:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api-gateway.rule=Host(`api.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.api-gateway.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api-gateway.loadbalancer.server.port=8080"
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9092"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # PROMETHEUS - Metrics Collection
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: llm-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - llm-network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # GRAFANA - Visualization Dashboard
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: llm-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-https://grafana.localhost}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/llm-overview.json
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - llm-network
+      - monitoring-network
+    depends_on:
+      - prometheus
+      - loki
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # LOKI - Log Aggregation
+  # ==========================================================================
+  loki:
+    image: grafana/loki:latest
+    container_name: llm-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - llm-network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.loki.rule=Host(`loki.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.loki.tls.certresolver=letsencrypt"
+      - "traefik.http.services.loki.loadbalancer.server.port=3100"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # PROMTAIL - Log Shipper
+  # ==========================================================================
+  promtail:
+    image: grafana/promtail:latest
+    container_name: llm-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./monitoring/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - monitoring-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # ==========================================================================
+  # NODE EXPORTER - System Metrics
+  # ==========================================================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: llm-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+  # ==========================================================================
+  # CADVISOR - Container Metrics
+  # ==========================================================================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: llm-cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    ports:
+      - "8081:8080"
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+  # ==========================================================================
+  # ALERTMANAGER - Alert Management
+  # ==========================================================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: llm-alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=${ALERTMANAGER_URL:-http://localhost:9093}'
+    volumes:
+      - ./monitoring/alertmanager/config.yml:/etc/alertmanager/config.yml:ro
+      - ./monitoring/alertmanager/templates:/etc/alertmanager/templates:ro
+    ports:
+      - "9093:9093"
+    networks:
+      - llm-network
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.alertmanager.rule=Host(`alerts.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.alertmanager.tls.certresolver=letsencrypt"
+      - "traefik.http.services.alertmanager.loadbalancer.server.port=9093"
+    restart: unless-stopped
+
+  # ==========================================================================
+  # REDIS - Caching & Session Store (Optional)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: llm-redis
+    command: redis-server --appendonly yes --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - llm-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+# =============================================================================
+# OPTIONAL: SECOND MACHINE SERVICES (Distributed Setup)
+# =============================================================================
+# Uncomment and modify for distributed deployment across two machines
+
+#  # Machine 2: Additional Ollama Instance
+#  ollama-worker:
+#    image: ollama/ollama:latest
+#    container_name: llm-ollama-worker
+#    environment:
+#      - OLLAMA_HOST=0.0.0.0:11434
+#      - OLLAMA_ORIGINS=*
+#    volumes:
+#      - ollama-models-worker:/root/.ollama
+#    ports:
+#      - "11435:11434"
+#    networks:
+#      - llm-network
+#    deploy:
+#      placement:
+#        constraints:
+#          - node.labels.machine == worker
+#    restart: unless-stopped

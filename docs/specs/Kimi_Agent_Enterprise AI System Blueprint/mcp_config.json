@@ -1,0 +1,101 @@
+{
+  "version": "1.0.0",
+  "settings": {
+    "defaultTimeout": 30,
+    "maxRetries": 3,
+    "retryDelay": 1.0,
+    "connectionPoolSize": 10
+  },
+  "mcpServers": {
+    "everything": {
+      "name": "Everything Demo Server",
+      "url": "https://everything.mcp.inevitable.fyi/sse",
+      "transport": "sse",
+      "description": "Multi-purpose demo server with various tools",
+      "timeout": 30
+    },
+    "time": {
+      "name": "Time Server",
+      "url": "https://time.mcp.inevitable.fyi/sse",
+      "transport": "sse",
+      "description": "Time and date utilities",
+      "timeout": 30
+    },
+    "echo": {
+      "name": "Echo Debug Server",
+      "url": "https://echo.mcp.inevitable.fyi/sse",
+      "transport": "sse",
+      "description": "Echo tool for debugging MCP connections",
+      "timeout": 10
+    },
+    "semgrep": {
+      "name": "Semgrep Security Scanner",
+      "url": "https://mcp.semgrep.ai/sse",
+      "transport": "sse",
+      "description": "Security vulnerability scanning with Semgrep",
+      "timeout": 120,
+      "headers": {
+        "User-Agent": "light-llm-client/1.0"
+      }
+    },
+    "duckduckgo": {
+      "name": "DuckDuckGo Search",
+      "command": "npx",
+      "args": ["-y", "@mcp/duckduckgo"],
+      "transport": "stdio",
+      "description": "Web search via DuckDuckGo",
+      "timeout": 30
+    },
+    "wikipedia": {
+      "name": "Wikipedia Search",
+      "command": "npx",
+      "args": ["-y", "@mcp/wikipedia"],
+      "transport": "stdio",
+      "description": "Wikipedia article search and retrieval",
+      "timeout": 30
+    },
+    "filesystem": {
+      "name": "Local Filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"],
+      "transport": "stdio",
+      "description": "Local file operations with security restrictions",
+      "timeout": 30
+    },
+    "github": {
+      "name": "GitHub Integration",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "transport": "stdio",
+      "description": "GitHub repository operations",
+      "timeout": 60,
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "sqlite": {
+      "name": "SQLite Database",
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "/path/to/database.db"],
+      "transport": "stdio",
+      "description": "SQLite database queries and operations",
+      "timeout": 30
+    },
+    "fetch": {
+      "name": "HTTP Fetch",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "transport": "stdio",
+      "description": "HTTP requests and web content fetching",
+      "timeout": 60
+    },
+    "puppeteer": {
+      "name": "Browser Automation",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
+      "transport": "stdio",
+      "description": "Web browser automation with Puppeteer",
+      "timeout": 120
+    }
+  }
+}

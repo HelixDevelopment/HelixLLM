@@ -1,0 +1,321 @@
+# =============================================================================
+# Light Local LLM System - CI/CD Pipeline
+# =============================================================================
+# GitHub Actions workflow for continuous integration and deployment
+# =============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: llm-system
+
+jobs:
+  # ==========================================================================
+  # Lint and Validation
+  # ==========================================================================
+  lint:
+    name: Lint and Validate
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Lint Docker Compose
+      run: |
+        docker-compose -f docker/docker-compose.yml config > /dev/null
+        
+    - name: Validate Prometheus config
+      run: |
+        docker run --rm -v "$PWD/monitoring/prometheus:/etc/prometheus" \
+          prom/prometheus:latest \
+          --config.file=/etc/prometheus/prometheus.yml \
+          --check
+          
+    - name: Shellcheck scripts
+      run: |
+        sudo apt-get install -y shellcheck
+        shellcheck scripts/*.sh backup/*.sh security/*.sh || true
+        
+    - name: YAML lint
+      run: |
+        pip install yamllint
+        yamllint -d relaxed docker/docker-compose.yml monitoring/**/*.yml || true
+
+  # ==========================================================================
+  # Unit Tests
+  # ==========================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov psutil requests
+        
+    - name: Run unit tests
+      run: |
+        python -m pytest tests/test_unit.py -v --cov=. --cov-report=xml
+        
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+
+  # ==========================================================================
+  # Build Docker Images
+  # ==========================================================================
+  build:
+    name: Build Images
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    
+    strategy:
+      matrix:
+        service: [rag-service, mcp-server, api-gateway]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.service }}
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # Integration Tests
+  # ==========================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest requests
+        
+    - name: Start services
+      run: |
+        cp docker/.env.example docker/.env
+        docker-compose -f docker/docker-compose.yml up -d chromadb redis
+        sleep 30
+        
+    - name: Run integration tests
+      run: |
+        python -m pytest tests/test_integration.py -v -m "not slow"
+      env:
+        CHROMA_URL: http://localhost:8000
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose -f docker/docker-compose.yml down -v
+
+  # ==========================================================================
+  # Security Scan
+  # ==========================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+    - name: Scan Docker images
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'ollama/ollama:latest'
+        format: 'table'
+        exit-code: '0'
+        ignore-unfixed: true
+
+  # ==========================================================================
+  # Performance Benchmark
+  # ==========================================================================
+  benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[benchmark]')
+    needs: integration-tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install psutil requests
+        
+    - name: Run system benchmark
+      run: |
+        python scripts/benchmark.py --suite system --iterations 60
+        
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark_results.json
+
+  # ==========================================================================
+  # Deploy to Staging
+  # ==========================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [integration-tests, security-scan]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to staging server
+      run: |
+        echo "Deploying to staging environment..."
+        # Add actual deployment commands here
+        # ssh staging-server "cd /opt/llm-system && ./scripts/deploy.sh --update"
+        
+    - name: Run health checks
+      run: |
+        echo "Running health checks..."
+        # curl -f http://staging-server:8080/health
+
+  # ==========================================================================
+  # Deploy to Production
+  # ==========================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [integration-tests, security-scan]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create backup
+      run: |
+        echo "Creating pre-deployment backup..."
+        # ssh production-server "cd /opt/llm-system && ./backup/backup.sh"
+        
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment..."
+        # ssh production-server "cd /opt/llm-system && ./scripts/deploy.sh --update"
+        
+    - name: Verify deployment
+      run: |
+        echo "Verifying deployment..."
+        sleep 30
+        # curl -f http://production-server:8080/health
+        
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Deployment failed, rolling back..."
+        # ssh production-server "cd /opt/llm-system && ./scripts/deploy.sh --rollback"
+
+  # ==========================================================================
+  # Notify
+  # ==========================================================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+    
+    steps:
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: always()
