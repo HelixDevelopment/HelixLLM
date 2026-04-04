@@ -1,0 +1,27 @@
+# HelixLLM Development Stack
+# Usage: podman-compose -f deploy/compose.yaml up -d
+#    or: docker compose -f deploy/compose.yaml up -d
+
+services:
+  helixllm:
+    build:
+      context: ..
+      dockerfile: container/Containerfile
+    ports:
+      - "8443:8443/tcp"
+      - "8443:8443/udp"
+    environment:
+      - HELIX_MODE=full
+      - HELIX_HOST=0.0.0.0
+      - HELIX_PORT=8443
+      - HELIX_LOG_LEVEL=debug
+      - HELIX_OTEL_EXPORTER=none
+    volumes:
+      - ../certs:/certs:ro
+    command: ["--mode=full"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:8443/internal/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
