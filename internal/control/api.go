@@ -59,6 +59,23 @@ func NewControlPlane(opts ControlPlaneOptions) *ControlPlane {
 	}
 }
 
+// Status returns the current cluster status, populating deployments
+// from the control plane's local cache.  Returns a fresh empty status
+// when no health check has been performed yet.
+func (cp *ControlPlane) Status() *ClusterStatus {
+	status := cp.monitor.Status()
+	if status == nil {
+		status = &ClusterStatus{
+			CheckedAt: time.Now(),
+			Healthy:   true,
+		}
+	}
+	cp.mu.RLock()
+	status.Deployments = cp.deployments
+	cp.mu.RUnlock()
+	return status
+}
+
 // RegisterRoutes registers the control API routes on the Gin
 // engine.
 func RegisterRoutes(r *gin.Engine, cp *ControlPlane) {
