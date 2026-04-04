@@ -57,3 +57,19 @@ func TestNew_InvalidExporter_ReturnsError(t *testing.T) {
 		t.Fatal("expected error for invalid exporter type, got nil")
 	}
 }
+
+func TestNew_EmptyExporter_DefaultsToNone(t *testing.T) {
+	// When Exporter is empty the New function defaults it to ExporterNone,
+	// covering the `if tracerCfg.ExporterType == ""` branch.
+	obs, err := observability.New(observability.Options{
+		ServiceName: "helixllm-test",
+		Exporter:    "", // intentionally empty
+	})
+	if err != nil {
+		t.Fatalf("New() with empty exporter error = %v", err)
+	}
+	if obs == nil {
+		t.Fatal("New() returned nil")
+	}
+	defer obs.Shutdown()
+}

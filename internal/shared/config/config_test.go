@@ -146,3 +146,16 @@ func TestHostList_Single(t *testing.T) {
 		t.Errorf("HostList()[0] = %q, want %q", hosts[0], "nezha.local")
 	}
 }
+
+func TestLoad_EnvParseError(t *testing.T) {
+	// Setting HELIX_PORT to a non-integer forces env.Load to return a parse
+	// error, exercising the `return nil, fmt.Errorf("loading config: %w", err)`
+	// branch in Load().
+	os.Setenv("HELIX_PORT", "not-a-number")
+	defer os.Unsetenv("HELIX_PORT")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("Load() should return error when HELIX_PORT is not a valid integer")
+	}
+}
