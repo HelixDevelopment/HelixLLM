@@ -1,6 +1,6 @@
-# HelixLLM Development Stack
-# Usage: podman-compose -f deploy/compose.yaml up -d
-#    or: docker compose -f deploy/compose.yaml up -d
+# HelixLLM Full Production Stack
+# Usage: docker compose -f deploy/compose.yaml up -d
+#    or: podman-compose -f deploy/compose.yaml up -d
 
 services:
   helixllm:
@@ -8,20 +8,171 @@ services:
       context: ..
       dockerfile: container/Containerfile
     ports:
-      - "8443:8443/tcp"
-      - "8443:8443/udp"
+      - "${HELIX_PORT:-8443}:8443/tcp"
+      - "${HELIX_PORT:-8443}:8443/udp"
     environment:
-      - HELIX_MODE=full
+      - HELIX_MODE=${HELIX_MODE:-full}
       - HELIX_HOST=0.0.0.0
       - HELIX_PORT=8443
-      - HELIX_LOG_LEVEL=debug
-      - HELIX_OTEL_EXPORTER=none
+      - HELIX_LOG_LEVEL=${HELIX_LOG_LEVEL:-info}
+      - HELIX_OTEL_EXPORTER=${HELIX_OTEL_EXPORTER:-otlp}
+      - HELIX_OTEL_ENDPOINT=http://otel-collector:4317
+      - HELIX_DB_HOST=postgres
+      - HELIX_DB_PORT=5432
+      - HELIX_DB_NAME=helixllm
+      - HELIX_DB_USER=helix
+      - HELIX_DB_PASSWORD=${HELIX_DB_PASSWORD:-helixllm}
+      - HELIX_REDIS_HOST=redis
+      - HELIX_REDIS_PORT=6379
+      - HELIX_KAFKA_BROKERS=kafka:9092
+      - HELIX_VECTOR_DB=qdrant
     volumes:
       - ../certs:/certs:ro
-    command: ["--mode=full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:8443/internal/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+  # --- LLM Inference ---
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    ports:
+      - "8080:8080"
+    volumes:
+      - models:/models
+    command: >
+      --host 0.0.0.0
+      --port 8080
+      --model /models/${HELIX_LLM_LOCAL_MODEL:-model.gguf}
+      --ctx-size 8192
+      --n-gpu-layers 99
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --- Vector Database ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --- Database ---
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=helixllm
+      - POSTGRES_USER=helix
+      - POSTGRES_PASSWORD=${HELIX_DB_PASSWORD:-helixllm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helix -d helixllm"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --- Cache ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # --- Messaging ---
+  kafka:
+    image: bitnami/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+    volumes:
+      - kafka_data:/bitnami/kafka
+    restart: unless-stopped
+
+  # --- Monitoring ---
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "${HELIX_PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "${HELIX_GRAFANA_PORT:-3001}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    restart: unless-stopped
+
+volumes:
+  models:
+  qdrant_data:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:

@@ -1,0 +1,46 @@
+# HelixLLM Development Overrides
+# Usage: docker compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up -d
+#    or: podman-compose -f deploy/compose.yaml -f deploy/compose.dev.yaml up -d
+
+services:
+  helixllm:
+    environment:
+      - HELIX_MODE=${HELIX_MODE:-full}
+      - HELIX_LOG_LEVEL=debug
+      - HELIX_OTEL_EXPORTER=none
+      - HELIX_OTEL_ENDPOINT=
+    # In dev, skip the healthy-dependency wait so the stack starts faster.
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+
+  # No GPU layers in dev (CPU-only inference).
+  llamacpp:
+    command: >
+      --host 0.0.0.0
+      --port 8080
+      --model /models/${HELIX_LLM_LOCAL_MODEL:-model.gguf}
+      --ctx-size 4096
+      --n-gpu-layers 0
+    deploy: {}
+
+  # Expose Postgres port for local psql / migrations.
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # Expose Redis port for local inspection.
+  redis:
+    ports:
+      - "6379:6379"
+
+  # Grafana anonymous access with no password prompt in dev.
+  grafana:
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
