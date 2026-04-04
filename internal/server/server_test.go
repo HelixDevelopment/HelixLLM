@@ -303,6 +303,41 @@ func TestListenAndServe_InvalidTLSFiles(t *testing.T) {
 	}
 }
 
+func TestListenAndServe_PortInUse(t *testing.T) {
+	// Occupy the port BEFORE the server tries to bind it, causing the
+	// net.Listen call inside the HTTP/2 goroutine to fail.
+	// This covers server.go lines 124-126 and the errCh-return path (143-145).
+	certFile, keyFile, cleanup := generateTestCert(t)
+	defer cleanup()
+
+	// Bind a port and hold it open.
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("bind blocker: %v", err)
+	}
+	defer blocker.Close()
+	port := blocker.Addr().(*net.TCPAddr).Port
+
+	checker := health.NewChecker()
+	srv := server.New(server.Options{
+		Host:    "127.0.0.1",
+		Port:    port,
+		TLSCert: certFile,
+		TLSKey:  keyFile,
+		Checker: checker,
+	})
+
+	// Cancel the context quickly so ListenAndServe returns after the
+	// HTTP/2 goroutine sends its net.Listen error to errCh.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	err = srv.ListenAndServe(ctx)
+	if err == nil {
+		t.Fatal("expected error when port is already in use, got nil")
+	}
+}
+
 func TestRequestIDMiddleware(t *testing.T) {
 	checker := health.NewChecker()
 	srv := server.New(server.Options{
