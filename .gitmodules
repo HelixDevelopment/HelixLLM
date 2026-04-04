@@ -1,0 +1,27 @@
+[submodule "submodules/Config"]
+	path = submodules/Config
+	url = git@github.com:vasic-digital/Config.git
+[submodule "submodules/EventBus"]
+	path = submodules/EventBus
+	url = git@github.com:vasic-digital/EventBus.git
+[submodule "submodules/Observability"]
+	path = submodules/Observability
+	url = git@github.com:vasic-digital/Observability.git
+[submodule "submodules/Concurrency"]
+	path = submodules/Concurrency
+	url = git@github.com:vasic-digital/Concurrency.git
+[submodule "submodules/Lazy"]
+	path = submodules/Lazy
+	url = git@github.com:vasic-digital/Lazy.git
+[submodule "submodules/Watcher"]
+	path = submodules/Watcher
+	url = git@github.com:vasic-digital/Watcher.git
+[submodule "submodules/Containers"]
+	path = submodules/Containers
+	url = git@github.com:vasic-digital/Containers.git
+[submodule "submodules/Middleware"]
+	path = submodules/Middleware
+	url = git@github.com:vasic-digital/Middleware.git
+[submodule "submodules/Challenges"]
+	path = submodules/Challenges
+	url = git@github.com:vasic-digital/Challenges.git
