@@ -256,3 +256,243 @@ func TestAnthropicProvider_CompleteError(t *testing.T) {
 		t.Fatal("expected error from 500 response, got nil")
 	}
 }
+
+func TestAnthropicProvider_CompleteStream_ErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	_, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error from 500 streaming response, got nil")
+	}
+}
+
+func TestAnthropicProvider_CompleteStream_ContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		// Write one event then block until client disconnects.
+		fmt.Fprintf(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ch, err := p.CompleteStream(ctx, &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hello"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream returned error: %v", err)
+	}
+
+	// Read one chunk then cancel.
+	<-ch
+	cancel()
+
+	// Drain the channel after cancel — should close cleanly.
+	for range ch {
+	}
+}
+
+func TestAnthropicProvider_ToMessageRequest_WithTemperatureAndMaxTokens(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req api.MessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// Verify max_tokens and temperature were forwarded.
+		if req.MaxTokens != 256 {
+			t.Errorf("MaxTokens = %d, want 256", req.MaxTokens)
+		}
+		if req.Temperature == nil || *req.Temperature != 0.7 {
+			t.Errorf("Temperature not set correctly")
+		}
+
+		stopReason := "end_turn"
+		resp := api.MessageResponse{
+			ID:         "msg-temp-001",
+			Type:       "message",
+			Role:       "assistant",
+			Content:    []api.ContentBlock{{Type: "text", Text: "ok"}},
+			Model:      "claude-haiku-4-5",
+			StopReason: &stopReason,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model: "claude-haiku-4-5",
+		Messages: []types.InternalMessage{
+			{Role: types.RoleUser, Content: "Hello"},
+		},
+		MaxTokens:   256,
+		Temperature: 0.7,
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+}
+
+func TestAnthropicProvider_SSEStream_BlankLineResetsEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+
+		// Send: an unknown event followed by a blank line (should reset currentEvent),
+		// then a content_block_delta with text.
+		fmt.Fprintf(w, "event: unknown_event\n")
+		fmt.Fprintf(w, "data: {\"type\":\"unknown\"}\n\n") // blank line resets event
+		fmt.Fprintf(w, "event: content_block_delta\n")
+		fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n")
+		fmt.Fprintf(w, "event: message_stop\n")
+		fmt.Fprintf(w, "data: {\"type\":\"message_stop\"}\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	ch, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream error: %v", err)
+	}
+
+	var chunks []types.StreamChunk
+	for chunk := range ch {
+		chunks = append(chunks, chunk)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "hello" {
+		t.Errorf("unexpected chunks: %v", chunks)
+	}
+}
+
+func TestAnthropicProvider_CompleteStream_NetworkError(t *testing.T) {
+	// Use a server that accepts then immediately closes the connection.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Hijack and close immediately to simulate network error.
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", 500)
+			return
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for connection reset, got nil")
+	}
+}
+
+func TestAnthropicProvider_ReadSSEStream_BadJSON(t *testing.T) {
+	// A content_block_delta event with bad JSON data → readAnthropicSSEStream skips it.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		// Bad JSON on a content_block_delta.
+		fmt.Fprintf(w, "event: content_block_delta\ndata: {bad json\n\n")
+		// Good delta.
+		fmt.Fprintf(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n")
+		fmt.Fprintf(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+	ch, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream error: %v", err)
+	}
+	var chunks []types.StreamChunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "hi" {
+		t.Errorf("unexpected chunks: %v", chunks)
+	}
+}
+
+func TestAnthropicProvider_Complete_DecodeError(t *testing.T) {
+	// Server returns 200 but with non-JSON body → decode must fail.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "not valid json}")
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected decode error, got nil")
+	}
+}
+
+func TestAnthropicProvider_FromMessageResponse_NoContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return a response with no content blocks.
+		resp := api.MessageResponse{
+			ID:    "msg-empty-001",
+			Type:  "message",
+			Role:  "assistant",
+			Model: "claude-sonnet-4-5",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := brain.NewAnthropic("sk-ant-test", srv.URL)
+
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "claude-sonnet-4-5",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Message.Content != "" {
+		t.Errorf("expected empty content for response with no blocks, got %q", resp.Message.Content)
+	}
+}

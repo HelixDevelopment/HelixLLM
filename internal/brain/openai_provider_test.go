@@ -248,3 +248,237 @@ func TestOpenAIProvider_DefaultBaseURL(t *testing.T) {
 		t.Error("Available() = false, want true")
 	}
 }
+
+func TestOpenAIProvider_CompleteStream_ErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+
+	_, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error from 503 streaming response, got nil")
+	}
+}
+
+func TestOpenAIProvider_CompleteStream_ContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		chunk := api.ChatCompletionChunk{
+			ID:    "chatcmpl-ctx-001",
+			Model: "gpt-4o",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "hi"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ch, err := p.CompleteStream(ctx, &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream returned error: %v", err)
+	}
+
+	<-ch
+	cancel()
+	for range ch {
+	}
+}
+
+func TestOpenAIProvider_ToAPIRequest_WithMaxTokensAndTemperature(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req api.ChatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if req.MaxTokens == nil || *req.MaxTokens != 1024 {
+			t.Errorf("MaxTokens = %v, want 1024", req.MaxTokens)
+		}
+		if req.Temperature == nil || *req.Temperature != 0.9 {
+			t.Errorf("Temperature = %v, want 0.9", req.Temperature)
+		}
+		resp := api.ChatCompletionResponse{
+			ID:    "chatcmpl-mt-001",
+			Model: "gpt-4o",
+			Choices: []api.ChatCompletionChoice{
+				{Message: api.ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:       "gpt-4o",
+		Messages:    []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		MaxTokens:   1024,
+		Temperature: 0.9,
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+}
+
+func TestOpenAIProvider_FromAPIResponse_NoChoices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := api.ChatCompletionResponse{
+			ID:      "chatcmpl-nc-001",
+			Model:   "gpt-4o",
+			Choices: []api.ChatCompletionChoice{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Message.Content != "" {
+		t.Errorf("expected empty content for no-choices response, got %q", resp.Message.Content)
+	}
+}
+
+func TestOpenAIProvider_ReadSSEStream_BadJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		fmt.Fprintf(w, "data: {bad json\n\n")
+		chunk := api.ChatCompletionChunk{
+			Model: "gpt-4o",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "ok"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	ch, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream error: %v", err)
+	}
+	var chunks []types.StreamChunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "ok" {
+		t.Errorf("unexpected chunks: %v", chunks)
+	}
+}
+
+func TestOpenAIProvider_ReadSSEStream_SkipsNonDataLines(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		fmt.Fprintf(w, ": comment line\n\n")
+		fmt.Fprintf(w, "\n")
+		chunk := api.ChatCompletionChunk{
+			Model: "gpt-4o",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "world"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	ch, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream error: %v", err)
+	}
+	var chunks []types.StreamChunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "world" {
+		t.Errorf("unexpected chunks: %v", chunks)
+	}
+}
+
+func TestOpenAIProvider_Complete_DecodeError(t *testing.T) {
+	// Server returns 200 but with non-JSON body → decode must fail.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "not valid json}")
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected decode error, got nil")
+	}
+}
+
+func TestOpenAIProvider_NetworkError(t *testing.T) {
+	// Use a server that accepts then immediately closes.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", 500)
+			return
+		}
+		conn, _, _ := hj.Hijack()
+		conn.Close()
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAI("sk-test", srv.URL)
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "gpt-4o",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for connection reset, got nil")
+	}
+}

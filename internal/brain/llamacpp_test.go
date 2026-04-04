@@ -258,3 +258,233 @@ func TestLlamaCppProvider_CompleteContextCancelled(t *testing.T) {
 		t.Fatal("expected error from cancelled context, got nil")
 	}
 }
+
+func TestLlamaCppProvider_CompleteStream_ErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+
+	_, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err == nil {
+		t.Fatal("expected error from 503 streaming response, got nil")
+	}
+}
+
+func TestLlamaCppProvider_CompleteStream_ContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		chunk := api.ChatCompletionChunk{
+			ID:    "chunk-001",
+			Model: "llama-3.1-70b",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "hello"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ch, err := p.CompleteStream(ctx, &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream returned error: %v", err)
+	}
+
+	// Read one chunk then cancel.
+	<-ch
+	cancel()
+	for range ch {
+	}
+}
+
+func TestLlamaCppProvider_Available_NonOKStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+		}
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	if p.Available() {
+		t.Error("Available() = true, want false (server returns 503)")
+	}
+}
+
+func TestLlamaCppProvider_ToAPIRequest_WithMaxTokensAndTemperature(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req api.ChatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if req.MaxTokens == nil || *req.MaxTokens != 512 {
+			t.Errorf("MaxTokens = %v, want 512", req.MaxTokens)
+		}
+		if req.Temperature == nil || *req.Temperature != 0.5 {
+			t.Errorf("Temperature = %v, want 0.5", req.Temperature)
+		}
+		resp := api.ChatCompletionResponse{
+			ID:    "chatcmpl-mt-001",
+			Model: "llama-3.1-70b",
+			Choices: []api.ChatCompletionChoice{
+				{Message: api.ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:       "llama-3.1-70b",
+		Messages:    []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+		MaxTokens:   512,
+		Temperature: 0.5,
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+}
+
+func TestLlamaCppProvider_FromAPIResponse_NoChoices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := api.ChatCompletionResponse{
+			ID:      "chatcmpl-nc-001",
+			Model:   "llama-3.1-70b",
+			Choices: []api.ChatCompletionChoice{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if resp.Message.Content != "" {
+		t.Errorf("expected empty content for no-choices response, got %q", resp.Message.Content)
+	}
+}
+
+func TestLlamaCppProvider_ReadSSEStream_BadJSON(t *testing.T) {
+	// Server sends a data line with invalid JSON — readSSEStream should skip it.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		fmt.Fprintf(w, "data: {bad json\n\n")
+		// Then a valid chunk.
+		chunk := api.ChatCompletionChunk{
+			Model: "llama-3.1-70b",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "ok"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	ch, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream error: %v", err)
+	}
+	var chunks []types.StreamChunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+	// Bad JSON line is skipped; only the valid chunk should be present.
+	if len(chunks) != 1 || chunks[0].Content != "ok" {
+		t.Errorf("unexpected chunks: %v", chunks)
+	}
+}
+
+func TestLlamaCppProvider_Complete_DecodeError(t *testing.T) {
+	// Server returns 200 but with non-JSON body → decode must fail.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "this is not valid json}")
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "Hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected decode error, got nil")
+	}
+}
+
+func TestLlamaCppProvider_ReadSSEStream_SkipsNonDataLines(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		// Write some non-data lines (comments, blanks) before real data.
+		fmt.Fprintf(w, ": this is a comment\n\n")
+		fmt.Fprintf(w, "\n")
+		chunk := api.ChatCompletionChunk{
+			Model: "llama-3.1-70b",
+			Choices: []api.ChatCompletionChunkChoice{
+				{Delta: api.ChatMessageDelta{Content: "world"}},
+			},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	ch, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+		Stream:   true,
+	})
+	if err != nil {
+		t.Fatalf("CompleteStream error: %v", err)
+	}
+	var chunks []types.StreamChunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "world" {
+		t.Errorf("unexpected chunks: %v", chunks)
+	}
+}
