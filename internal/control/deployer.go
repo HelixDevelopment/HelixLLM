@@ -138,6 +138,22 @@ func (d *Deployer) DeployAll(
 	return infos, errs
 }
 
+// RestartContainer stops and re-starts the named container on host,
+// satisfying the Remediator interface used by Monitor.Remediate.
+func (d *Deployer) RestartContainer(
+	ctx context.Context, host, service string,
+) error {
+	rt := d.runtime
+	cmd := fmt.Sprintf(
+		"%s restart %s", rt, service,
+	)
+	_, err := d.ssh.Run(ctx, host, cmd)
+	if err != nil {
+		return fmt.Errorf("restart %s on %s: %w", service, host, err)
+	}
+	return nil
+}
+
 // Undeploy stops and removes a container on its host.
 func (d *Deployer) Undeploy(
 	ctx context.Context,

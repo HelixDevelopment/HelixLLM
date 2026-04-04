@@ -2,19 +2,52 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
 
+// RemediationAction records what the monitor decided to do in response
+// to an unhealthy container.
+type RemediationAction struct {
+	// Type is one of "restart", "reschedule", or "alert".
+	Type string
+	// Host is the hostname where the action was (or would be) taken.
+	Host string
+	// Service is the name of the affected service / container.
+	Service string
+	// Reason describes why this action was chosen.
+	Reason string
+}
+
+// remediationState tracks per-service restart attempt counts so that
+// the monitor can escalate from restart → reschedule → alert.
+type remediationState struct {
+	restartAttempts map[string]int // service name → consecutive failures
+}
+
+// Remediator is the interface the Monitor calls to restart a container
+// on a given host.  The Deployer satisfies this interface in production;
+// tests supply a mock.
+type Remediator interface {
+	// RestartContainer stops and re-starts the named container on host.
+	// Returns nil on success.
+	RestartContainer(ctx context.Context, host, service string) error
+}
+
 // Monitor provides health monitoring for the HelixLLM cluster.
 // It wraps HostProber and caches the latest cluster status.
 type Monitor struct {
-	prober   *HostProber
-	ssh      SSHClient
-	interval time.Duration
+	prober     *HostProber
+	ssh        SSHClient
+	interval   time.Duration
+	remediator Remediator // optional; nil disables active remediation
 
 	mu     sync.RWMutex
 	status *ClusterStatus
+
+	remMu    sync.Mutex
+	remState remediationState
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -31,7 +64,113 @@ func NewMonitor(
 		prober:   prober,
 		ssh:      ssh,
 		interval: interval,
+		remState: remediationState{
+			restartAttempts: make(map[string]int),
+		},
 	}
+}
+
+// WithRemediator attaches a Remediator so that Remediate can perform
+// active restarts.  Returns the receiver for chaining.
+func (m *Monitor) WithRemediator(r Remediator) *Monitor {
+	m.remediator = r
+	return m
+}
+
+// maxRestartAttempts is the number of consecutive restart failures
+// before the monitor escalates to rescheduling.
+const maxRestartAttempts = 3
+
+// Remediate inspects the current cluster status and attempts to heal
+// any unhealthy deployments.  The logic is:
+//
+//  1. For each deployment in "failed" state, attempt a restart on the
+//     same host (via the attached Remediator).
+//  2. After maxRestartAttempts consecutive failures on one host, emit
+//     a "reschedule" action (actual rescheduling is left to the caller).
+//  3. When no healthy hosts are available at all, emit an "alert".
+//
+// Remediate is safe to call from multiple goroutines.
+func (m *Monitor) Remediate(ctx context.Context) []RemediationAction {
+	m.mu.RLock()
+	status := m.status
+	m.mu.RUnlock()
+
+	if status == nil || len(status.Deployments) == 0 {
+		return nil
+	}
+
+	// Collect healthy hosts for reschedule candidates.
+	healthyHosts := make([]string, 0, len(status.Hosts))
+	for _, h := range status.Hosts {
+		if h.IsHealthy() {
+			healthyHosts = append(healthyHosts, h.Name)
+		}
+	}
+
+	m.remMu.Lock()
+	defer m.remMu.Unlock()
+
+	var actions []RemediationAction
+
+	for _, dep := range status.Deployments {
+		if dep.State != "failed" {
+			// Container is healthy — reset its restart counter.
+			delete(m.remState.restartAttempts, dep.ServiceName)
+			continue
+		}
+
+		attempts := m.remState.restartAttempts[dep.ServiceName]
+
+		if attempts >= maxRestartAttempts {
+			// Too many restarts: try to reschedule.
+			if len(healthyHosts) == 0 {
+				actions = append(actions, RemediationAction{
+					Type:    "alert",
+					Host:    dep.HostName,
+					Service: dep.ServiceName,
+					Reason:  fmt.Sprintf("service %q failed %d times and no healthy hosts are available for rescheduling", dep.ServiceName, attempts),
+				})
+			} else {
+				actions = append(actions, RemediationAction{
+					Type:    "reschedule",
+					Host:    healthyHosts[0],
+					Service: dep.ServiceName,
+					Reason:  fmt.Sprintf("service %q failed %d consecutive restarts on %s; rescheduling to %s", dep.ServiceName, attempts, dep.HostName, healthyHosts[0]),
+				})
+				// Reset counter after rescheduling decision.
+				delete(m.remState.restartAttempts, dep.ServiceName)
+			}
+			continue
+		}
+
+		// Attempt a restart.
+		var restartErr error
+		if m.remediator != nil {
+			restartErr = m.remediator.RestartContainer(ctx, dep.HostName, dep.ServiceName)
+		}
+
+		if restartErr != nil {
+			m.remState.restartAttempts[dep.ServiceName] = attempts + 1
+			actions = append(actions, RemediationAction{
+				Type:    "restart",
+				Host:    dep.HostName,
+				Service: dep.ServiceName,
+				Reason:  fmt.Sprintf("restart attempt %d failed: %v", attempts+1, restartErr),
+			})
+		} else {
+			// Restart succeeded (or no remediator); reset counter.
+			delete(m.remState.restartAttempts, dep.ServiceName)
+			actions = append(actions, RemediationAction{
+				Type:    "restart",
+				Host:    dep.HostName,
+				Service: dep.ServiceName,
+				Reason:  fmt.Sprintf("restarted %q on %s (attempt %d)", dep.ServiceName, dep.HostName, attempts+1),
+			})
+		}
+	}
+
+	return actions
 }
 
 // CheckCluster probes all hosts and returns the cluster status.
@@ -110,8 +249,9 @@ func (m *Monitor) Start(ctx context.Context, hosts []string) {
 	go func() {
 		defer close(m.done)
 
-		// Run immediately.
+		// Run immediately then remediate any issues found.
 		m.CheckCluster(mCtx, hosts)
+		m.Remediate(mCtx)
 
 		ticker := time.NewTicker(m.interval)
 		defer ticker.Stop()
@@ -122,6 +262,7 @@ func (m *Monitor) Start(ctx context.Context, hosts []string) {
 				return
 			case <-ticker.C:
 				m.CheckCluster(mCtx, hosts)
+				m.Remediate(mCtx)
 			}
 		}
 	}()
