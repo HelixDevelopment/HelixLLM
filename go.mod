@@ -59,10 +59,10 @@ require (
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.22.0 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
@@ -71,12 +71,17 @@ require (
 
 replace (
 	digital.vasic.auth => ./submodules/Auth
+	digital.vasic.background => ./submodules/BackgroundTasks
 	digital.vasic.cache => ./submodules/Cache
 	digital.vasic.challenges => ./submodules/Challenges
 	digital.vasic.concurrency => ./submodules/Concurrency
 	digital.vasic.config => ./submodules/Config
 	digital.vasic.containers => ./submodules/Containers
+	digital.vasic.database => ./submodules/Database
+	digital.vasic.document => ./submodules/Document
+	digital.vasic.embeddings => ./submodules/Embeddings
 	digital.vasic.eventbus => ./submodules/EventBus
+	digital.vasic.filesystem => ./submodules/Filesystem
 	digital.vasic.formatters => ./submodules/Formatters
 	digital.vasic.i18n => ./submodules/I18n
 	digital.vasic.lazy => ./submodules/Lazy
@@ -84,9 +89,11 @@ replace (
 	digital.vasic.middleware => ./submodules/Middleware
 	digital.vasic.observability => ./submodules/Observability
 	digital.vasic.optimization => ./submodules/Optimization
+	digital.vasic.rag => ./submodules/RAG
 	digital.vasic.ratelimiter => ./submodules/RateLimiter
 	digital.vasic.recovery => ./submodules/Recovery
 	digital.vasic.security => ./submodules/Security
 	digital.vasic.streaming => ./submodules/Streaming
+	digital.vasic.vectordb => ./submodules/VectorDB
 	digital.vasic.watcher => ./submodules/Watcher
 )

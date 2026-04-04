@@ -55,3 +55,24 @@
 [submodule "submodules/Recovery"]
 	path = submodules/Recovery
 	url = git@github.com:vasic-digital/Recovery.git
+[submodule "submodules/RAG"]
+	path = submodules/RAG
+	url = git@github.com:vasic-digital/RAG.git
+[submodule "submodules/VectorDB"]
+	path = submodules/VectorDB
+	url = git@github.com:vasic-digital/VectorDB.git
+[submodule "submodules/Embeddings"]
+	path = submodules/Embeddings
+	url = git@github.com:vasic-digital/Embeddings.git
+[submodule "submodules/Document"]
+	path = submodules/Document
+	url = git@github.com:vasic-digital/Document.git
+[submodule "submodules/Filesystem"]
+	path = submodules/Filesystem
+	url = git@github.com:vasic-digital/Filesystem.git
+[submodule "submodules/Database"]
+	path = submodules/Database
+	url = git@github.com:vasic-digital/Database.git
+[submodule "submodules/BackgroundTasks"]
+	path = submodules/BackgroundTasks
+	url = git@github.com:vasic-digital/BackgroundTasks.git
