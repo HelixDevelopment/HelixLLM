@@ -4,12 +4,16 @@ go 1.26.1
 
 require (
 	digital.vasic.config v0.0.0
+	digital.vasic.embeddings v0.0.0-00010101000000-000000000000
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
+	digital.vasic.i18n v0.0.0-00010101000000-000000000000
+	digital.vasic.mcp v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
 	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
 	digital.vasic.streaming v0.0.0-00010101000000-000000000000
 	digital.vasic.toon v0.0.0
 	digital.vasic.vectordb v0.0.0-00010101000000-000000000000
+	digital.vasic.watcher v0.0.0-00010101000000-000000000000
 	github.com/andybalholm/brotli v1.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
@@ -17,6 +21,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.59.0
 	golang.org/x/crypto v0.49.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -27,6 +32,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
+	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
