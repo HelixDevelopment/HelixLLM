@@ -47,7 +47,7 @@ func (w *anthropicSSEWriter) writeEvent(eventType string, data interface{}) erro
 }
 
 // HandleMessages handles POST /v1/messages (Anthropic-compatible).
-// When b is non-nil it delegates to the Brain; otherwise returns a canned stub.
+// When b is non-nil it delegates to the Brain; otherwise returns a development fallback (no Brain configured).
 func HandleMessages(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.MessageRequest
@@ -100,7 +100,7 @@ func HandleMessages(b *brain.Brain) gin.HandlerFunc {
 			return
 		}
 
-		// Stub path (Brain is nil).
+		// Development fallback (no Brain configured).
 		if req.Stream {
 			streamMessages(c, id, model)
 			return
@@ -201,7 +201,7 @@ func streamBrainMessages(c *gin.Context, id, model string, ch <-chan types.Strea
 	c.Writer.Flush()
 }
 
-// streamMessages writes the Anthropic SSE event sequence for a canned stub response.
+// streamMessages writes the Anthropic SSE event sequence for a development fallback (no Brain configured).
 func streamMessages(c *gin.Context, id, model string) {
 	w := newAnthropicSSEWriter(c)
 	w.writeHeader()

@@ -22,11 +22,11 @@ var hardcodedModels = []api.Model{
 
 // randomID generates a short random hex suffix for synthetic IDs.
 func randomID() string {
-	return fmt.Sprintf("%08x", rand.Uint32()) //nolint:gosec // stub, not security-sensitive
+	return fmt.Sprintf("%08x", rand.Uint32())
 }
 
 // HandleChatCompletions handles POST /v1/chat/completions.
-// When b is non-nil it delegates to the Brain; otherwise it returns a canned stub.
+// When b is non-nil it delegates to the Brain; otherwise it returns a development fallback (no Brain configured).
 func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.ChatCompletionRequest
@@ -99,7 +99,7 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			return
 		}
 
-		// Stub path (Brain is nil).
+		// Development fallback (no Brain configured).
 		id := "chatcmpl-helix-" + randomID()
 		if req.Stream {
 			streamChatCompletions(c, id, model)
@@ -230,7 +230,7 @@ func HandleCompletions(b *brain.Brain) gin.HandlerFunc {
 			return
 		}
 
-		// Stub path.
+		// Development fallback (no Brain configured).
 		c.JSON(http.StatusOK, api.CompletionResponse{
 			ID:      "cmpl-helix-" + randomID(),
 			Object:  "text_completion",
