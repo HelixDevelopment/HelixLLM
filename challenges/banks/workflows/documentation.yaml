@@ -1,0 +1,167 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Documentation Generation Workflows
+# Validates HelixLLM's ability to generate developer documentation from code and structure.
+
+name: documentation-workflows
+version: 1.0.0
+description: |
+  Validates that HelixLLM can generate high-quality developer documentation
+  including API docs, READMEs, changelogs, and configuration references.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-WF-DOC-001: Generate API docs from code
+  - name: generate-api-docs
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You generate OpenAPI 3.0 documentation from Go handler code. Output valid YAML."
+            },
+            {
+              "role": "user",
+              "content": "Generate OpenAPI 3.0 YAML docs for this Go handler:\n// CreateUser creates a new user account.\n// POST /v1/users\n// Request body: {\"name\": string (required), \"email\": string (required), \"role\": string (optional, default: \"user\")}\n// Response 201: {\"id\": string, \"name\": string, \"email\": string, \"created_at\": string}\n// Response 400: {\"error\": string}\n// Response 409: {\"error\": \"email already exists\"}\nfunc CreateUser(c *gin.Context) { ... }"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices
+      - type: contains
+        field: body.choices[0].message.role
+        expected: "assistant"
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the API docs generation task.
+
+  # CH-WF-DOC-002: Write README from project structure
+  - name: write-readme-from-structure
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You write clear, comprehensive README files for software projects."
+            },
+            {
+              "role": "user",
+              "content": "Write a README.md for this project structure:\n./cmd/server/main.go  - HTTP server entrypoint\n./internal/auth/      - JWT authentication\n./internal/handlers/  - HTTP request handlers\n./internal/store/     - PostgreSQL data layer\n./internal/cache/     - Redis caching layer\n./deploy/docker-compose.yaml\n./Makefile\nThe project is a REST API for a task management system written in Go 1.22."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the README generation task.
+
+  # CH-WF-DOC-003: Generate changelog from commits
+  - name: generate-changelog-from-commits
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You generate human-readable changelogs from git commit messages following Keep a Changelog format."
+            },
+            {
+              "role": "user",
+              "content": "Generate a CHANGELOG.md entry for version 2.4.0 from these commits:\nfeat: add streaming support for chat completions\nfeat: implement RAG document ingestion pipeline\nfix: resolve nil pointer dereference in auth middleware\nfix: correct token count in usage response\nperf: add Redis caching layer to embeddings endpoint\nchore: upgrade Go from 1.21 to 1.22\nrefactor: extract provider selection into Brain module\ndocs: add architecture diagram to README\ntest: add integration tests for /v1/messages endpoint"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the changelog generation task.
+
+  # CH-WF-DOC-004: Document configuration options
+  - name: document-configuration-options
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You generate configuration reference documentation with descriptions, types, defaults, and examples."
+            },
+            {
+              "role": "user",
+              "content": "Document these Go config struct fields as a Markdown reference table:\ntype Config struct {\n    Host         string        `yaml:\"host\" default:\"0.0.0.0\"`\n    Port         int           `yaml:\"port\" default:\"8080\"`\n    TLSEnabled   bool          `yaml:\"tls_enabled\" default:\"false\"`\n    TLSCertPath  string        `yaml:\"tls_cert_path\"`\n    TLSKeyPath   string        `yaml:\"tls_key_path\"`\n    ReadTimeout  time.Duration `yaml:\"read_timeout\" default:\"30s\"`\n    WriteTimeout time.Duration `yaml:\"write_timeout\" default:\"30s\"`\n    MaxBodyBytes int64         `yaml:\"max_body_bytes\" default:\"4194304\"`\n    LogLevel     string        `yaml:\"log_level\" default:\"info\"`\n}"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the configuration documentation task.
+
+  # CH-WF-DOC-005: Generate inline Go doc comments
+  - name: generate-godoc-comments
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You add Go doc comments to exported functions, types, and methods following Go documentation conventions."
+            },
+            {
+              "role": "user",
+              "content": "Add godoc comments to all exported identifiers in this code:\ntype RateLimiter struct {\n    rate     float64\n    burst    int\n    mu       sync.Mutex\n    tokens   float64\n    lastTime time.Time\n}\n\nfunc NewRateLimiter(rate float64, burst int) *RateLimiter {\n    return &RateLimiter{rate: rate, burst: burst, tokens: float64(burst), lastTime: time.Now()}\n}\n\nfunc (r *RateLimiter) Allow() bool {\n    r.mu.Lock()\n    defer r.mu.Unlock()\n    now := time.Now()\n    elapsed := now.Sub(r.lastTime).Seconds()\n    r.tokens = math.Min(float64(r.burst), r.tokens+elapsed*r.rate)\n    r.lastTime = now\n    if r.tokens >= 1 {\n        r.tokens--\n        return true\n    }\n    return false\n}"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the godoc comment generation task.

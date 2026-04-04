@@ -1,0 +1,196 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Debugging Workflows
+# Validates HelixLLM's ability to assist with real-world debugging scenarios.
+
+name: debugging-workflows
+version: 1.0.0
+description: |
+  Validates that HelixLLM can assist with real-world debugging tasks including
+  memory leaks, deadlocks, slow queries, intermittent failures, and network issues.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-WF-DBG-001: Debug memory leak
+  - name: debug-memory-leak
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a Go debugging expert. Identify memory leaks and explain how to fix them."
+            },
+            {
+              "role": "user",
+              "content": "My Go service's memory grows unboundedly over time. Here's the relevant code:\nvar cache = make(map[string]*Response)\n\nfunc handleRequest(key string, resp *Response) {\n    cache[key] = resp\n    go func() {\n        time.Sleep(5 * time.Minute)\n        // intended cleanup but never runs\n    }()\n}\nWhy is memory growing and how do I fix it?"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices
+      - type: contains
+        field: body.choices[0].message.role
+        expected: "assistant"
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the memory leak debugging task.
+
+  # CH-WF-DBG-002: Debug deadlock
+  - name: debug-deadlock
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a Go concurrency expert. Identify deadlocks and explain the fix."
+            },
+            {
+              "role": "user",
+              "content": "My application hangs intermittently. Here is the goroutine stack trace snippet and locking code:\nvar mu1, mu2 sync.Mutex\n\nfunc workerA() {\n    mu1.Lock()\n    defer mu1.Unlock()\n    mu2.Lock()\n    defer mu2.Unlock()\n}\n\nfunc workerB() {\n    mu2.Lock()\n    defer mu2.Unlock()\n    mu1.Lock()\n    defer mu1.Unlock()\n}\nExplain the deadlock and how to resolve it."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the deadlock debugging task.
+
+  # CH-WF-DBG-003: Debug slow query
+  - name: debug-slow-query
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a database performance expert. Analyze slow queries and recommend optimizations."
+            },
+            {
+              "role": "user",
+              "content": "This SQL query takes 45 seconds on a table with 10 million rows:\nSELECT u.name, COUNT(o.id) as order_count\nFROM users u\nLEFT JOIN orders o ON o.user_id = u.id\nWHERE u.created_at > '2024-01-01'\nAND o.status = 'completed'\nGROUP BY u.id\nORDER BY order_count DESC;\nThe EXPLAIN output shows a full table scan. What indexes should I add and why?"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the slow query debugging task.
+
+  # CH-WF-DBG-004: Debug intermittent test failure
+  - name: debug-intermittent-test-failure
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a test reliability expert. Diagnose flaky tests and suggest fixes."
+            },
+            {
+              "role": "user",
+              "content": "This test fails about 1 in 20 runs. It sometimes gets 99 instead of 100:\nfunc TestConcurrentCounter(t *testing.T) {\n    var wg sync.WaitGroup\n    counter := 0\n    for i := 0; i < 100; i++ {\n        wg.Add(1)\n        go func() {\n            defer wg.Done()\n            counter++\n        }()\n    }\n    wg.Wait()\n    if counter != 100 {\n        t.Errorf(\"got %d, want 100\", counter)\n    }\n}\nWhy is this flaky and how do I fix it?"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the intermittent test failure debugging task.
+
+  # CH-WF-DBG-005: Debug network timeout
+  - name: debug-network-timeout
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a network debugging expert. Diagnose timeout issues in Go HTTP clients."
+            },
+            {
+              "role": "user",
+              "content": "My Go service intermittently gets 'context deadline exceeded' errors when calling a downstream API. The downstream service reports requests complete in under 200ms. My code:\nclient := &http.Client{Timeout: 5 * time.Second}\nresp, err := client.Get(\"http://downstream-service/api/data\")\nWhat could cause timeouts even though the downstream is fast? List 5 possible root causes and how to diagnose each."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the network timeout debugging task.
+
+  # CH-WF-DBG-006: Debug goroutine leak
+  - name: debug-goroutine-leak
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a Go runtime expert. Identify goroutine leaks and explain remediation."
+            },
+            {
+              "role": "user",
+              "content": "My service's goroutine count grows by ~10 per minute as seen in pprof. Here is a pattern I repeat for each request:\nfunc handleEvent(event Event) {\n    ch := make(chan Result)\n    go func() {\n        ch <- process(event)\n    }()\n    select {\n    case result := <-ch:\n        log.Println(result)\n    case <-time.After(100 * time.Millisecond):\n        log.Println(\"timeout\")\n        return\n    }\n}\nWhy are goroutines leaking and how do I fix it?"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the goroutine leak debugging task.

@@ -1,0 +1,323 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Developer Coding Workflows
+# Real-world developer coding tasks sent to HelixLLM as chat completions.
+
+name: developer-coding-workflows
+version: 1.0.0
+description: |
+  Validates that HelixLLM can handle real-world developer coding tasks.
+  Each step submits a representative coding prompt and asserts that the
+  model returns a non-empty assistant response.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-WF-COD-001: Parse CSV
+  - name: write-csv-parser
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Write a Go function that parses a CSV string into a slice of string slices. Handle quoted fields and escaped commas."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices
+      - type: contains
+        field: body.choices[0].message.role
+        expected: "assistant"
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the CSV parser coding task.
+
+  # CH-WF-COD-002: REST API endpoint
+  - name: implement-rest-endpoint
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Implement a REST API endpoint in Go using the net/http package that accepts a POST request to /users, validates the JSON body (name and email required), and returns 201 on success or 400 on validation failure."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the REST endpoint task.
+
+  # CH-WF-COD-003: Refactor for readability
+  - name: refactor-function
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Refactor this function for readability: func p(s []int) int { r := 0; for i := 0; i < len(s); i++ { if s[i] > 0 { r += s[i] } }; return r }"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the refactoring task.
+
+  # CH-WF-COD-004: Fix null pointer bug
+  - name: fix-null-pointer-bug
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Fix the nil pointer dereference in this Go code:\nfunc getUserName(u *User) string {\n    return u.Name\n}\nExplain what guard you added and why."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the nil pointer fix task.
+
+  # CH-WF-COD-005: Add error handling
+  - name: add-error-handling
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Add proper error handling to this Go snippet that opens a file and reads its contents:\nf, _ := os.Open(path)\nb, _ := io.ReadAll(f)\nreturn string(b)"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the error handling task.
+
+  # CH-WF-COD-006: Write database migration
+  - name: write-database-migration
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Write a SQL migration script that adds a 'last_login' TIMESTAMP column (nullable) to an existing 'users' table, creates an index on it, and includes the corresponding rollback."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the database migration task.
+
+  # CH-WF-COD-007: Implement rate limiting
+  - name: implement-rate-limiting
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Implement a token-bucket rate limiter in Go that allows N requests per second per client IP. It should be safe for concurrent use."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the rate limiting task.
+
+  # CH-WF-COD-008: CLI argument parser
+  - name: create-cli-argument-parser
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Create a CLI argument parser in Go using the flag package that accepts --host, --port (int, default 8080), --verbose (bool flag), and --config (path). Print usage on --help."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the CLI argument parser task.
+
+  # CH-WF-COD-009: Concurrent worker pool
+  - name: write-concurrent-worker-pool
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Write a concurrent worker pool in Go with a configurable number of workers. It should accept jobs via a channel, process them concurrently, and return results via a separate results channel. Include graceful shutdown."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the worker pool task.
+
+  # CH-WF-COD-010: Cache with TTL
+  - name: implement-cache-with-ttl
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Implement a generic in-memory cache in Go with TTL expiration. It should support Get, Set, and Delete operations. Expired entries must not be returned and should be cleaned up periodically."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the TTL cache implementation task.
+
+  # CH-WF-COD-011: JSON schema validator
+  - name: write-json-schema-validator
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Write a Go function that validates a JSON object against a simple schema (required fields, type checks for string/int/bool). Return structured validation errors."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the JSON schema validator task.
+
+  # CH-WF-COD-012: Retry with exponential backoff
+  - name: implement-retry-backoff
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Implement a retry helper in Go that executes a function with exponential backoff and jitter. It should accept max attempts, base delay, and a context for cancellation."
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a response for the retry with backoff task.

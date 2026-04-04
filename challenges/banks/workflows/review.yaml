@@ -1,0 +1,197 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Code Review Workflows
+# Validates HelixLLM's ability to perform code reviews across various quality dimensions.
+
+name: code-review-workflows
+version: 1.0.0
+description: |
+  Validates that HelixLLM can act as a code reviewer, identifying security
+  vulnerabilities, performance issues, missing test coverage, API design
+  problems, and concurrency bugs.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-WF-REV-001: Review PR for security issues
+  - name: review-pr-security
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a security-focused code reviewer. Identify all security vulnerabilities, explain each one, and suggest fixes."
+            },
+            {
+              "role": "user",
+              "content": "Review this Go HTTP handler for security issues:\nfunc searchHandler(w http.ResponseWriter, r *http.Request) {\n    query := r.URL.Query().Get(\"q\")\n    db.QueryRow(\"SELECT * FROM users WHERE name = '\" + query + \"'\")\n    w.Header().Set(\"Access-Control-Allow-Origin\", \"*\")\n    fmt.Fprintf(w, query)\n}"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices
+      - type: contains
+        field: body.choices[0].message.role
+        expected: "assistant"
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a security review response.
+
+  # CH-WF-REV-002: Review PR for performance issues
+  - name: review-pr-performance
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a performance-focused code reviewer. Identify inefficiencies and suggest optimizations with complexity analysis."
+            },
+            {
+              "role": "user",
+              "content": "Review this function for performance issues:\nfunc findDuplicates(items []string) []string {\n    var dupes []string\n    for i := 0; i < len(items); i++ {\n        for j := i + 1; j < len(items); j++ {\n            if items[i] == items[j] {\n                dupes = append(dupes, items[i])\n            }\n        }\n    }\n    return dupes\n}"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a performance review response.
+
+  # CH-WF-REV-003: Review PR for test coverage
+  - name: review-pr-test-coverage
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are reviewing a pull request for test coverage. List all untested code paths, edge cases, and suggest missing test cases."
+            },
+            {
+              "role": "user",
+              "content": "Review test coverage for this function and its test:\nfunc Divide(a, b float64) (float64, error) {\n    if b == 0 {\n        return 0, errors.New(\"division by zero\")\n    }\n    return a / b, nil\n}\n\nfunc TestDivide(t *testing.T) {\n    result, err := Divide(10, 2)\n    if err != nil || result != 5 {\n        t.Fail()\n    }\n}"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a test coverage review response.
+
+  # CH-WF-REV-004: Review PR for API design
+  - name: review-pr-api-design
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an API design expert. Review the proposed REST API for REST compliance, naming conventions, versioning, and usability."
+            },
+            {
+              "role": "user",
+              "content": "Review this API design:\nPOST /doCreateUser\nGET  /getUser?userId=123\nPOST /updateUserData\nGET  /deleteUser?id=123\nPOST /users/getAllUsers"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return an API design review response.
+
+  # CH-WF-REV-005: Identify race conditions
+  - name: review-identify-race-conditions
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a concurrency expert. Identify all race conditions and data races in the provided Go code and suggest fixes."
+            },
+            {
+              "role": "user",
+              "content": "Find race conditions in this code:\nvar counter int\n\nfunc increment() {\n    counter++\n}\n\nfunc main() {\n    for i := 0; i < 100; i++ {\n        go increment()\n    }\n    time.Sleep(time.Second)\n    fmt.Println(counter)\n}"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a race condition review response.
+
+  # CH-WF-REV-006: Review dependency management
+  - name: review-dependency-management
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are reviewing a pull request for dependency management best practices."
+            },
+            {
+              "role": "user",
+              "content": "Review this go.mod snippet for dependency management issues:\nrequire (\n    github.com/some/lib v0.0.1\n    github.com/another/lib latest\n    github.com/old/lib v1.0.0 // deprecated, CVE-2024-1234\n)\nreplace github.com/some/lib => ../local/lib"
+            }
+          ]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Model did not return a dependency review response.
