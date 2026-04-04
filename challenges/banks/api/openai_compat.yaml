@@ -1,0 +1,133 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: OpenAI API Compatibility
+# Validates that HelixLLM's OpenAI-compatible endpoints conform to the spec.
+
+name: openai-api-compatibility
+version: 1.0.0
+description: |
+  Validates that HelixLLM's /v1 endpoints are compatible with the OpenAI API
+  specification. Covers chat completions (streaming and non-streaming), legacy
+  completions, model listing, model retrieval, and embeddings.
+
+platforms:
+  - linux
+
+timeout: 5m
+
+steps:
+  # CH-API-001: Non-streaming chat completions
+  - name: chat-completions-non-streaming
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.object
+        expected: "chat.completion"
+      - type: not_empty
+        field: body.choices
+      - type: contains
+        field: body.choices[0].message.role
+        expected: "assistant"
+      - type: contains
+        field: body.choices[0].finish_reason
+        expected: "stop"
+    on_failure: |
+      Non-streaming chat completions endpoint did not return a valid response.
+
+  # CH-API-002: Streaming chat completions
+  - name: chat-completions-streaming
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "stream": true
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: headers.Content-Type
+        expected: "text/event-stream"
+      - type: contains
+        field: body
+        expected: "data: [DONE]"
+      - type: contains
+        field: body
+        expected: "chat.completion.chunk"
+    on_failure: |
+      Streaming chat completions did not produce valid SSE stream.
+
+  # CH-API-003: List models
+  - name: list-models
+    type: http_request
+    params:
+      method: GET
+      path: /v1/models
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.object
+        expected: "list"
+      - type: not_empty
+        field: body.data
+    on_failure: |
+      GET /v1/models did not return a valid model list.
+
+  # CH-API-004: Get model by ID
+  - name: get-model-by-id
+    type: http_request
+    params:
+      method: GET
+      path: /v1/models/llama-3.1-70b
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.id
+        expected: "llama-3.1-70b"
+      - type: contains
+        field: body.object
+        expected: "model"
+    on_failure: |
+      GET /v1/models/:id did not return the requested model.
+
+  # CH-API-005: Embeddings
+  - name: embeddings
+    type: http_request
+    params:
+      method: POST
+      path: /v1/embeddings
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "text-embedding-ada-002",
+          "input": "Hello world"
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.object
+        expected: "list"
+      - type: not_empty
+        field: body.data
+      - type: not_empty
+        field: body.data[0].embedding
+    on_failure: |
+      POST /v1/embeddings did not return a valid embedding response.

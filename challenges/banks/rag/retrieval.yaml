@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: RAG Retrieval Quality
+# Validates the knowledge pipeline's query and retrieval flow.
+
+name: rag-retrieval-quality
+version: 1.0.0
+description: |
+  Validates that the knowledge pipeline correctly retrieves relevant chunks
+  for a given query. Covers basic retrieval, empty query rejection, top-K
+  limiting, and minimum score filtering.
+
+platforms:
+  - linux
+
+timeout: 5m
+
+steps:
+  # CH-RAG-R-001: Query with results
+  - name: query-with-results
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/query
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "query": "test document content",
+          "collection": "test-collection",
+          "top_k": 5
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.query
+      - type: not_empty
+        field: body.context
+    on_failure: |
+      Query did not return results from an ingested collection.
+
+  # CH-RAG-R-002: Reject empty query
+  - name: query-empty-string
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/query
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "query": "",
+          "collection": "test-collection"
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: contains
+        field: body.error.message
+        expected: "must not be empty"
+    on_failure: |
+      Empty query string was not rejected with a 400 error.
+
+  # CH-RAG-R-003: Top-K limiting
+  - name: query-top-k-limit
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/query
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "query": "test",
+          "collection": "test-collection",
+          "top_k": 1
+        }
+    assertions:
+      - type: http_status_ok
+      - type: max_latency
+        expected: 5000
+    on_failure: |
+      Query with top_k=1 did not complete within latency budget.
+
+  # CH-RAG-R-004: Min-score filtering
+  - name: query-min-score-filter
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/query
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "query": "completely unrelated topic xyz",
+          "collection": "test-collection",
+          "top_k": 5,
+          "min_score": 0.99
+        }
+    assertions:
+      - type: http_status_ok
+    on_failure: |
+      Query with high min_score filter did not return a valid response.

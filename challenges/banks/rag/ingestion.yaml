@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: RAG Ingestion
+# Validates the knowledge pipeline's document ingestion flow.
+
+name: rag-ingestion
+version: 1.0.0
+description: |
+  Validates that the knowledge pipeline correctly ingests documents: chunking,
+  embedding, and storing. Covers successful ingestion, empty content rejection,
+  empty collection rejection, and chunk count verification.
+
+platforms:
+  - linux
+
+timeout: 5m
+
+steps:
+  # CH-RAG-I-001: Successful document ingestion
+  - name: ingest-document
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/ingest
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "title": "Test Document",
+          "content": "This is a test document with enough content to be chunked into at least one piece for the vector store.",
+          "collection": "test-collection",
+          "source": "unit-test"
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.document_id
+      - type: min_count
+        field: body.chunks
+        expected: 1
+      - type: contains
+        field: body.collection
+        expected: "test-collection"
+    on_failure: |
+      Document ingestion did not return a valid result with document_id and chunks.
+
+  # CH-RAG-I-002: Reject empty content
+  - name: ingest-empty-content
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/ingest
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "title": "Empty",
+          "content": "",
+          "collection": "test-collection"
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: contains
+        field: body.error.message
+        expected: "must not be empty"
+    on_failure: |
+      Empty content was not rejected with a 400 error.
+
+  # CH-RAG-I-003: Reject empty collection
+  - name: ingest-empty-collection
+    type: http_request
+    params:
+      method: POST
+      path: /internal/knowledge/ingest
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "title": "No Collection",
+          "content": "Some content here.",
+          "collection": ""
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: contains
+        field: body.error.message
+        expected: "must not be empty"
+    on_failure: |
+      Empty collection was not rejected with a 400 error.
+
+  # CH-RAG-I-004: Collection listing after ingestion
+  - name: list-collections-after-ingest
+    type: http_request
+    params:
+      method: GET
+      path: /internal/knowledge/collections
+    assertions:
+      - type: http_status_ok
+    on_failure: |
+      GET /internal/knowledge/collections did not return 200.

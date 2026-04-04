@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Anthropic API Compatibility
+# Validates that HelixLLM's Anthropic-compatible endpoints conform to the spec.
+
+name: anthropic-api-compatibility
+version: 1.0.0
+description: |
+  Validates that HelixLLM's /v1/messages endpoint is compatible with the
+  Anthropic Messages API specification. Covers non-streaming and streaming
+  responses, system prompts, and max_tokens enforcement.
+
+platforms:
+  - linux
+
+timeout: 5m
+
+steps:
+  # CH-ANT-001: Non-streaming messages
+  - name: messages-non-streaming
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+        anthropic-version: "2023-06-01"
+      body: |
+        {
+          "model": "claude-sonnet-4-20250514",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "max_tokens": 1024
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.type
+        expected: "message"
+      - type: contains
+        field: body.role
+        expected: "assistant"
+      - type: not_empty
+        field: body.content
+      - type: contains
+        field: body.content[0].type
+        expected: "text"
+    on_failure: |
+      Non-streaming messages endpoint did not return a valid Anthropic response.
+
+  # CH-ANT-002: Streaming messages
+  - name: messages-streaming
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "claude-sonnet-4-20250514",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "max_tokens": 1024,
+          "stream": true
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: headers.Content-Type
+        expected: "text/event-stream"
+      - type: contains
+        field: body
+        expected: "event: message_start"
+      - type: contains
+        field: body
+        expected: "event: content_block_delta"
+      - type: contains
+        field: body
+        expected: "event: message_stop"
+    on_failure: |
+      Streaming messages did not produce the expected Anthropic SSE event sequence.
+
+  # CH-ANT-003: System prompt support
+  - name: messages-with-system-prompt
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "claude-sonnet-4-20250514",
+          "system": "You are a helpful coding assistant.",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "max_tokens": 1024
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.type
+        expected: "message"
+    on_failure: |
+      Messages endpoint did not accept system prompt field.
+
+  # CH-ANT-004: Invalid request body
+  - name: messages-invalid-body
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+      body: "{invalid json"
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Messages endpoint did not return 400 for invalid request body.

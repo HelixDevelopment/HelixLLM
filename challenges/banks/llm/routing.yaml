@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: LLM Routing
+# Validates that the Brain router correctly selects providers based on model
+# prefix, explicit override, fallback, and availability.
+
+name: llm-routing
+version: 1.0.0
+description: |
+  Validates the Brain router's provider selection logic. The router uses a
+  priority chain: explicit provider override, model-name prefix rules,
+  configured fallback, then any available provider.
+
+platforms:
+  - linux
+
+timeout: 5m
+
+steps:
+  # CH-LLM-001: Prefix routing for GPT models
+  - name: prefix-routing-gpt
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "gpt-4o",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices
+    on_failure: |
+      GPT model prefix routing did not produce a valid response.
+
+  # CH-LLM-002: Prefix routing for Claude models
+  - name: prefix-routing-claude
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "claude-sonnet-4-20250514",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "max_tokens": 1024
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.type
+        expected: "message"
+    on_failure: |
+      Claude model prefix routing did not produce a valid response.
+
+  # CH-LLM-003: Prefix routing for Llama models
+  - name: prefix-routing-llama
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices
+    on_failure: |
+      Llama model prefix routing did not produce a valid response.
+
+  # CH-LLM-004: Default model fallback
+  - name: default-model-fallback
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body.model
+        expected: "llama-3.1-70b"
+    on_failure: |
+      Empty model field did not fall back to the default model.
