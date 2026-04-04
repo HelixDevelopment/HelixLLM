@@ -67,3 +67,82 @@ func TestConfigValidation(t *testing.T) {
 		t.Errorf("Validate() error = %v for valid config", err)
 	}
 }
+
+func TestConfigValidation_InvalidPort(t *testing.T) {
+	cfg := &config.HelixConfig{Mode: "full"}
+	cfg.Server.Port = 0
+	cfg.Log.Level = "info"
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() should fail for port 0")
+	}
+
+	cfg.Server.Port = 70000
+	err = cfg.Validate()
+	if err == nil {
+		t.Error("Validate() should fail for port > 65535")
+	}
+}
+
+func TestConfigValidation_InvalidLogLevel(t *testing.T) {
+	cfg := &config.HelixConfig{Mode: "full"}
+	cfg.Server.Port = 8443
+	cfg.Log.Level = "trace"
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("Validate() should fail for invalid log level")
+	}
+}
+
+func TestConfigValidation_AllModes(t *testing.T) {
+	modes := []string{"full", "gateway", "brain", "knowledge", "agents", "control"}
+	for _, m := range modes {
+		cfg := &config.HelixConfig{Mode: m}
+		cfg.Server.Port = 8443
+		cfg.Log.Level = "info"
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error for valid mode %q: %v", m, err)
+		}
+	}
+}
+
+func TestHostList(t *testing.T) {
+	cfg := &config.HelixConfig{Hosts: "host1,host2,host3"}
+	hosts := cfg.HostList()
+	if len(hosts) != 3 {
+		t.Fatalf("HostList() len = %d, want 3", len(hosts))
+	}
+	if hosts[0] != "host1" || hosts[1] != "host2" || hosts[2] != "host3" {
+		t.Errorf("HostList() = %v, want [host1 host2 host3]", hosts)
+	}
+}
+
+func TestHostList_Empty(t *testing.T) {
+	cfg := &config.HelixConfig{Hosts: ""}
+	hosts := cfg.HostList()
+	if hosts != nil {
+		t.Errorf("HostList() = %v, want nil for empty hosts", hosts)
+	}
+}
+
+func TestHostList_TrimSpaces(t *testing.T) {
+	cfg := &config.HelixConfig{Hosts: " host1 , host2 "}
+	hosts := cfg.HostList()
+	if len(hosts) != 2 {
+		t.Fatalf("HostList() len = %d, want 2", len(hosts))
+	}
+	if hosts[0] != "host1" || hosts[1] != "host2" {
+		t.Errorf("HostList() = %v, want [host1 host2]", hosts)
+	}
+}
+
+func TestHostList_Single(t *testing.T) {
+	cfg := &config.HelixConfig{Hosts: "nezha.local"}
+	hosts := cfg.HostList()
+	if len(hosts) != 1 {
+		t.Fatalf("HostList() len = %d, want 1", len(hosts))
+	}
+	if hosts[0] != "nezha.local" {
+		t.Errorf("HostList()[0] = %q, want %q", hosts[0], "nezha.local")
+	}
+}

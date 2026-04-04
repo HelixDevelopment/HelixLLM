@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -290,6 +291,262 @@ func TestChatCompletions_WithBrain_Streaming(t *testing.T) {
 	}
 	if !strings.Contains(bodyStr, "Hello") {
 		t.Error("stream missing expected content token")
+	}
+}
+
+func TestChatCompletions_BadJSON(t *testing.T) {
+	r := setupOpenAIRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader("{invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestCompletions_NonStreaming(t *testing.T) {
+	r := setupOpenAIRouter()
+	body, _ := json.Marshal(api.CompletionRequest{
+		Model:  "llama-3.1-70b",
+		Prompt: "Hello",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp api.CompletionResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Object != "text_completion" {
+		t.Errorf("object = %q, want text_completion", resp.Object)
+	}
+}
+
+func TestCompletions_BadJSON(t *testing.T) {
+	r := setupOpenAIRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/completions", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestEmbeddings_BadJSON(t *testing.T) {
+	r := setupOpenAIRouter()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestEmbeddings_DefaultModel(t *testing.T) {
+	r := setupOpenAIRouter()
+	body, _ := json.Marshal(api.EmbeddingRequest{Input: "test"})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp api.EmbeddingResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Model != "text-embedding-ada-002" {
+		t.Errorf("model = %q, want text-embedding-ada-002", resp.Model)
+	}
+}
+
+func TestChatCompletions_WithBrain_Error(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+		err:       fmt.Errorf("provider error"),
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b))
+
+	body, _ := json.Marshal(api.ChatCompletionRequest{
+		Model:    "gpt-4o",
+		Messages: []api.ChatMessage{{Role: "user", Content: "Hello"}},
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestChatCompletions_WithBrain_StreamError(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+		err:       fmt.Errorf("stream error"),
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b))
+
+	body, _ := json.Marshal(api.ChatCompletionRequest{
+		Model:    "gpt-4o",
+		Messages: []api.ChatMessage{{Role: "user", Content: "Hello"}},
+		Stream:   true,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestCompletions_WithBrain(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+		response: &types.InternalChatResponse{
+			ID:           "cmpl-brain-1",
+			Model:        "gpt-4o",
+			Message:      types.InternalMessage{Role: types.RoleAssistant, Content: "Brain completion"},
+			FinishReason: "stop",
+			Provider:     types.ProviderOpenAI,
+		},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/completions", gateway.HandleCompletions(b))
+
+	temp := float64(0.7)
+	maxTok := 100
+	body, _ := json.Marshal(api.CompletionRequest{
+		Model:       "gpt-4o",
+		Prompt:      "Hello",
+		Temperature: &temp,
+		MaxTokens:   &maxTok,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var resp api.CompletionResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Choices) == 0 || resp.Choices[0].Text != "Brain completion" {
+		t.Errorf("unexpected completion response: %+v", resp)
+	}
+}
+
+func TestCompletions_WithBrain_Error(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+		err:       fmt.Errorf("completion error"),
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/completions", gateway.HandleCompletions(b))
+
+	body, _ := json.Marshal(api.CompletionRequest{Model: "gpt-4o", Prompt: "Hello"})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestGetModel_WithBrain(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/v1/models/:id", gateway.HandleGetModel(b))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/v1/models/gpt-4o", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestGetModel_WithBrain_NotFound(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/v1/models/:id", gateway.HandleGetModel(b))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/v1/models/nonexistent", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestChatCompletions_DefaultModel(t *testing.T) {
+	r := setupOpenAIRouter()
+	body, _ := json.Marshal(api.ChatCompletionRequest{
+		Messages: []api.ChatMessage{{Role: "user", Content: "Hello"}},
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp api.ChatCompletionResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Model != "llama-3.1-70b" {
+		t.Errorf("default model = %q, want llama-3.1-70b", resp.Model)
 	}
 }
 

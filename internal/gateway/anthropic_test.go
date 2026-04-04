@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -127,6 +128,137 @@ func TestMessages_WithBrain_NonStreaming(t *testing.T) {
 	}
 	if resp.Content[0].Text != "Brain anthropic reply" {
 		t.Errorf("text = %q, want %q", resp.Content[0].Text, "Brain anthropic reply")
+	}
+}
+
+func TestMessages_BadJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(nil))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestMessages_WithBrain_Error(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "anthropic",
+		available: true,
+		models:    []string{"claude-opus-4-5"},
+		err:       fmt.Errorf("brain error"),
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(b))
+
+	body, _ := json.Marshal(api.MessageRequest{
+		Model:     "claude-opus-4-5",
+		Messages:  []api.AnthropicMessage{{Role: "user", Content: "Hello"}},
+		MaxTokens: 1024,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestMessages_WithBrain_StreamError(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "anthropic",
+		available: true,
+		models:    []string{"claude-opus-4-5"},
+		err:       fmt.Errorf("stream error"),
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(b))
+
+	body, _ := json.Marshal(api.MessageRequest{
+		Model:     "claude-opus-4-5",
+		Messages:  []api.AnthropicMessage{{Role: "user", Content: "Hello"}},
+		MaxTokens: 1024,
+		Stream:    true,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 500 {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestMessages_DefaultModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(nil))
+
+	body, _ := json.Marshal(api.MessageRequest{
+		Messages:  []api.AnthropicMessage{{Role: "user", Content: "Hello"}},
+		MaxTokens: 1024,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp api.MessageResponse
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("default model = %q, want claude-sonnet-4-20250514", resp.Model)
+	}
+}
+
+func TestMessages_WithBrain_SystemPrompt(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "anthropic",
+		available: true,
+		models:    []string{"claude-opus-4-5"},
+		response: &types.InternalChatResponse{
+			ID:           "msg-sys-1",
+			Model:        "claude-opus-4-5",
+			Message:      types.InternalMessage{Role: types.RoleAssistant, Content: "System aware reply"},
+			FinishReason: "end_turn",
+			Provider:     types.ProviderAnthropic,
+		},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(b))
+
+	body, _ := json.Marshal(api.MessageRequest{
+		Model:     "claude-opus-4-5",
+		Messages:  []api.AnthropicMessage{{Role: "user", Content: "Hello"}},
+		MaxTokens: 1024,
+		System:    "You are a helpful assistant.",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 }
 

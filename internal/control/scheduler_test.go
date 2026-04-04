@@ -305,6 +305,49 @@ func TestScheduler_Schedule_InsufficientResources(t *testing.T) {
 	}
 }
 
+func TestScheduler_Schedule_LatencyOptimized(t *testing.T) {
+	hosts := []HostProfile{
+		makeHost("host1", 16, 65536, 1000000, false),
+		makeHost("host2", 16, 65536, 1000000, false),
+	}
+	services := []ServiceRequirement{
+		{Name: "gateway", Image: "gateway:latest", CPUCores: 2,
+			MemoryMB: 2048, Strategy: "latency_optimized"},
+	}
+
+	sched := NewScheduler("auto")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	// Latency optimized should still produce a valid placement.
+	if results[0].Score <= 0 {
+		t.Errorf("Score = %f, want > 0", results[0].Score)
+	}
+}
+
+func TestScheduler_Schedule_AllOffline(t *testing.T) {
+	hosts := []HostProfile{
+		makeHost("h1", 16, 65536, 1000000, false),
+		makeHost("h2", 16, 65536, 1000000, false),
+	}
+	hosts[0].State = "offline"
+	hosts[1].State = "offline"
+
+	services := []ServiceRequirement{
+		{Name: "svc", Image: "app:1"},
+	}
+
+	sched := NewScheduler("auto")
+	_, err := sched.Schedule(hosts, services)
+	if err == nil {
+		t.Fatal("expected error when all hosts are offline")
+	}
+}
+
 func TestScheduler_MapStrategy(t *testing.T) {
 	tests := []struct {
 		input string

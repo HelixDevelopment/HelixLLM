@@ -250,6 +250,73 @@ func TestDeployer_Deploy_UsesCorrectRuntime(t *testing.T) {
 	}
 }
 
+func TestDeployer_SetRuntime(t *testing.T) {
+	mock := newDeployMockSSH()
+	deployer := NewDeployer(mock, "user", "key")
+
+	deployer.SetRuntime("docker")
+
+	placement := PlacementResult{
+		Service:  ServiceRequirement{Name: "svc", Image: "img"},
+		HostName: "host1",
+	}
+
+	_, err := deployer.Deploy(context.Background(), placement)
+	if err != nil {
+		t.Fatalf("Deploy() error: %v", err)
+	}
+
+	// Commands should use docker.
+	for _, run := range mock.runs {
+		if !strings.Contains(run.Command, "docker") {
+			t.Errorf("command should use docker: %q", run.Command)
+		}
+	}
+}
+
+func TestDeployer_SetRuntime_EmptyIgnored(t *testing.T) {
+	mock := newDeployMockSSH()
+	deployer := NewDeployer(mock, "user", "key")
+
+	deployer.SetRuntime("") // Should not change from default podman.
+
+	placement := PlacementResult{
+		Service:  ServiceRequirement{Name: "svc", Image: "img"},
+		HostName: "host1",
+	}
+
+	_, err := deployer.Deploy(context.Background(), placement)
+	if err != nil {
+		t.Fatalf("Deploy() error: %v", err)
+	}
+
+	for _, run := range mock.runs {
+		if !strings.Contains(run.Command, "podman") {
+			t.Errorf("command should still use podman: %q", run.Command)
+		}
+	}
+}
+
+func TestDeployer_Undeploy_SSHError(t *testing.T) {
+	mock := newDeployMockSSH()
+	mock.errors["host1"] = fmt.Errorf("SSH connection lost")
+
+	deployer := NewDeployer(mock, "user", "key")
+	dep := DeploymentInfo{
+		ServiceName: "redis",
+		HostName:    "host1",
+		State:       "running",
+	}
+
+	err := deployer.Undeploy(context.Background(), dep)
+	if err == nil {
+		t.Fatal("expected error for SSH failure during undeploy")
+	}
+	if !strings.Contains(err.Error(), "undeploy") {
+		t.Errorf("error = %q, want to contain 'undeploy'", err.Error())
+	}
+}
+
 func TestDeployer_DeployAll_Empty(t *testing.T) {
 	mock := newDeployMockSSH()
 	deployer := NewDeployer(mock, "user", "key")
