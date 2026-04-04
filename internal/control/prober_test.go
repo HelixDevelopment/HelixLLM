@@ -306,6 +306,136 @@ func TestProber_ProbeAll_Empty(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Parse helper edge-case tests (package-internal tests)
+// ---------------------------------------------------------------------------
+
+func TestParseInt_Valid(t *testing.T) {
+	if got := parseInt("42", 0); got != 42 {
+		t.Errorf("parseInt(\"42\", 0) = %d, want 42", got)
+	}
+}
+
+func TestParseInt_Invalid(t *testing.T) {
+	if got := parseInt("notanumber", 7); got != 7 {
+		t.Errorf("parseInt(\"notanumber\", 7) = %d, want 7 (default)", got)
+	}
+}
+
+func TestParseInt_Empty(t *testing.T) {
+	if got := parseInt("", 5); got != 5 {
+		t.Errorf("parseInt(\"\", 5) = %d, want 5 (default)", got)
+	}
+}
+
+func TestParseUint64_Valid(t *testing.T) {
+	if got := parseUint64("12345678"); got != 12345678 {
+		t.Errorf("parseUint64(\"12345678\") = %d, want 12345678", got)
+	}
+}
+
+func TestParseUint64_Invalid(t *testing.T) {
+	if got := parseUint64("bad"); got != 0 {
+		t.Errorf("parseUint64(\"bad\") = %d, want 0", got)
+	}
+}
+
+func TestParseUint64_Negative(t *testing.T) {
+	if got := parseUint64("-1"); got != 0 {
+		t.Errorf("parseUint64(\"-1\") = %d, want 0", got)
+	}
+}
+
+func TestParseGPU_Empty(t *testing.T) {
+	profile := &HostProfile{}
+	parseGPU("", profile)
+	if profile.GPU != nil {
+		t.Error("expected nil GPU for empty output")
+	}
+}
+
+func TestParseGPU_InsufficientParts(t *testing.T) {
+	profile := &HostProfile{}
+	parseGPU("NVIDIA RTX 4090", profile) // only 1 part, need 3
+	if profile.GPU != nil {
+		t.Error("expected nil GPU for insufficient CSV parts")
+	}
+}
+
+func TestParseGPU_EmptyName(t *testing.T) {
+	profile := &HostProfile{}
+	parseGPU(", 24576, 535.129.03", profile) // name is blank
+	if profile.GPU != nil {
+		t.Error("expected nil GPU for empty name")
+	}
+}
+
+func TestParseGPU_Valid(t *testing.T) {
+	profile := &HostProfile{}
+	parseGPU("NVIDIA RTX 4090, 24576, 535.129.03", profile)
+	if profile.GPU == nil {
+		t.Fatal("expected non-nil GPU")
+	}
+	if profile.GPU.Name != "NVIDIA RTX 4090" {
+		t.Errorf("GPU.Name = %q, want %q", profile.GPU.Name, "NVIDIA RTX 4090")
+	}
+	if profile.GPU.MemoryMB != 24576 {
+		t.Errorf("GPU.MemoryMB = %d, want 24576", profile.GPU.MemoryMB)
+	}
+	if profile.GPU.Driver != "535.129.03" {
+		t.Errorf("GPU.Driver = %q, want %q", profile.GPU.Driver, "535.129.03")
+	}
+}
+
+func TestParseRuntime_None(t *testing.T) {
+	profile := &HostProfile{}
+	parseRuntime("none", profile)
+	if profile.ContainerRuntime.Name != "none" {
+		t.Errorf("ContainerRuntime.Name = %q, want none", profile.ContainerRuntime.Name)
+	}
+	if profile.ContainerRuntime.Version != "" {
+		t.Errorf("ContainerRuntime.Version = %q, want empty", profile.ContainerRuntime.Version)
+	}
+}
+
+func TestParseRuntime_Empty(t *testing.T) {
+	profile := &HostProfile{}
+	parseRuntime("", profile)
+	if profile.ContainerRuntime.Name != "none" {
+		t.Errorf("ContainerRuntime.Name = %q, want none for empty", profile.ContainerRuntime.Name)
+	}
+}
+
+func TestParseRuntime_MultiLine(t *testing.T) {
+	profile := &HostProfile{}
+	parseRuntime("4.9.0\npodman", profile)
+	if profile.ContainerRuntime.Name != "podman" {
+		t.Errorf("ContainerRuntime.Name = %q, want podman", profile.ContainerRuntime.Name)
+	}
+	if profile.ContainerRuntime.Version != "4.9.0" {
+		t.Errorf("ContainerRuntime.Version = %q, want 4.9.0", profile.ContainerRuntime.Version)
+	}
+}
+
+func TestParseRuntime_SingleLineSpaced(t *testing.T) {
+	profile := &HostProfile{}
+	parseRuntime("docker 24.0.7", profile)
+	if profile.ContainerRuntime.Name != "docker" {
+		t.Errorf("ContainerRuntime.Name = %q, want docker", profile.ContainerRuntime.Name)
+	}
+	if profile.ContainerRuntime.Version != "24.0.7" {
+		t.Errorf("ContainerRuntime.Version = %q, want 24.0.7", profile.ContainerRuntime.Version)
+	}
+}
+
+func TestParseRuntime_SingleWord(t *testing.T) {
+	profile := &HostProfile{}
+	parseRuntime("podman", profile)
+	if profile.ContainerRuntime.Name != "podman" {
+		t.Errorf("ContainerRuntime.Name = %q, want podman", profile.ContainerRuntime.Name)
+	}
+}
+
 func TestProber_ProbeHost_NoRuntime(t *testing.T) {
 	output := strings.Join([]string{
 		"Linux x86_64",

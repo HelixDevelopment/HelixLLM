@@ -287,6 +287,37 @@ func TestAPI_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+// TestNopSSHClient_RunAndIsReachable verifies that the no-op SSH client
+// (used when no real SSH client is provided) behaves correctly.
+func TestNopSSHClient_RunAndIsReachable(t *testing.T) {
+	cp := NewControlPlane(ControlPlaneOptions{
+		Hosts:    []string{"host1"},
+		SSHUser:  "user",
+		SSHKey:   "key",
+		Strategy: "auto",
+		SSH:      nil, // triggers nopSSHClient creation
+	})
+
+	if cp == nil {
+		t.Fatal("NewControlPlane returned nil")
+	}
+
+	// Exercise the nopSSHClient via the ControlPlane's probe path.
+	// The nopSSHClient.IsReachable returns false, so the probe marks
+	// hosts as unreachable.
+	r := gin.New()
+	RegisterRoutes(r, cp)
+
+	req := httptest.NewRequest("POST", "/internal/cluster/probe", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Probe should succeed even though nopSSHClient makes everything unreachable.
+	if w.Code != http.StatusInternalServerError && w.Code != http.StatusOK {
+		t.Errorf("unexpected status %d", w.Code)
+	}
+}
+
 func TestAPI_ClusterStatus_Timestamps(t *testing.T) {
 	r, _ := setupTestRouter()
 

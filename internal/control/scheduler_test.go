@@ -348,6 +348,92 @@ func TestScheduler_Schedule_AllOffline(t *testing.T) {
 	}
 }
 
+func TestScheduler_Schedule_ResourceAware_NoCPUNoDisk(t *testing.T) {
+	// Service with no CPU/disk requirements hits the "else" branches in
+	// scoreResourceAware, awarding the full 0.3/0.2 bonuses.
+	hosts := []HostProfile{
+		makeHost("host1", 16, 65536, 1000000, false),
+	}
+	services := []ServiceRequirement{
+		{Name: "nocpu", Image: "app:1", CPUCores: 0, MemoryMB: 0, DiskMB: 0},
+	}
+	sched := NewScheduler("auto")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	// Full bonuses for zero requirements → score should be 1.0.
+	if results[0].Score < 0.9 {
+		t.Errorf("Score = %f, want >= 0.9 for zero-requirement service", results[0].Score)
+	}
+}
+
+func TestScheduler_Schedule_ResourceAware_NeedsGPU_HostHasGPU(t *testing.T) {
+	hosts := []HostProfile{
+		makeHost("gpu-host", 16, 65536, 1000000, true),
+	}
+	services := []ServiceRequirement{
+		{Name: "llm", Image: "llm:latest", NeedsGPU: true},
+	}
+	sched := NewScheduler("resource_aware")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Score <= 0 {
+		t.Errorf("Score = %f, want > 0 for GPU service on GPU host", results[0].Score)
+	}
+}
+
+func TestScheduler_Schedule_MemoryFirst_InsufficientMemory(t *testing.T) {
+	// Service requires more memory than available → memScore is halved.
+	hosts := []HostProfile{
+		makeHost("low-mem", 32, 1024, 100000, false), // only 1 GB
+	}
+	services := []ServiceRequirement{
+		{Name: "bigmem", Image: "app:1", MemoryMB: 65536, Strategy: "memory_first"},
+	}
+	sched := NewScheduler("auto")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	// Halved score due to insufficient memory.
+	if results[0].Score >= 0.5 {
+		t.Errorf("Score = %f, expected lower score for insufficient memory with memory_first", results[0].Score)
+	}
+}
+
+func TestScheduler_Schedule_MemoryFirst_ZeroCPU(t *testing.T) {
+	// Service with CPUCores = 0 hits the cpuScore else-branch in scoreMemoryFirst.
+	hosts := []HostProfile{
+		makeHost("host1", 64, 65536, 1000000, false),
+	}
+	services := []ServiceRequirement{
+		{Name: "nocpu", Image: "app:1", CPUCores: 0, MemoryMB: 4096, Strategy: "memory_first"},
+	}
+	sched := NewScheduler("auto")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Score <= 0 {
+		t.Errorf("Score = %f, want > 0", results[0].Score)
+	}
+}
+
 func TestScheduler_MapStrategy(t *testing.T) {
 	tests := []struct {
 		input string

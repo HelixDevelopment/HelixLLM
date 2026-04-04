@@ -63,6 +63,17 @@ func TestMemoryInfo_UsedBytes_ZeroTotal(t *testing.T) {
 	}
 }
 
+func TestMemoryInfo_UsedBytes_AvailableExceedsTotal(t *testing.T) {
+	// When AvailableBytes > TotalBytes, UsedBytes() should return 0 (no underflow).
+	mi := MemoryInfo{
+		TotalBytes:     1000,
+		AvailableBytes: 2000,
+	}
+	if got := mi.UsedBytes(); got != 0 {
+		t.Errorf("UsedBytes() = %d, want 0 when available > total", got)
+	}
+}
+
 func TestClusterStatus_HealthyHostCount(t *testing.T) {
 	cs := ClusterStatus{
 		Hosts: []HostProfile{
