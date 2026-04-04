@@ -16,7 +16,7 @@ type RouterOptions struct {
 	// 0 disables rate limiting.
 	RateLimit int
 	// Brain is the LLM coordination service. When non-nil, handlers delegate
-	// to it instead of returning canned stub responses.
+	// to it instead of returning development fallback responses.
 	Brain *brain.Brain
 }
 

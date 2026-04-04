@@ -23,8 +23,8 @@ var wsUpgrader = gorillaws.Upgrader{
 // WebSocket, then loops reading JSON-encoded InternalChatRequest messages from
 // the client and writing back InternalChatResponse (or error) objects.
 //
-// The Brain is optional: when nil the handler returns a stub response so that
-// the endpoint remains functional in development / test setups.
+// The Brain is optional: when nil the handler returns a fallback response so
+// that the endpoint remains functional in development / test setups.
 func HandleWebSocket(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
@@ -57,7 +57,7 @@ func HandleWebSocket(b *brain.Brain) gin.HandlerFunc {
 				}
 				_ = conn.WriteJSON(resp)
 			} else {
-				// Stub response when no Brain is wired.
+				// Fallback response when no Brain is wired.
 				_ = conn.WriteJSON(map[string]string{"message": "ok (no brain)"})
 			}
 		}

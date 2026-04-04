@@ -13,7 +13,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
-// hardcodedModels is the static model list returned by the stub handlers.
+// hardcodedModels is the built-in model list returned by fallback handlers (no Brain configured).
 var hardcodedModels = []api.Model{
 	{ID: "llama-3.1-70b", Object: "model", Created: 1700000000, OwnedBy: "helix"},
 	{ID: "gpt-4o", Object: "model", Created: 1700000001, OwnedBy: "helix"},
@@ -130,7 +130,7 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 	}
 }
 
-// streamChatCompletions writes 3 SSE chunks followed by [DONE] (stub path).
+// streamChatCompletions writes 3 SSE chunks followed by [DONE] (fallback path, no Brain configured).
 func streamChatCompletions(c *gin.Context, id, model string) {
 	w := NewSSEWriter(c)
 	w.WriteHeader()
@@ -253,7 +253,7 @@ func HandleCompletions(b *brain.Brain) gin.HandlerFunc {
 }
 
 // HandleListModels handles GET /v1/models.
-// When b is non-nil it returns the models from the Brain; otherwise the hardcoded stub list.
+// When b is non-nil it returns the models from the Brain; otherwise the built-in model list.
 func HandleListModels(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if b != nil {
@@ -271,7 +271,7 @@ func HandleListModels(b *brain.Brain) gin.HandlerFunc {
 }
 
 // HandleGetModel handles GET /v1/models/:id.
-// When b is non-nil it searches Brain models; otherwise the hardcoded stub list.
+// When b is non-nil it searches Brain models; otherwise the built-in model list.
 func HandleGetModel(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
