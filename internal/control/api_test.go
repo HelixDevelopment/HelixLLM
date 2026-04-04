@@ -318,6 +318,99 @@ func TestNopSSHClient_RunAndIsReachable(t *testing.T) {
 	}
 }
 
+// setupOfflineRouter creates a router where all hosts are unreachable,
+// so after probing no online hosts are available for scheduling.
+func setupOfflineRouter() *gin.Engine {
+	mock := newMockSSHClient()
+	// Leave mock.reachable empty so all hosts appear unreachable.
+	cp := NewControlPlane(ControlPlaneOptions{
+		Hosts:    []string{"offline1", "offline2"},
+		SSHUser:  "user",
+		SSHKey:   "key",
+		Strategy: "auto",
+		SSH:      mock,
+	})
+	r := gin.New()
+	RegisterRoutes(r, cp)
+	return r
+}
+
+func TestAPI_PostClusterDeploy_NoOnlineHosts_ScheduleError(t *testing.T) {
+	// Probe first with all offline hosts — profiles will have no online hosts.
+	r := setupOfflineRouter()
+
+	probeReq := httptest.NewRequest(http.MethodPost, "/internal/cluster/probe", nil)
+	probeW := httptest.NewRecorder()
+	r.ServeHTTP(probeW, probeReq)
+
+	// Now deploy — scheduler should fail because no online hosts.
+	body := deployRequest{
+		Services: []ServiceRequirement{
+			{Name: "redis", Image: "redis:7", CPUCores: 2, MemoryMB: 4096},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/internal/cluster/deploy",
+		bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Scheduler should return an error because all hosts are offline.
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 from scheduler error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAPI_PostClusterRebalance_NoOnlineHosts_ScheduleError(t *testing.T) {
+	// Set up a router with real hosts first, deploy, then swap to offline hosts
+	// so that rebalance finds no schedulable hosts.
+	r, _ := setupTestRouter()
+
+	// Probe and deploy with online hosts.
+	probeReq := httptest.NewRequest(http.MethodPost, "/internal/cluster/probe", nil)
+	r.ServeHTTP(httptest.NewRecorder(), probeReq)
+
+	deployBody := deployRequest{
+		Services: []ServiceRequirement{
+			{Name: "nginx", Image: "nginx:1", CPUCores: 1, MemoryMB: 512},
+		},
+	}
+	deployBytes, _ := json.Marshal(deployBody)
+	deployReq := httptest.NewRequest(http.MethodPost, "/internal/cluster/deploy",
+		bytes.NewReader(deployBytes))
+	deployReq.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(httptest.NewRecorder(), deployReq)
+
+	// Now create a new offline router with existing deployments pre-set.
+	mock2 := newMockSSHClient() // no reachable hosts
+	cp2 := NewControlPlane(ControlPlaneOptions{
+		Hosts:    []string{"gone1"},
+		SSHUser:  "user",
+		SSHKey:   "key",
+		Strategy: "auto",
+		SSH:      mock2,
+	})
+	// Inject a deployment so rebalance has work to do.
+	cp2.deployments = []DeploymentInfo{
+		{ServiceName: "nginx", HostName: "gone1", State: "running"},
+	}
+	r2 := gin.New()
+	RegisterRoutes(r2, cp2)
+
+	// Probe to set offline profiles.
+	r2.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/internal/cluster/probe", nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/cluster/rebalance", nil)
+	w := httptest.NewRecorder()
+	r2.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 from rebalance scheduler error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestNopSSHClient_Run(t *testing.T) {
 	// nopSSHClient.Run must return empty string and nil error.
 	c := &nopSSHClient{}

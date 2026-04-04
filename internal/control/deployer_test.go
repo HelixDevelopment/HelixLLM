@@ -317,6 +317,46 @@ func TestDeployer_Undeploy_SSHError(t *testing.T) {
 	}
 }
 
+// runFailSSH fails on the second SSH command (the "run" command) but
+// succeeds on the first (the "rm" command).
+type runFailSSH struct {
+	callCount int
+}
+
+func (r *runFailSSH) Run(_ context.Context, _, _ string) (string, error) {
+	r.callCount++
+	if r.callCount >= 2 {
+		return "", fmt.Errorf("container run failed")
+	}
+	return "", nil
+}
+
+func (r *runFailSSH) IsReachable(_ context.Context, _ string) bool {
+	return true
+}
+
+func TestDeployer_Deploy_RunCommandFails(t *testing.T) {
+	// Remove succeeds, but run command fails → must return error.
+	mock := &runFailSSH{}
+	deployer := NewDeployer(mock, "user", "key")
+
+	placement := PlacementResult{
+		Service:  ServiceRequirement{Name: "svc", Image: "img:latest"},
+		HostName: "host1",
+	}
+
+	info, err := deployer.Deploy(context.Background(), placement)
+	if err == nil {
+		t.Fatal("expected error when run command fails, got nil")
+	}
+	if info == nil || info.State != "failed" {
+		t.Errorf("expected info.State = failed, got %v", info)
+	}
+	if !strings.Contains(err.Error(), "run") {
+		t.Errorf("error %q should mention 'run'", err.Error())
+	}
+}
+
 func TestDeployer_DeployAll_Empty(t *testing.T) {
 	mock := newDeployMockSSH()
 	deployer := NewDeployer(mock, "user", "key")

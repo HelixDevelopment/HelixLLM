@@ -434,6 +434,28 @@ func TestScheduler_Schedule_MemoryFirst_ZeroCPU(t *testing.T) {
 	}
 }
 
+func TestScheduler_Schedule_ResourceAware_NeedsGPU_HostNoGPU(t *testing.T) {
+	// NeedsGPU=true but host has no GPU → no GPU bonus (score stays lower).
+	hosts := []HostProfile{
+		makeHost("no-gpu-host", 16, 65536, 1000000, false),
+	}
+	services := []ServiceRequirement{
+		{Name: "llm", Image: "llm:latest", NeedsGPU: true},
+	}
+	sched := NewScheduler("resource_aware")
+	results, err := sched.Schedule(hosts, services)
+	if err != nil {
+		t.Fatalf("Schedule() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	// Without GPU, score should be < 1.0 (no 0.2 GPU bonus).
+	if results[0].Score >= 1.0 {
+		t.Errorf("Score = %f, expected < 1.0 without GPU", results[0].Score)
+	}
+}
+
 func TestScheduler_MapStrategy(t *testing.T) {
 	tests := []struct {
 		input string
