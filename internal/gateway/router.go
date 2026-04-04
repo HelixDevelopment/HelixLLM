@@ -22,6 +22,8 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1 := r.Group("/v1")
 	v1.Use(gwmw.APIKeyAuth(opts.APIKeys))
 	v1.Use(gwmw.RateLimit(opts.RateLimit))
+	v1.Use(gwmw.SecurityHeaders())
+	v1.Use(gwmw.ContentNegotiation())
 
 	// OpenAI-compatible endpoints
 	v1.POST("/chat/completions", HandleChatCompletions)

@@ -24,6 +24,28 @@ func TestGatewayRouter(t *testing.T) {
 		t.Errorf("GET /v1/models status = %d, want 200", w.Code)
 	}
 
+	// Verify security headers are present on API responses
+	securityHeaders := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"X-XSS-Protection":       "1; mode=block",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+	}
+	for name, want := range securityHeaders {
+		if got := w.Header().Get(name); got != want {
+			t.Errorf("security header %s = %q, want %q", name, got, want)
+		}
+	}
+	if w.Header().Get("Strict-Transport-Security") == "" {
+		t.Error("HSTS header not set on API response")
+	}
+	if w.Header().Get("Content-Security-Policy") == "" {
+		t.Error("CSP header not set on API response")
+	}
+	if w.Header().Get("X-Content-Format") == "" {
+		t.Error("X-Content-Format header not set on API response")
+	}
+
 	// Test chat completions
 	body, _ := json.Marshal(api.ChatCompletionRequest{
 		Model: "test", Messages: []api.ChatMessage{{Role: "user", Content: "hi"}},
