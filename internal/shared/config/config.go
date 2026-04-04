@@ -32,10 +32,11 @@ type HelixConfig struct {
 
 // ServerConfig holds HTTP/TLS server settings.
 type ServerConfig struct {
-	Host    string `env:"HELIX_HOST" default:"0.0.0.0"`
-	Port    int    `env:"HELIX_PORT" default:"8443"`
-	TLSCert string `env:"HELIX_TLS_CERT" default:"./certs/cert.pem"`
-	TLSKey  string `env:"HELIX_TLS_KEY" default:"./certs/key.pem"`
+	Host         string `env:"HELIX_HOST" default:"0.0.0.0"`
+	Port         int    `env:"HELIX_PORT" default:"8443"`
+	TLSCert      string `env:"HELIX_TLS_CERT" default:"./certs/cert.pem"`
+	TLSKey       string `env:"HELIX_TLS_KEY" default:"./certs/key.pem"`
+	RatePerMinute int   `env:"HELIX_RATE_PER_MINUTE" default:"0"`
 }
 
 // LLMConfig holds large-language-model provider settings.

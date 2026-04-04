@@ -88,7 +88,7 @@ func main() {
 	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
 		APIKeys:   cfg.Auth.APIKeys,
-		RateLimit: 0, // TODO: add to config
+		RateLimit: cfg.Server.RatePerMinute,
 		Brain:     brainSvc,
 	})
 
@@ -126,12 +126,25 @@ func main() {
 	agents.RegisterAgentRoutes(srv.Router(), agentSvc, convCtx)
 
 	// Create Control Plane for cluster management.
-	cp := control.NewControlPlane(control.ControlPlaneOptions{
+	// When hosts are configured, build a real SSH client; otherwise
+	// the control plane falls back to its built-in no-op client.
+	cpOpts := control.ControlPlaneOptions{
 		Hosts:    cfg.HostList(),
 		SSHUser:  cfg.SSHUser,
 		SSHKey:   cfg.SSHKey,
 		Strategy: cfg.ScheduleStrategy,
-	})
+	}
+	if len(cfg.HostList()) > 0 {
+		sshClient, sshErr := control.NewSSHClient(
+			cfg.HostList()[0], 22, cfg.SSHUser, cfg.SSHKey,
+		)
+		if sshErr != nil {
+			log.WithError(sshErr).Warn("SSH key unavailable; control plane running in no-op mode")
+		} else {
+			cpOpts.SSH = sshClient
+		}
+	}
+	cp := control.NewControlPlane(cpOpts)
 	control.RegisterRoutes(srv.Router(), cp)
 
 	// Graceful shutdown
