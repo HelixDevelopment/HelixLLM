@@ -7,6 +7,7 @@ require (
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
 	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
+	digital.vasic.toon v0.0.0
 	github.com/andybalholm/brotli v1.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
