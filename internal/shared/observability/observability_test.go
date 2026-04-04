@@ -45,3 +45,15 @@ func TestTracer(t *testing.T) {
 		t.Fatal("Tracer() returned nil")
 	}
 }
+
+func TestNew_InvalidExporter_ReturnsError(t *testing.T) {
+	// An unrecognised exporter type causes InitTracer to return an error,
+	// which New must propagate rather than swallow.
+	_, err := observability.New(observability.Options{
+		ServiceName: "helixllm-test",
+		Exporter:    "invalid-exporter-type-xyz",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid exporter type, got nil")
+	}
+}
