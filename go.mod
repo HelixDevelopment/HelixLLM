@@ -86,6 +86,7 @@ replace (
 	digital.vasic.eventbus => ./submodules/EventBus
 	digital.vasic.filesystem => ./submodules/Filesystem
 	digital.vasic.formatters => ./submodules/Formatters
+	digital.vasic.helixqa => ./submodules/HelixQA
 	digital.vasic.i18n => ./submodules/I18n
 	digital.vasic.lazy => ./submodules/Lazy
 	digital.vasic.llmorchestrator => ./submodules/LLMOrchestrator

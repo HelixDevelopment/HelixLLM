@@ -100,3 +100,6 @@
 [submodule "submodules/Memory"]
 	path = submodules/Memory
 	url = git@github.com:vasic-digital/Memory.git
+[submodule "submodules/HelixQA"]
+	path = submodules/HelixQA
+	url = git@github.com:HelixDevelopment/HelixQA.git
