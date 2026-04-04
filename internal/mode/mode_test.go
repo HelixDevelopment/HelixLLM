@@ -60,3 +60,12 @@ func TestModeAll(t *testing.T) {
 		t.Errorf("All() returned %d modes, want 6", len(all))
 	}
 }
+
+func TestModeString_Unknown(t *testing.T) {
+	// A Mode value not in the modeNames map should produce "unknown(N)".
+	var unknown mode.Mode = 99
+	s := unknown.String()
+	if s != "unknown(99)" {
+		t.Errorf("Mode(99).String() = %q, want %q", s, "unknown(99)")
+	}
+}
