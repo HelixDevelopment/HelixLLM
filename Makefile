@@ -28,25 +28,28 @@ test-integration:
 	go test -v -count=1 ./tests/integration/
 
 test-e2e:
-	@echo "TODO: Phase 7 — e2e tests with full cluster"
+	go test -v -count=1 -tags=e2e ./tests/integration/...
 
 test-stress:
-	@echo "TODO: Phase 7 — stress tests"
+	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
 
 test-chaos:
-	@echo "TODO: Phase 7 — chaos tests"
+	./bin/helixllm --challenges --banks-dir=challenges/banks/chaos/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
 
 test-security:
-	@echo "TODO: Phase 7 — security tests"
+	./bin/helixllm --challenges --banks-dir=challenges/banks/security/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
 
 test-benchmark:
-	@echo "TODO: Phase 7 — benchmark tests"
+	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
 
-test-automation:
-	@echo "TODO: Phase 7 — full automation pipeline"
+test-automation: build
+	@echo "Running full automation pipeline..."
+	$(MAKE) test-unit
+	$(MAKE) test-integration
+	$(MAKE) test-challenges
 
 test-usecases:
-	@echo "TODO: Phase 7 — real-world use case validation"
+	./bin/helixllm --challenges --banks-dir=challenges/banks/workflows/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
 
 test-challenges:
 	./bin/helixllm --challenges --banks-dir=challenges/banks/ --base-url=https://localhost:8443
@@ -72,32 +75,33 @@ coverage: test-unit
 
 # ── Cluster ──────────────────────────────────────────────
 probe:
-	@echo "TODO: Phase 6 — probe all hosts"
+	curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/cluster/probe -X POST | python3 -m json.tool
 
 deploy:
-	@echo "TODO: Phase 6 — deploy to cluster"
+	curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/cluster/deploy -X POST | python3 -m json.tool
 
 status:
-	@echo "TODO: Phase 6 — cluster status"
+	curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/cluster/status | python3 -m json.tool
 
 logs:
-	@echo "TODO: Phase 6 — aggregated logs"
+	$(CONTAINER_RUNTIME) compose -f deploy/compose.yaml logs -f
 
 monitor:
-	@echo "TODO: Phase 6 — TUI monitor"
+	./bin/helixllm --monitor
 
 rebalance:
-	@echo "TODO: Phase 6 — rebalance cluster"
+	curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/cluster/rebalance -X POST | python3 -m json.tool
 
 # ── Knowledge ────────────────────────────────────────────
 ingest:
-	@echo "TODO: Phase 4 — ingest documents"
+	@test -n "$(DIR)" || (echo "Usage: make ingest DIR=./path/to/docs" && exit 1)
+	@find $(DIR) -type f \( -name '*.md' -o -name '*.txt' -o -name '*.go' -o -name '*.py' \) -exec sh -c 'curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/knowledge/ingest -X POST -H "Content-Type: application/json" -d "{\"title\":\"$$(basename {})\",\"content\":\"$$(cat {} | head -c 10000 | sed "s/\"/\\\\\\\"/g" | tr "\n" " ")\",\"source\":\"{}\",\"collection\":\"$${COLLECTION:-default}\"}"' \;
 
 collections:
-	@echo "TODO: Phase 4 — list collections"
+	curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/knowledge/collections | python3 -m json.tool
 
 stats:
-	@echo "TODO: Phase 4 — knowledge base stats"
+	curl -sk https://localhost:$${HELIX_PORT:-8443}/internal/knowledge/stats | python3 -m json.tool
 
 # ── Development ──────────────────────────────────────────
 lint:
@@ -108,7 +112,9 @@ fmt:
 	goimports -w .
 
 docs:
-	@echo "TODO: Phase 8 — generate documentation"
+	@echo "Documentation available at docs/user-guide/ and docs/manual/"
+	@echo "API reference: docs/user-guide/api-reference.md"
+	@ls docs/user-guide/ docs/manual/ 2>/dev/null
 
 gen:
 	go generate ./...
