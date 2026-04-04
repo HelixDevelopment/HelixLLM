@@ -8,8 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gin-gonic/gin"
-
+	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
 	"github.com/HelixDevelopment/HelixLLM/internal/server"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/config"
@@ -72,12 +71,10 @@ func main() {
 		Checker: checker,
 	})
 
-	// Placeholder route — Phase 2 will add real OpenAI/Anthropic compat routes
-	srv.Router().GET("/v1/models", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"object": "list",
-			"data":   []interface{}{},
-		})
+	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
+	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
+		APIKeys:   cfg.Auth.APIKeys,
+		RateLimit: 0, // TODO: add to config
 	})
 
 	// Graceful shutdown
