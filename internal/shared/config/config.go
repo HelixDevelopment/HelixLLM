@@ -28,6 +28,8 @@ type HelixConfig struct {
 	Log               LogConfig
 	Auth              AuthConfig
 	Features          FeatureConfig
+	Analytics         AnalyticsConfig
+	Proxy             ProxyConfig
 }
 
 // ServerConfig holds HTTP/TLS server settings.
@@ -98,6 +100,20 @@ type FeatureConfig struct {
 	GRPC        bool `env:"HELIX_FEATURE_GRPC" default:"true"`
 	TOON        bool `env:"HELIX_FEATURE_TOON" default:"true"`
 	SelfImprove bool `env:"HELIX_FEATURE_SELFIMPROVE" default:"false"`
+}
+
+// AnalyticsConfig holds ClickHouse analytics settings.
+type AnalyticsConfig struct {
+	ClickHouseAddr     string `env:"HELIX_CLICKHOUSE_ADDR"`
+	ClickHouseDatabase string `env:"HELIX_CLICKHOUSE_DATABASE" default:"helixllm"`
+}
+
+// ProxyConfig holds outbound HTTP/SOCKS proxy settings.
+type ProxyConfig struct {
+	HTTPProxy  string `env:"HELIX_HTTP_PROXY"`
+	HTTPSProxy string `env:"HELIX_HTTPS_PROXY"`
+	NoProxy    string `env:"HELIX_NO_PROXY"`
+	SOCKSProxy string `env:"HELIX_SOCKS_PROXY"`
 }
 
 // Load reads configuration from environment variables, applying defaults
