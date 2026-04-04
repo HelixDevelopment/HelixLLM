@@ -25,7 +25,7 @@ test-unit:
 	go test -v -count=1 -coverprofile=coverage-unit.out ./internal/...
 
 test-integration:
-	@echo "TODO: Phase 7 — integration tests with real services"
+	go test -v -count=1 ./tests/integration/
 
 test-e2e:
 	@echo "TODO: Phase 7 — e2e tests with full cluster"
@@ -48,11 +48,20 @@ test-automation:
 test-usecases:
 	@echo "TODO: Phase 7 — real-world use case validation"
 
-test-all: test-unit test-integration test-e2e test-stress test-chaos test-security test-benchmark test-automation test-usecases
+test-all: test-unit test-integration
+
+COVERAGE_THRESHOLD := 85
 
 coverage: test-unit
 	go tool cover -func=coverage-unit.out
 	@echo "---"
+	@TOTAL=$$(go tool cover -func=coverage-unit.out | grep '^total:' | awk '{print $$NF}' | tr -d '%'); \
+	echo "Total coverage: $${TOTAL}% (threshold: $(COVERAGE_THRESHOLD)%)"; \
+	if [ $$(echo "$${TOTAL} < $(COVERAGE_THRESHOLD)" | bc -l) -eq 1 ]; then \
+		echo "FAIL: coverage $${TOTAL}% is below $(COVERAGE_THRESHOLD)% threshold"; \
+		exit 1; \
+	fi; \
+	echo "PASS: coverage meets threshold"
 	@echo "Full coverage report: go tool cover -html=coverage-unit.out"
 
 # ── Cluster ──────────────────────────────────────────────
