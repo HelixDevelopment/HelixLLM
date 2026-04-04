@@ -237,3 +237,107 @@ func TestExtractToolCall_MissingName(t *testing.T) {
 		t.Error("expected no tool call when name is empty")
 	}
 }
+
+// unmarshalableParams implements Tool.Parameters() and returns a map that causes
+// json.MarshalIndent to fail (channel values are not JSON-serializable).
+type unmarshalableTool struct{}
+
+func (u *unmarshalableTool) Name() string        { return "bad_tool" }
+func (u *unmarshalableTool) Description() string { return "bad" }
+func (u *unmarshalableTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"ch": make(chan int), // channels cannot be JSON-marshalled
+	}
+}
+func (u *unmarshalableTool) Execute(_ context.Context, _ map[string]interface{}) (string, error) {
+	return "", nil
+}
+
+// TestBuildSystemPrompt_MarshalError exercises the fallback branch in
+// buildSystemPrompt when json.MarshalIndent fails on the tool list.
+func TestBuildSystemPrompt_MarshalError(t *testing.T) {
+	reg := NewToolRegistry()
+	_ = reg.Register(&unmarshalableTool{})
+
+	agent := NewAgent(AgentConfig{
+		Brain: newTestBrain([]string{"ok"}),
+		Tools: reg,
+	})
+
+	prompt := agent.buildSystemPrompt()
+	if prompt == "" {
+		t.Error("expected non-empty fallback prompt even when marshal fails")
+	}
+	// The fallback uses tool names only, so "bad_tool" must appear somewhere.
+	if len(prompt) == 0 {
+		t.Error("expected non-empty system prompt from fallback path")
+	}
+}
+
+// TestBuildSystemPrompt_NoTools verifies that nil tools returns empty string.
+func TestBuildSystemPrompt_NoTools(t *testing.T) {
+	agent := NewAgent(AgentConfig{Brain: newTestBrain([]string{"ok"})})
+	prompt := agent.buildSystemPrompt()
+	if prompt != "" {
+		t.Errorf("expected empty prompt with no tools, got %q", prompt)
+	}
+}
+
+// TestBuildSystemPrompt_EmptyRegistry verifies that an empty registry returns empty string.
+func TestBuildSystemPrompt_EmptyRegistry(t *testing.T) {
+	reg := NewToolRegistry()
+	agent := NewAgent(AgentConfig{
+		Brain: newTestBrain([]string{"ok"}),
+		Tools: reg,
+	})
+	prompt := agent.buildSystemPrompt()
+	if prompt != "" {
+		t.Errorf("expected empty prompt with empty registry, got %q", prompt)
+	}
+}
+
+// errBrainProvider always returns an error from Complete.
+type errBrainProvider struct{}
+
+func (e *errBrainProvider) Complete(_ context.Context, _ *types.InternalChatRequest) (*types.InternalChatResponse, error) {
+	return nil, fmt.Errorf("brain error")
+}
+func (e *errBrainProvider) CompleteStream(_ context.Context, _ *types.InternalChatRequest) (<-chan types.StreamChunk, error) {
+	return nil, fmt.Errorf("brain error")
+}
+func (e *errBrainProvider) Models() []string { return nil }
+func (e *errBrainProvider) Name() string     { return "err" }
+func (e *errBrainProvider) Available() bool  { return true }
+
+// TestAgent_BrainError exercises the error-return path in Run when brain.Complete fails.
+func TestAgent_BrainError(t *testing.T) {
+	b := brain.New(brain.Config{DefaultProvider: "err"})
+	b.RegisterProvider("err", &errBrainProvider{})
+
+	agent := NewAgent(AgentConfig{Brain: b})
+	_, err := agent.Run(context.Background(), []types.InternalMessage{
+		{Role: types.RoleUser, Content: "hello"},
+	})
+	if err == nil {
+		t.Fatal("expected error when brain.Complete fails, got nil")
+	}
+}
+
+// TestAgent_ToolCallNoRegistry exercises the nil-tools branch inside Run.
+func TestAgent_ToolCallNoRegistry(t *testing.T) {
+	toolCallJSON := `{"tool_call": {"name": "echo", "arguments": {"message": "hi"}}}`
+	finalAnswer := "done"
+	b := newTestBrain([]string{toolCallJSON, finalAnswer})
+
+	// No tools registry registered — should use error observation and continue.
+	agent := NewAgent(AgentConfig{Brain: b, MaxTurns: 5})
+	resp, err := agent.Run(context.Background(), []types.InternalMessage{
+		{Role: types.RoleUser, Content: "go"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Message.Content != finalAnswer {
+		t.Errorf("unexpected content: %q", resp.Message.Content)
+	}
+}

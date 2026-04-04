@@ -92,6 +92,92 @@ func TestKnowledgeQueryToolExecuteWithPipeline(t *testing.T) {
 	}
 }
 
+func TestKnowledgeQueryToolExecuteNilArgs(t *testing.T) {
+	tool := tools.NewKnowledgeQueryTool(nil, "default")
+	_, err := tool.Execute(context.Background(), nil)
+	if err == nil {
+		t.Error("expected error for nil args, got nil")
+	}
+}
+
+func TestKnowledgeQueryToolExecuteNonStringQuery(t *testing.T) {
+	tool := tools.NewKnowledgeQueryTool(nil, "default")
+	_, err := tool.Execute(context.Background(), map[string]interface{}{
+		"query": 42, // not a string
+	})
+	if err == nil {
+		t.Error("expected error for non-string query, got nil")
+	}
+}
+
+func TestKnowledgeQueryToolExecuteEmptyStringQuery(t *testing.T) {
+	tool := tools.NewKnowledgeQueryTool(nil, "default")
+	_, err := tool.Execute(context.Background(), map[string]interface{}{
+		"query": "", // empty string
+	})
+	if err == nil {
+		t.Error("expected error for empty string query, got nil")
+	}
+}
+
+func TestKnowledgeQueryToolExecute_PipelineError(t *testing.T) {
+	// Pipeline with no data in the queried collection → Query returns error for empty collection name.
+	pipeline := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(64),
+		Store:             knowledge.NewMemoryStore(),
+		Chunker:           knowledge.NewFixedSizeChunker(500, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       3,
+	})
+
+	// Query with empty collection triggers validation error from pipeline.
+	tool := tools.NewKnowledgeQueryTool(pipeline, "") // empty default collection
+	_, err := tool.Execute(context.Background(), map[string]interface{}{
+		"query": "something",
+		// no "collection" arg → uses empty defaultCollection → pipeline error
+	})
+	if err == nil {
+		t.Error("expected error when pipeline query fails, got nil")
+	}
+}
+
+func TestKnowledgeQueryToolExecute_EmptyContext(t *testing.T) {
+	// Ingest content and query for something totally unrelated so that
+	// all chunks are filtered out by MinScore, returning an empty context.
+	pipeline := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(64),
+		Store:             knowledge.NewMemoryStore(),
+		Chunker:           knowledge.NewFixedSizeChunker(500, 0),
+		DefaultCollection: "empty-ctx",
+		DefaultTopK:       3,
+	})
+
+	_, err := pipeline.Ingest(context.Background(), knowledge.IngestRequest{
+		Content:    "Go programming language",
+		Collection: "empty-ctx",
+	})
+	if err != nil {
+		t.Fatalf("Ingest failed: %v", err)
+	}
+
+	// Use a very high MinScore via a custom query request; the tool itself
+	// doesn't expose MinScore, but an empty collection with a mismatch query
+	// can still return results (hash embedder). Instead, use a collection
+	// override argument that points to an empty (nonexistent) collection so
+	// Search returns no chunks → context is "".
+	tool := tools.NewKnowledgeQueryTool(pipeline, "empty-ctx")
+	result, err := tool.Execute(context.Background(), map[string]interface{}{
+		"query":      "query against empty collection",
+		"collection": "nonexistent-empty-col",
+	})
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if result != "No relevant information found." {
+		t.Errorf("expected empty-context message, got %q", result)
+	}
+}
+
 func TestKnowledgeQueryToolExecuteWithCollectionOverride(t *testing.T) {
 	embedder := knowledge.NewHashEmbedder(64)
 	store := knowledge.NewMemoryStore()

@@ -147,6 +147,16 @@ func TestConversationContext_GetReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestConversationContext_AddMultiple_Empty(t *testing.T) {
+	// AddMultiple with an empty slice must be a no-op (early return).
+	ctx := NewConversationContext(10)
+	ctx.AddMultiple("s1", []types.InternalMessage{}) // empty — should not modify session
+	got := ctx.Get("s1")
+	if got != nil {
+		t.Errorf("expected nil history after AddMultiple(empty), got %v", got)
+	}
+}
+
 func TestConversationContext_UnlimitedHistory(t *testing.T) {
 	ctx := NewConversationContext(0) // unlimited
 	for i := 0; i < 20; i++ {

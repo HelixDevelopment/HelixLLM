@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 	"github.com/gin-gonic/gin"
 )
@@ -187,6 +188,24 @@ func TestAgentAPI_InvalidRequest_EmptyBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAgentAPI_BrainError_Returns500(t *testing.T) {
+	// Use errBrainProvider (defined in agent_test.go, same package) to force
+	// agent.Run to return an error, which should produce a 500 response.
+	b := brain.New(brain.Config{DefaultProvider: "err"})
+	b.RegisterProvider("err", &errBrainProvider{})
+	agent := NewAgent(AgentConfig{Brain: b})
+	r := newTestRouter(agent, nil)
+
+	w := postChat(t, r, AgentChatRequest{
+		Messages: []types.InternalMessage{
+			{Role: types.RoleUser, Content: "fail"},
+		},
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
