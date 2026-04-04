@@ -2,6 +2,7 @@ package knowledge_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
@@ -223,6 +224,157 @@ func TestPipeline_Query_EmptyCollection_Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error for empty collection, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Error-path tests using a mock store and mock embedder/chunker
+// ---------------------------------------------------------------------------
+
+// errStore is a VectorStore that always returns an error from the specified
+// method.
+type errStore struct {
+	*knowledge.MemoryStore
+	failUpsert      bool
+	failSearch      bool
+	failCollections bool
+	failStats       bool
+}
+
+func (e *errStore) Upsert(col string, chunks []knowledge.Chunk) error {
+	if e.failUpsert {
+		return fmt.Errorf("upsert error")
+	}
+	return e.MemoryStore.Upsert(col, chunks)
+}
+
+func (e *errStore) Search(col string, vec []float64, topK int) ([]knowledge.ScoredChunk, error) {
+	if e.failSearch {
+		return nil, fmt.Errorf("search error")
+	}
+	return e.MemoryStore.Search(col, vec, topK)
+}
+
+func (e *errStore) Delete(col string, ids []string) error {
+	return e.MemoryStore.Delete(col, ids)
+}
+
+func (e *errStore) DeleteCollection(name string) error {
+	return e.MemoryStore.DeleteCollection(name)
+}
+
+func (e *errStore) Collections() ([]knowledge.Collection, error) {
+	if e.failCollections {
+		return nil, fmt.Errorf("collections error")
+	}
+	return e.MemoryStore.Collections()
+}
+
+func (e *errStore) Stats() (*knowledge.Stats, error) {
+	if e.failStats {
+		return nil, fmt.Errorf("stats error")
+	}
+	return e.MemoryStore.Stats()
+}
+
+func TestPipeline_Ingest_UpsertError(t *testing.T) {
+	store := &errStore{MemoryStore: knowledge.NewMemoryStore(), failUpsert: true}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(16),
+		Store:             store,
+		Chunker:           knowledge.NewFixedSizeChunker(100, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       5,
+	})
+
+	_, err := p.Ingest(context.Background(), knowledge.IngestRequest{
+		Content:    "some content",
+		Collection: "col",
+	})
+	if err == nil {
+		t.Error("expected error from Ingest when upsert fails, got nil")
+	}
+}
+
+func TestPipeline_Query_SearchError(t *testing.T) {
+	store := &errStore{MemoryStore: knowledge.NewMemoryStore(), failSearch: true}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(16),
+		Store:             store,
+		Chunker:           knowledge.NewFixedSizeChunker(100, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       5,
+	})
+
+	_, err := p.Query(context.Background(), knowledge.QueryRequest{
+		Query:      "something",
+		Collection: "col",
+	})
+	if err == nil {
+		t.Error("expected error from Query when search fails, got nil")
+	}
+}
+
+func TestPipeline_Collections_Error(t *testing.T) {
+	store := &errStore{MemoryStore: knowledge.NewMemoryStore(), failCollections: true}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(16),
+		Store:             store,
+		Chunker:           knowledge.NewFixedSizeChunker(100, 0),
+		DefaultCollection: "default",
+	})
+
+	_, err := p.Collections(context.Background())
+	if err == nil {
+		t.Error("expected error from Collections when store fails, got nil")
+	}
+}
+
+func TestPipeline_Stats_Error(t *testing.T) {
+	store := &errStore{MemoryStore: knowledge.NewMemoryStore(), failStats: true}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(16),
+		Store:             store,
+		Chunker:           knowledge.NewFixedSizeChunker(100, 0),
+		DefaultCollection: "default",
+	})
+
+	_, err := p.Stats(context.Background())
+	if err == nil {
+		t.Error("expected error from Stats when store fails, got nil")
+	}
+}
+
+func TestPipeline_DefaultTopK_AppliedWhenZero(t *testing.T) {
+	// NewPipeline with DefaultTopK=0 should clamp to 5.
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(16),
+		Store:             knowledge.NewMemoryStore(),
+		Chunker:           knowledge.NewFixedSizeChunker(50, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       0, // should be clamped to 5
+	})
+	if p == nil {
+		t.Fatal("NewPipeline returned nil")
+	}
+	// Verify it works by ingesting and querying.
+	_, err := p.Ingest(context.Background(), knowledge.IngestRequest{
+		Content:    "test content for default topk",
+		Collection: "col",
+	})
+	if err != nil {
+		t.Fatalf("Ingest error: %v", err)
+	}
+	qr, err := p.Query(context.Background(), knowledge.QueryRequest{
+		Query:      "test",
+		Collection: "col",
+		TopK:       0, // uses defaultTopK = 5
+	})
+	if err != nil {
+		t.Fatalf("Query error: %v", err)
+	}
+	if qr == nil {
+		t.Error("expected non-nil query result")
 	}
 }
 

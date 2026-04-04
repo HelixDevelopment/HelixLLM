@@ -278,3 +278,92 @@ func TestAPI_Stats_ReturnsTotals(t *testing.T) {
 		t.Errorf("expected total chunks > 0, got %d", stats.TotalChunks)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Error-path tests for the API handlers (using errStore from pipeline_test.go)
+// ---------------------------------------------------------------------------
+
+// newErrorRouter creates a Gin router backed by a pipeline that will fail on
+// the specified store operations.
+func newErrorRouter(failUpsert, failSearch, failCollections, failStats bool) *gin.Engine {
+	store := &errStore{
+		MemoryStore:     knowledge.NewMemoryStore(),
+		failUpsert:      failUpsert,
+		failSearch:      failSearch,
+		failCollections: failCollections,
+		failStats:       failStats,
+	}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(16),
+		Store:             store,
+		Chunker:           knowledge.NewFixedSizeChunker(100, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       5,
+	})
+	r := gin.New()
+	knowledge.RegisterKnowledgeRoutes(r, p)
+	return r
+}
+
+func TestAPI_Ingest_StoreError_Returns500(t *testing.T) {
+	r := newErrorRouter(true, false, false, false)
+
+	w := postJSON(t, r, "/internal/knowledge/ingest", knowledge.IngestRequest{
+		Content:    "some content",
+		Collection: "col",
+	})
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAPI_Query_SearchError_Returns500(t *testing.T) {
+	// First ingest with a working pipeline so the collection exists,
+	// then use the error router for query.
+	r := newErrorRouter(false, true, false, false)
+
+	w := postJSON(t, r, "/internal/knowledge/query", knowledge.QueryRequest{
+		Query:      "something",
+		Collection: "col",
+	})
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAPI_Collections_StoreError_Returns500(t *testing.T) {
+	r := newErrorRouter(false, false, true, false)
+
+	w := getJSON(r, "/internal/knowledge/collections")
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAPI_Stats_StoreError_Returns500(t *testing.T) {
+	r := newErrorRouter(false, false, false, true)
+
+	w := getJSON(r, "/internal/knowledge/stats")
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestAPI_isValidationError exercises the nil-error branch of isValidationError
+// indirectly via a successful ingest (no error → not a validation error).
+// The nil branch (err == nil → return false) is exercised by any successful path.
+func TestAPI_Ingest_Success_NoValidationError(t *testing.T) {
+	r, _ := newTestRouter()
+	w := postJSON(t, r, "/internal/knowledge/ingest", knowledge.IngestRequest{
+		Content:    "Valid document content for no-error path test.",
+		Collection: "valid-col",
+	})
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+

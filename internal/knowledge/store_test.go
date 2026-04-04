@@ -222,6 +222,42 @@ func TestMemoryStore_EmptyCollectionSearch(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_Delete_NonExistentCollection(t *testing.T) {
+	// Delete on a collection that doesn't exist should silently succeed.
+	store := knowledge.NewMemoryStore()
+	err := store.Delete("nonexistent-col", []string{"c1"})
+	if err != nil {
+		t.Errorf("Delete on nonexistent collection should succeed, got: %v", err)
+	}
+}
+
+func TestCosineSimilarity_ZeroVectors(t *testing.T) {
+	// Search with a zero-magnitude query or zero-embedding should not panic and
+	// should return 0-score chunks (cosine_similarity returns 0 for zero vectors).
+	store := knowledge.NewMemoryStore()
+	// Insert a chunk with zero embedding.
+	zeroVec := make([]float64, 4)
+	chunk := knowledge.Chunk{
+		ID:        "zero-chunk",
+		DocumentID: "doc-zero",
+		Content:   "zero embedding",
+		Embedding: zeroVec,
+	}
+	_ = store.Upsert("zero-col", []knowledge.Chunk{chunk})
+
+	// Search with a zero query vector.
+	results, err := store.Search("zero-col", make([]float64, 4), 1)
+	if err != nil {
+		t.Fatalf("Search with zero vectors returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Score != 0 {
+		t.Errorf("cosine_similarity(zero, zero) = %f, want 0", results[0].Score)
+	}
+}
+
 func TestMemoryStore_SearchTopKRespected(t *testing.T) {
 	store := knowledge.NewMemoryStore()
 	embedder := knowledge.NewHashEmbedder(16)

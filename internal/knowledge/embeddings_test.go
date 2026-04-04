@@ -94,6 +94,43 @@ func TestHashEmbedder_EmbedBatch(t *testing.T) {
 	}
 }
 
+func TestHashEmbedder_DimensionClampedToOne(t *testing.T) {
+	// dimension < 1 is clamped to 1.
+	e := knowledge.NewHashEmbedder(0)
+	if e.Dimension() != 1 {
+		t.Errorf("Dimension() = %d, want 1 (clamped from 0)", e.Dimension())
+	}
+	e2 := knowledge.NewHashEmbedder(-5)
+	if e2.Dimension() != 1 {
+		t.Errorf("Dimension() = %d, want 1 (clamped from -5)", e2.Dimension())
+	}
+}
+
+func TestHashEmbedder_EmbedBatch_Empty(t *testing.T) {
+	e := knowledge.NewHashEmbedder(16)
+	batch, err := e.EmbedBatch([]string{})
+	if err != nil {
+		t.Fatalf("EmbedBatch(empty) error: %v", err)
+	}
+	if len(batch) != 0 {
+		t.Errorf("EmbedBatch(empty) len = %d, want 0", len(batch))
+	}
+}
+
+func TestHashEmbedder_Embed_ZeroNorm(t *testing.T) {
+	// All-zero bytes could theoretically produce a zero-norm vector.
+	// The Embed function guards against norm=0 and returns the vector as-is.
+	// We call Embed with dimension=1 on a very short input to verify no panic.
+	e := knowledge.NewHashEmbedder(1)
+	vec, err := e.Embed("x")
+	if err != nil {
+		t.Fatalf("Embed error: %v", err)
+	}
+	if len(vec) != 1 {
+		t.Errorf("len(vec) = %d, want 1", len(vec))
+	}
+}
+
 func TestHashEmbedder_LargeDimension(t *testing.T) {
 	// Dimension > 32 requires multiple SHA-256 rounds.
 	e := knowledge.NewHashEmbedder(256)

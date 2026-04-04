@@ -177,6 +177,40 @@ func TestFixedSizeChunker_UnicodeContent(t *testing.T) {
 	}
 }
 
+func TestFixedSizeChunker_SizeClampedToOne(t *testing.T) {
+	// size < 1 is clamped to 1.
+	c := knowledge.NewFixedSizeChunker(0, 0)
+	if c.ChunkSize != 1 {
+		t.Errorf("ChunkSize = %d, want 1 (clamped from 0)", c.ChunkSize)
+	}
+}
+
+func TestFixedSizeChunker_NegativeSize(t *testing.T) {
+	c := knowledge.NewFixedSizeChunker(-10, 0)
+	if c.ChunkSize != 1 {
+		t.Errorf("ChunkSize = %d, want 1 (clamped from -10)", c.ChunkSize)
+	}
+}
+
+func TestFixedSizeChunker_NegativeOverlapClampedToZero(t *testing.T) {
+	c := knowledge.NewFixedSizeChunker(10, -5)
+	if c.Overlap != 0 {
+		t.Errorf("Overlap = %d, want 0 (clamped from -5)", c.Overlap)
+	}
+}
+
+func TestFixedSizeChunker_OverlapCappedAtSizeMinus1(t *testing.T) {
+	// overlap >= size → clamped to size-1.
+	c := knowledge.NewFixedSizeChunker(5, 5)
+	if c.Overlap != 4 {
+		t.Errorf("Overlap = %d, want 4 (capped at size-1)", c.Overlap)
+	}
+	c2 := knowledge.NewFixedSizeChunker(5, 10)
+	if c2.Overlap != 4 {
+		t.Errorf("Overlap = %d, want 4 (capped at size-1)", c2.Overlap)
+	}
+}
+
 // chunksContent is a helper for diagnostic output in failure messages.
 func chunksContent(chunks []knowledge.Chunk) []string {
 	out := make([]string, len(chunks))
