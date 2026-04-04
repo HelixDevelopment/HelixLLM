@@ -11,6 +11,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/agents"
 	"github.com/HelixDevelopment/HelixLLM/internal/agents/tools"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
+	"github.com/HelixDevelopment/HelixLLM/internal/control"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
@@ -123,6 +124,15 @@ func main() {
 
 	// Register agent routes.
 	agents.RegisterAgentRoutes(srv.Router(), agentSvc, convCtx)
+
+	// Create Control Plane for cluster management.
+	cp := control.NewControlPlane(control.ControlPlaneOptions{
+		Hosts:    cfg.HostList(),
+		SSHUser:  cfg.SSHUser,
+		SSHKey:   cfg.SSHKey,
+		Strategy: cfg.ScheduleStrategy,
+	})
+	control.RegisterRoutes(srv.Router(), cp)
 
 	// Graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
