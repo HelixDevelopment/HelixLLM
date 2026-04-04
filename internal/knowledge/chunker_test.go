@@ -211,6 +211,21 @@ func TestFixedSizeChunker_OverlapCappedAtSizeMinus1(t *testing.T) {
 	}
 }
 
+func TestFixedSizeChunker_DirectStruct_OverlapEqualsChunkSize(t *testing.T) {
+	// Directly construct the struct bypassing NewFixedSizeChunker so that
+	// Overlap == ChunkSize, forcing the "step < 1" defensive branch inside Chunk.
+	c := &knowledge.FixedSizeChunker{ChunkSize: 4, Overlap: 4}
+	doc := knowledge.Document{ID: "d1", Content: "hello world"}
+	chunks, err := c.Chunk(doc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// step is clamped to 1, so every rune gets its own "chunk" window.
+	if len(chunks) == 0 {
+		t.Error("expected at least one chunk")
+	}
+}
+
 // chunksContent is a helper for diagnostic output in failure messages.
 func chunksContent(chunks []knowledge.Chunk) []string {
 	out := make([]string, len(chunks))

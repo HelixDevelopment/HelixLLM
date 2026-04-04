@@ -409,3 +409,110 @@ func TestPipeline_Query_DefaultTopK(t *testing.T) {
 		t.Errorf("expected at most 2 chunks (defaultTopK), got %d", len(qr.Chunks))
 	}
 }
+
+// errChunker is a mock Chunker that always returns an error.
+type errChunker struct{}
+
+func (e *errChunker) Chunk(_ knowledge.Document) ([]knowledge.Chunk, error) {
+	return nil, fmt.Errorf("chunker: mock error")
+}
+
+func TestPipeline_Ingest_ChunkError(t *testing.T) {
+	// Using errChunker causes Chunk to fail after validation, covering the
+	// "ingest: chunk document" error path.
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          knowledge.NewHashEmbedder(64),
+		Store:             knowledge.NewMemoryStore(),
+		Chunker:           &errChunker{},
+		DefaultCollection: "default",
+		DefaultTopK:       5,
+	})
+	_, err := p.Ingest(context.Background(), knowledge.IngestRequest{
+		Content:    "some valid content",
+		Collection: "col",
+	})
+	if err == nil {
+		t.Fatal("expected chunk error, got nil")
+	}
+}
+
+// errEmbedder is a mock Embedder that always returns an error.
+type errEmbedder struct{}
+
+func (e *errEmbedder) Embed(_ string) ([]float64, error) {
+	return nil, fmt.Errorf("embed: mock error")
+}
+
+func (e *errEmbedder) EmbedBatch(_ []string) ([][]float64, error) {
+	return nil, fmt.Errorf("embed_batch: mock error")
+}
+
+func (e *errEmbedder) Dimension() int { return 64 }
+
+func TestPipeline_Ingest_EmbedError(t *testing.T) {
+	// Using errEmbedder causes EmbedBatch to fail, covering the
+	// "ingest: embed chunks" error path.
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          &errEmbedder{},
+		Store:             knowledge.NewMemoryStore(),
+		Chunker:           knowledge.NewFixedSizeChunker(50, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       5,
+	})
+	_, err := p.Ingest(context.Background(), knowledge.IngestRequest{
+		Content:    "some content to chunk and embed",
+		Collection: "col",
+	})
+	if err == nil {
+		t.Fatal("expected embed error, got nil")
+	}
+}
+
+func TestPipeline_Query_EmbedError(t *testing.T) {
+	// Using errEmbedder causes Embed to fail during Query, covering the
+	// "query: embed query" error path.
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder:          &errEmbedder{},
+		Store:             knowledge.NewMemoryStore(),
+		Chunker:           knowledge.NewFixedSizeChunker(50, 0),
+		DefaultCollection: "default",
+		DefaultTopK:       5,
+	})
+	_, err := p.Query(context.Background(), knowledge.QueryRequest{
+		Query:      "some query",
+		Collection: "col",
+	})
+	if err == nil {
+		t.Fatal("expected embed error during query, got nil")
+	}
+}
+
+func TestPipeline_Query_MinScore_PassingChunks(t *testing.T) {
+	// Set MinScore to a very small positive value so that results with any
+	// non-trivial score pass — covers the "filtered = append(filtered, sc)"
+	// branch in the MinScore loop (req.MinScore > 0 AND sc.Score >= MinScore).
+	p := newTestPipeline()
+	ctx := context.Background()
+
+	_, err := p.Ingest(ctx, knowledge.IngestRequest{
+		Content:    "Python is a high-level programming language.",
+		Collection: "py",
+	})
+	if err != nil {
+		t.Fatalf("ingest error: %v", err)
+	}
+
+	qr, err := p.Query(ctx, knowledge.QueryRequest{
+		Query:      "Python",
+		Collection: "py",
+		TopK:       5,
+		MinScore:   0.0001, // low enough that real scores pass; exercises the append branch
+	})
+	if err != nil {
+		t.Fatalf("query error: %v", err)
+	}
+	// At least one chunk should pass the low threshold.
+	if len(qr.Chunks) == 0 {
+		t.Error("expected at least one chunk to pass MinScore=0.0001")
+	}
+}
