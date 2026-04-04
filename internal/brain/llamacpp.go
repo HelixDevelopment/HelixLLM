@@ -1,0 +1,225 @@
+package brain
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/HelixDevelopment/HelixLLM/pkg/api"
+	"github.com/HelixDevelopment/HelixLLM/pkg/types"
+)
+
+// LlamaCppProvider implements Provider by calling llama.cpp's OpenAI-compatible
+// API at the configured base URL.
+type LlamaCppProvider struct {
+	baseURL string
+	models  []string
+	client  *http.Client
+}
+
+// NewLlamaCppProvider creates a new llama.cpp provider pointing at the given
+// base URL (e.g. "http://localhost:8080"). The models slice lists model IDs
+// that this llama.cpp instance serves.
+func NewLlamaCppProvider(baseURL string, models []string) *LlamaCppProvider {
+	return &LlamaCppProvider{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		models:  models,
+		client: &http.Client{
+			Timeout: 5 * time.Minute, // LLM completions can be slow.
+		},
+	}
+}
+
+func (p *LlamaCppProvider) Name() string     { return "llamacpp" }
+func (p *LlamaCppProvider) Models() []string { return p.models }
+
+// Available checks whether the llama.cpp server is reachable by hitting /health.
+func (p *LlamaCppProvider) Available() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/health", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// Complete sends a non-streaming chat completion to llama.cpp and returns the
+// response translated to HelixLLM's internal types.
+func (p *LlamaCppProvider) Complete(ctx context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error) {
+	apiReq := p.toAPIRequest(req)
+	apiReq.Stream = false
+
+	body, err := json.Marshal(apiReq)
+	if err != nil {
+		return nil, fmt.Errorf("llamacpp: marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		p.baseURL+"/v1/chat/completions", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("llamacpp: create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("llamacpp: send request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("llamacpp: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var apiResp api.ChatCompletionResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("llamacpp: decode response: %w", err)
+	}
+
+	return p.fromAPIResponse(&apiResp), nil
+}
+
+// CompleteStream sends a streaming chat completion to llama.cpp and returns a
+// channel of StreamChunks. The channel is closed when the stream ends.
+func (p *LlamaCppProvider) CompleteStream(ctx context.Context, req *types.InternalChatRequest) (<-chan types.StreamChunk, error) {
+	apiReq := p.toAPIRequest(req)
+	apiReq.Stream = true
+
+	body, err := json.Marshal(apiReq)
+	if err != nil {
+		return nil, fmt.Errorf("llamacpp: marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		p.baseURL+"/v1/chat/completions", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("llamacpp: create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	httpResp, err := p.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("llamacpp: send request: %w", err)
+	}
+
+	if httpResp.StatusCode != http.StatusOK {
+		httpResp.Body.Close()
+		return nil, fmt.Errorf("llamacpp: unexpected status %d", httpResp.StatusCode)
+	}
+
+	ch := make(chan types.StreamChunk, 64)
+	go func() {
+		defer close(ch)
+		defer httpResp.Body.Close()
+		p.readSSEStream(ctx, httpResp, ch)
+	}()
+
+	return ch, nil
+}
+
+// readSSEStream reads SSE lines from an HTTP response and sends StreamChunks
+// on the channel.
+func (p *LlamaCppProvider) readSSEStream(ctx context.Context, resp *http.Response, ch chan<- types.StreamChunk) {
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			return
+		}
+
+		var chunk api.ChatCompletionChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		if len(chunk.Choices) > 0 {
+			sc := types.StreamChunk{
+				Content: chunk.Choices[0].Delta.Content,
+			}
+			if chunk.Choices[0].FinishReason != nil {
+				sc.FinishReason = *chunk.Choices[0].FinishReason
+			}
+			ch <- sc
+		}
+	}
+}
+
+// toAPIRequest converts an InternalChatRequest to an OpenAI ChatCompletionRequest
+// suitable for llama.cpp's API.
+func (p *LlamaCppProvider) toAPIRequest(req *types.InternalChatRequest) api.ChatCompletionRequest {
+	messages := make([]api.ChatMessage, len(req.Messages))
+	for i, m := range req.Messages {
+		messages[i] = api.ChatMessage{
+			Role:    string(m.Role),
+			Content: m.Content,
+			Name:    m.Name,
+		}
+	}
+	apiReq := api.ChatCompletionRequest{
+		Model:    req.Model,
+		Messages: messages,
+	}
+	if req.MaxTokens > 0 {
+		mt := req.MaxTokens
+		apiReq.MaxTokens = &mt
+	}
+	if req.Temperature > 0 {
+		temp := req.Temperature
+		apiReq.Temperature = &temp
+	}
+	return apiReq
+}
+
+// fromAPIResponse converts an OpenAI ChatCompletionResponse to an InternalChatResponse.
+func (p *LlamaCppProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *types.InternalChatResponse {
+	result := &types.InternalChatResponse{
+		ID:       resp.ID,
+		Model:    resp.Model,
+		Provider: types.ProviderLocal,
+	}
+	if len(resp.Choices) > 0 {
+		choice := resp.Choices[0]
+		// Extract content as string. The Content field is interface{} in the API
+		// types; for llama.cpp it is always a string.
+		content := ""
+		switch v := choice.Message.Content.(type) {
+		case string:
+			content = v
+		}
+		result.Message = types.InternalMessage{
+			Role:    types.Role(choice.Message.Role),
+			Content: content,
+		}
+		result.FinishReason = choice.FinishReason
+	}
+	if resp.Usage != nil {
+		result.Usage = types.InternalUsage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		}
+	}
+	return result
+}
