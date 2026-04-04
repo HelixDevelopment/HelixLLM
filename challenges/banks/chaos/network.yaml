@@ -1,0 +1,190 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Network Chaos Scenarios
+# Validates HelixLLM's resilience under network-level failure conditions.
+
+name: chaos-network
+version: 1.0.0
+description: |
+  Network chaos engineering scenarios. Verifies that HelixLLM handles high
+  latency, connection timeouts, DNS failures, TLS issues, and bandwidth
+  throttling without hanging or producing corrupt responses.
+
+platforms:
+  - linux
+
+timeout: 15m
+
+steps:
+  # CH-CHAOS-NET-001: High latency to LLM provider
+  - name: high-latency-to-provider
+    type: chaos
+    params:
+      action: add_latency
+      target_interface: eth0
+      destination: llm-provider
+      latency_ms: 2000
+      jitter_ms: 500
+      duration: 30s
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}]
+          }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "504"]
+      - type: not_equal
+        field: status
+        expected: "hang"
+    on_failure: |
+      High latency to LLM provider caused the gateway to hang instead of timing out.
+
+  # CH-CHAOS-NET-002: Connection timeout to LLM provider
+  - name: connection-timeout-to-provider
+    type: chaos
+    params:
+      action: blackhole
+      destination: llm-provider
+      duration: 15s
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}]
+          }
+    assertions:
+      - type: contains
+        field: status
+        expected: "503"
+      - type: not_empty
+        field: body.error
+      - type: max_response_time_ms
+        expected: 10000
+    on_failure: |
+      Connection blackhole did not return 503 within 10 seconds.
+
+  # CH-CHAOS-NET-003: DNS resolution failure for LLM provider
+  - name: dns-resolution-failure
+    type: chaos
+    params:
+      action: dns_failure
+      hostname: llm-provider
+      duration: 20s
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}]
+          }
+    assertions:
+      - type: contains
+        field: status
+        expected: "503"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      DNS resolution failure for LLM provider did not return a 503 error.
+
+  # CH-CHAOS-NET-004: TLS certificate expiry simulation
+  - name: tls-certificate-expiry
+    type: chaos
+    params:
+      action: tls_cert_expire
+      target: helixllm-gateway
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}]
+          }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "400", "503"]
+      - type: not_equal
+        field: status
+        expected: "hang"
+    on_failure: |
+      TLS certificate expiry caused the gateway to hang rather than return an error.
+
+  # CH-CHAOS-NET-005: Bandwidth throttling
+  - name: bandwidth-throttling
+    type: chaos
+    params:
+      action: throttle_bandwidth
+      target_interface: eth0
+      rate_kbps: 64
+      duration: 30s
+      load:
+        rps: 10
+        duration: 30s
+        request:
+          method: POST
+          path: /v1/chat/completions
+          headers:
+            Content-Type: application/json
+          body: |
+            {
+              "model": "llama-3.1-70b",
+              "messages": [{"role": "user", "content": "Hello"}]
+            }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.70
+      - type: max_latency_p99
+        field: response_time_ms
+        expected: 60000
+    on_failure: |
+      Bandwidth-throttled network did not maintain 70% success rate within 60s P99 latency.
+
+  # CH-CHAOS-NET-006: Packet loss injection
+  - name: packet-loss-injection
+    type: chaos
+    params:
+      action: packet_loss
+      target_interface: eth0
+      loss_percent: 30
+      duration: 20s
+      load:
+        rps: 5
+        duration: 20s
+        request:
+          method: POST
+          path: /v1/chat/completions
+          headers:
+            Content-Type: application/json
+          body: |
+            {
+              "model": "llama-3.1-70b",
+              "messages": [{"role": "user", "content": "Hello"}]
+            }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.60
+      - type: not_equal
+        field: status
+        expected: "hang"
+    on_failure: |
+      30% packet loss caused success rate to drop below 60% or requests to hang.

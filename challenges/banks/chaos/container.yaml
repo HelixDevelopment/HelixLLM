@@ -1,0 +1,191 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Container Chaos Scenarios
+# Validates HelixLLM's resilience under container-level failure conditions.
+
+name: chaos-container
+version: 1.0.0
+description: |
+  Chaos engineering scenarios targeting container lifecycle events. Verifies
+  that HelixLLM handles container kills, restarts, disk exhaustion, and OOM
+  conditions gracefully without data corruption or silent failures.
+
+platforms:
+  - linux
+
+timeout: 15m
+
+steps:
+  # CH-CHAOS-CON-001: Kill container during active request
+  - name: kill-container-during-request
+    type: chaos
+    params:
+      action: kill_container
+      target: helixllm-gateway
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Write a long essay about distributed systems."}]
+          }
+      delay_ms: 500
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "500", "502", "503"]
+      - type: not_equal
+        field: status
+        expected: "hang"
+    on_failure: |
+      Gateway hung indefinitely after container kill instead of returning an error response.
+
+  # CH-CHAOS-CON-002: Restart container under sustained load
+  - name: restart-container-under-load
+    type: chaos
+    params:
+      action: restart_container
+      target: helixllm-gateway
+      load:
+        rps: 20
+        duration: 30s
+        request:
+          method: POST
+          path: /v1/chat/completions
+          headers:
+            Content-Type: application/json
+          body: |
+            {
+              "model": "llama-3.1-70b",
+              "messages": [{"role": "user", "content": "Hello"}]
+            }
+      restart_after_ms: 5000
+    assertions:
+      - type: recovery_within
+        field: error_rate
+        threshold: 0.05
+        window: 30s
+      - type: no_data_loss
+    on_failure: |
+      Container did not recover to below 5% error rate within 30s after restart.
+
+  # CH-CHAOS-CON-003: Network partition between gateway and LLM provider
+  - name: network-partition-gateway-provider
+    type: chaos
+    params:
+      action: network_partition
+      source: helixllm-gateway
+      destination: llm-provider
+      duration: 10s
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}]
+          }
+    assertions:
+      - type: contains
+        field: status
+        expected: "503"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Network partition to LLM provider did not return 503 to the client.
+
+  # CH-CHAOS-CON-004: Disk full during document ingestion
+  - name: disk-full-during-ingestion
+    type: chaos
+    params:
+      action: fill_disk
+      target: helixllm-storage
+      fill_percent: 100
+      concurrent_request:
+        method: POST
+        path: /internal/knowledge/ingest
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "title": "Chaos Test Document",
+            "content": "This ingestion should fail gracefully when disk is full.",
+            "collection": "chaos-test"
+          }
+    assertions:
+      - type: contains
+        field: status
+        expected: "507"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Disk-full condition during ingestion did not return 507 Insufficient Storage.
+
+  # CH-CHAOS-CON-005: OOM during large context window request
+  - name: oom-during-large-context
+    type: chaos
+    params:
+      action: limit_memory
+      target: helixllm-gateway
+      limit_mb: 64
+      concurrent_request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Summarise this document: [32000 token context placeholder]"
+              }
+            ],
+            "max_tokens": 4096
+          }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "500", "503"]
+      - type: not_equal
+        field: status
+        expected: "hang"
+    on_failure: |
+      OOM condition caused the gateway to hang rather than return an error response.
+
+  # CH-CHAOS-CON-006: Container CPU throttle under load
+  - name: cpu-throttle-under-load
+    type: chaos
+    params:
+      action: throttle_cpu
+      target: helixllm-gateway
+      cpu_quota: 0.1
+      load:
+        rps: 5
+        duration: 20s
+        request:
+          method: POST
+          path: /v1/chat/completions
+          headers:
+            Content-Type: application/json
+          body: |
+            {
+              "model": "llama-3.1-70b",
+              "messages": [{"role": "user", "content": "Hello"}]
+            }
+    assertions:
+      - type: max_latency_p99
+        field: response_time_ms
+        expected: 30000
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.80
+    on_failure: |
+      CPU-throttled gateway did not maintain 80% success rate or exceeded 30s P99 latency.

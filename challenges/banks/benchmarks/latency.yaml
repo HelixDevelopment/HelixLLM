@@ -1,0 +1,210 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Latency Benchmarks
+# Measures end-to-end latency percentiles for key HelixLLM request paths.
+
+name: latency-benchmarks
+version: 1.0.0
+description: |
+  Latency benchmark suite for HelixLLM. Measures P50, P95, and P99 response
+  times for single-user chat completions, time-to-first-token (TTFT),
+  streaming first-byte latency, RAG query latency, and embedding generation.
+
+platforms:
+  - linux
+
+timeout: 30m
+
+steps:
+  # CH-BENCH-LAT-001: Single user latency (P50 / P95 / P99)
+  - name: single-user-latency-percentiles
+    type: benchmark
+    params:
+      iterations: 100
+      warmup: 10
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "What is 2 + 2?"}],
+            "max_tokens": 50
+          }
+    assertions:
+      - type: latency_p50_lte
+        field: response_time_ms
+        expected: 2000
+      - type: latency_p95_lte
+        field: response_time_ms
+        expected: 5000
+      - type: latency_p99_lte
+        field: response_time_ms
+        expected: 10000
+    on_failure: |
+      Single-user latency exceeded target percentiles (P50 2s / P95 5s / P99 10s).
+
+  # CH-BENCH-LAT-002: Chat completion time-to-first-token (TTFT)
+  - name: chat-completion-ttft
+    type: benchmark
+    params:
+      iterations: 50
+      warmup: 5
+      measure: time_to_first_token
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Tell me a short story."}],
+            "stream": true,
+            "max_tokens": 200
+          }
+    assertions:
+      - type: latency_p50_lte
+        field: ttft_ms
+        expected: 1000
+      - type: latency_p95_lte
+        field: ttft_ms
+        expected: 3000
+      - type: latency_p99_lte
+        field: ttft_ms
+        expected: 6000
+    on_failure: |
+      Chat completion TTFT exceeded target percentiles (P50 1s / P95 3s / P99 6s).
+
+  # CH-BENCH-LAT-003: Streaming first-byte latency
+  - name: streaming-first-byte-latency
+    type: benchmark
+    params:
+      iterations: 50
+      warmup: 5
+      measure: time_to_first_byte
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": true,
+            "max_tokens": 100
+          }
+    assertions:
+      - type: latency_p50_lte
+        field: ttfb_ms
+        expected: 500
+      - type: latency_p95_lte
+        field: ttfb_ms
+        expected: 2000
+      - type: latency_p99_lte
+        field: ttfb_ms
+        expected: 4000
+    on_failure: |
+      Streaming first-byte latency exceeded targets (P50 500ms / P95 2s / P99 4s).
+
+  # CH-BENCH-LAT-004: RAG query end-to-end latency
+  - name: rag-query-latency
+    type: benchmark
+    params:
+      iterations: 50
+      warmup: 5
+      setup:
+        - action: ingest_document
+          body: |
+            {
+              "title": "Latency Benchmark Seed",
+              "content": "HelixLLM is an enterprise AI gateway supporting multiple LLM providers.",
+              "collection": "bench-latency"
+            }
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "What is HelixLLM?"}],
+            "rag": {"collection": "bench-latency", "top_k": 3}
+          }
+    assertions:
+      - type: latency_p50_lte
+        field: response_time_ms
+        expected: 3000
+      - type: latency_p95_lte
+        field: response_time_ms
+        expected: 7000
+      - type: latency_p99_lte
+        field: response_time_ms
+        expected: 15000
+    on_failure: |
+      RAG query latency exceeded targets (P50 3s / P95 7s / P99 15s).
+
+  # CH-BENCH-LAT-005: Embedding generation latency
+  - name: embedding-generation-latency
+    type: benchmark
+    params:
+      iterations: 100
+      warmup: 10
+      request:
+        method: POST
+        path: /v1/embeddings
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "text-embedding-ada-002",
+            "input": "The quick brown fox jumps over the lazy dog"
+          }
+    assertions:
+      - type: latency_p50_lte
+        field: response_time_ms
+        expected: 500
+      - type: latency_p95_lte
+        field: response_time_ms
+        expected: 1500
+      - type: latency_p99_lte
+        field: response_time_ms
+        expected: 3000
+    on_failure: |
+      Embedding generation latency exceeded targets (P50 500ms / P95 1.5s / P99 3s).
+
+  # CH-BENCH-LAT-006: Anthropic messages endpoint latency
+  - name: anthropic-messages-latency
+    type: benchmark
+    params:
+      iterations: 50
+      warmup: 5
+      request:
+        method: POST
+        path: /v1/messages
+        headers:
+          Content-Type: application/json
+          anthropic-version: "2023-06-01"
+        body: |
+          {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "What is 2 + 2?"}],
+            "max_tokens": 50
+          }
+    assertions:
+      - type: latency_p50_lte
+        field: response_time_ms
+        expected: 2000
+      - type: latency_p95_lte
+        field: response_time_ms
+        expected: 5000
+      - type: latency_p99_lte
+        field: response_time_ms
+        expected: 10000
+    on_failure: |
+      Anthropic messages endpoint latency exceeded targets (P50 2s / P95 5s / P99 10s).

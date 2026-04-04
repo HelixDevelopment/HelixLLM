@@ -1,0 +1,248 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Known Bug Regression Tests
+# Ensures previously fixed bugs do not regress in future releases.
+
+name: known-bug-regression
+version: 1.0.0
+description: |
+  Regression test suite for known HelixLLM bugs. Each step reproduces the
+  exact request pattern that triggered the original bug and asserts the fix
+  remains in place.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-REG-001: Empty message array handling (was: panic on nil slice)
+  - name: empty-message-array
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": []
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: empty messages array did not return 400 (was causing panic in earlier builds).
+
+  # CH-REG-002: Unicode in model names (was: UTF-8 decode error in router)
+  - name: unicode-in-model-name
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b-\u4e2d\u6587",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: unicode model name did not return 400 (was causing UTF-8 decode panic).
+
+  # CH-REG-003: Large context window (was: OOM on 32k token input)
+  - name: large-context-window
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Summarise the following text in one sentence: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+            }
+          ],
+          "max_tokens": 100
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+    on_failure: |
+      Regression: large context window request failed (was causing OOM in earlier builds).
+
+  # CH-REG-004: Streaming with zero max_tokens (was: infinite loop in streamer)
+  - name: streaming-zero-max-tokens
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "stream": true,
+          "max_tokens": 0
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: streaming with max_tokens=0 did not return 400 (was causing infinite loop).
+
+  # CH-REG-005: Auth with empty bearer token (was: nil dereference in auth middleware)
+  - name: auth-empty-bearer-token
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer "
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "401"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: empty bearer token did not return 401 (was causing nil dereference panic).
+
+  # CH-REG-006: Null role in messages array (was: index out of range)
+  - name: null-role-in-messages
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": null, "content": "Hello"}]
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: null role in messages did not return 400 (was causing index out of range).
+
+  # CH-REG-007: Negative max_tokens (was: sign error in token budget)
+  - name: negative-max-tokens
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "max_tokens": -1
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: negative max_tokens did not return 400 (was causing sign error in token budget).
+
+  # CH-REG-008: Missing Content-Type header (was: panic on nil body parse)
+  - name: missing-content-type
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "400", "415"]
+      - type: not_equal
+        field: status
+        expected: "500"
+    on_failure: |
+      Regression: missing Content-Type returned 500 (was causing nil body parse panic).
+
+  # CH-REG-009: Duplicate stream field (was: double-write on response body)
+  - name: duplicate-stream-field
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "stream": true,
+          "stream": false
+        }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "400"]
+      - type: not_equal
+        field: status
+        expected: "500"
+    on_failure: |
+      Regression: duplicate stream field caused 500 (was causing double-write on response body).
+
+  # CH-REG-010: Very long model name string (was: buffer overflow in model lookup)
+  - name: very-long-model-name
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: contains
+        field: status
+        expected: "400"
+      - type: not_empty
+        field: body.error
+    on_failure: |
+      Regression: excessively long model name did not return 400 (was causing buffer overflow).

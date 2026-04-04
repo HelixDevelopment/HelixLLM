@@ -1,0 +1,194 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Throughput Benchmarks
+# Measures HelixLLM's ability to sustain high request rates across key endpoints.
+
+name: throughput-benchmarks
+version: 1.0.0
+description: |
+  Throughput benchmark suite for HelixLLM. Measures concurrent chat completions,
+  concurrent embeddings, concurrent RAG queries, sustained 10-minute load, and
+  maximum connections per second.
+
+platforms:
+  - linux
+
+timeout: 60m
+
+steps:
+  # CH-BENCH-THR-001: Concurrent chat completions
+  - name: concurrent-chat-completions
+    type: benchmark
+    params:
+      concurrency: 50
+      total_requests: 500
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 50
+          }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.99
+      - type: min_throughput_rps
+        field: requests_per_second
+        expected: 10
+    on_failure: |
+      Concurrent chat completions did not achieve 99% success rate or 10 RPS throughput.
+
+  # CH-BENCH-THR-002: Concurrent embeddings
+  - name: concurrent-embeddings
+    type: benchmark
+    params:
+      concurrency: 100
+      total_requests: 1000
+      request:
+        method: POST
+        path: /v1/embeddings
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "text-embedding-ada-002",
+            "input": "Sample text for embedding benchmark"
+          }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.99
+      - type: min_throughput_rps
+        field: requests_per_second
+        expected: 50
+    on_failure: |
+      Concurrent embeddings did not achieve 99% success rate or 50 RPS throughput.
+
+  # CH-BENCH-THR-003: Concurrent RAG queries
+  - name: concurrent-rag-queries
+    type: benchmark
+    params:
+      concurrency: 25
+      total_requests: 250
+      setup:
+        - action: ingest_document
+          body: |
+            {
+              "title": "Throughput Benchmark Seed",
+              "content": "HelixLLM supports concurrent RAG queries with vector similarity search.",
+              "collection": "bench-throughput"
+            }
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "What does HelixLLM support?"}],
+            "rag": {"collection": "bench-throughput", "top_k": 3},
+            "max_tokens": 100
+          }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.98
+      - type: min_throughput_rps
+        field: requests_per_second
+        expected: 5
+    on_failure: |
+      Concurrent RAG queries did not achieve 98% success rate or 5 RPS throughput.
+
+  # CH-BENCH-THR-004: Sustained load for 10 minutes
+  - name: sustained-load-10-minutes
+    type: benchmark
+    params:
+      duration: 10m
+      target_rps: 20
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 50
+          }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.995
+      - type: latency_p99_lte
+        field: response_time_ms
+        expected: 15000
+      - type: no_memory_growth
+        field: memory_bytes
+        threshold_percent: 20
+    on_failure: |
+      Sustained 10-minute load test failed: success rate below 99.5%, P99 exceeded 15s, or memory grew by more than 20%.
+
+  # CH-BENCH-THR-005: Maximum connections per second
+  - name: max-connections-per-second
+    type: benchmark
+    params:
+      ramp_up:
+        start_rps: 10
+        end_rps: 500
+        step_rps: 10
+        step_duration: 5s
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 10
+          }
+    assertions:
+      - type: record_max_rps
+        field: max_sustainable_rps
+      - type: min_success_rate_at_max
+        field: success_rate
+        expected: 0.95
+    on_failure: |
+      Gateway could not sustain 95% success rate at its maximum recorded RPS.
+
+  # CH-BENCH-THR-006: Streaming throughput
+  - name: streaming-throughput
+    type: benchmark
+    params:
+      concurrency: 20
+      total_requests: 200
+      request:
+        method: POST
+        path: /v1/chat/completions
+        headers:
+          Content-Type: application/json
+        body: |
+          {
+            "model": "llama-3.1-70b",
+            "messages": [{"role": "user", "content": "Count from 1 to 20."}],
+            "stream": true,
+            "max_tokens": 100
+          }
+    assertions:
+      - type: min_success_rate
+        field: success_rate
+        expected: 0.99
+      - type: min_throughput_rps
+        field: requests_per_second
+        expected: 5
+    on_failure: |
+      Concurrent streaming did not achieve 99% success rate or 5 RPS throughput.
