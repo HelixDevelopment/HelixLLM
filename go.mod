@@ -6,6 +6,7 @@ require (
 	digital.vasic.config v0.0.0
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
+	digital.vasic.ratelimiter v0.0.0-00010101000000-000000000000
 	github.com/andybalholm/brotli v1.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/prometheus/client_golang v1.23.2
