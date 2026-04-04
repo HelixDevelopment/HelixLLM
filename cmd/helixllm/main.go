@@ -127,6 +127,7 @@ func main() {
 		TLSCert: cfg.Server.TLSCert,
 		TLSKey:  cfg.Server.TLSKey,
 		Checker: checker,
+		Obs:     obs,
 	})
 
 	// Create Brain — registers whichever providers are configured.
