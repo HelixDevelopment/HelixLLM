@@ -6,11 +6,13 @@ require (
 	digital.vasic.config v0.0.0
 	digital.vasic.eventbus v0.0.0-00010101000000-000000000000
 	digital.vasic.observability v0.0.0-00010101000000-000000000000
+	github.com/andybalholm/brotli v1.1.1
+	github.com/gin-gonic/gin v1.12.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/quic-go/quic-go v0.59.0
 )
 
 require (
-	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
@@ -20,7 +22,6 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
-	github.com/gin-gonic/gin v1.12.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
@@ -42,7 +43,6 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
@@ -69,13 +69,19 @@ require (
 )
 
 replace (
+	digital.vasic.auth => ./submodules/Auth
 	digital.vasic.challenges => ./submodules/Challenges
 	digital.vasic.concurrency => ./submodules/Concurrency
 	digital.vasic.config => ./submodules/Config
 	digital.vasic.containers => ./submodules/Containers
 	digital.vasic.eventbus => ./submodules/EventBus
+	digital.vasic.formatters => ./submodules/Formatters
+	digital.vasic.i18n => ./submodules/I18n
 	digital.vasic.lazy => ./submodules/Lazy
 	digital.vasic.middleware => ./submodules/Middleware
 	digital.vasic.observability => ./submodules/Observability
+	digital.vasic.ratelimiter => ./submodules/RateLimiter
+	digital.vasic.security => ./submodules/Security
+	digital.vasic.streaming => ./submodules/Streaming
 	digital.vasic.watcher => ./submodules/Watcher
 )
