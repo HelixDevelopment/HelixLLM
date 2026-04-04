@@ -113,6 +113,72 @@ func TestNegotiationExplicitJSON(t *testing.T) {
 	}
 }
 
+func TestToonResponseWriter_WriteString(t *testing.T) {
+	// WriteString on the toonResponseWriter is exercised when gin calls String().
+	// We wrap the response with the TOON middleware and use c.String() in the handler.
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.ContentNegotiation())
+	r.GET("/ws", func(c *gin.Context) {
+		c.String(200, `{"key":"value"}`)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Accept", "application/toon")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	// The body should be non-empty (TOON-encoded or original).
+	if w.Body.Len() == 0 {
+		t.Error("expected non-empty body from TOON WriteString path")
+	}
+}
+
+func TestWriteTOON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/toon", func(c *gin.Context) {
+		middleware.WriteTOON(c, 200, map[string]string{"hello": "world"})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/toon", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Header().Get("Content-Type"), "application/toon") {
+		t.Errorf("Content-Type = %q, want application/toon", w.Header().Get("Content-Type"))
+	}
+	if w.Body.Len() == 0 {
+		t.Error("expected non-empty TOON body")
+	}
+}
+
+func TestGetContentFormat_WithoutMiddleware(t *testing.T) {
+	// GetContentFormat should return "json" when the middleware has not been applied
+	// (i.e., the context key is absent).
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	// Note: ContentNegotiation() middleware is NOT registered here.
+	r.GET("/no-middleware", func(c *gin.Context) {
+		format := middleware.GetContentFormat(c)
+		c.String(200, format)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/no-middleware", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Body.String() != "json" {
+		t.Errorf("GetContentFormat without middleware = %q, want json", w.Body.String())
+	}
+}
+
 func TestIsTOONRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -550,6 +550,77 @@ func TestChatCompletions_DefaultModel(t *testing.T) {
 	}
 }
 
+// TestChatCompletions_WithBrain_TemperatureAndMaxTokens exercises the
+// Temperature and MaxTokens branches in openAIToInternal.
+func TestChatCompletions_WithBrain_TemperatureAndMaxTokens(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+		response: &types.InternalChatResponse{
+			ID:           "chatcmpl-temp-1",
+			Model:        "gpt-4o",
+			Message:      types.InternalMessage{Role: types.RoleAssistant, Content: "Warm reply"},
+			FinishReason: "stop",
+			Provider:     types.ProviderOpenAI,
+		},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b))
+
+	temp := float64(0.7)
+	maxTok := 256
+	body, _ := json.Marshal(api.ChatCompletionRequest{
+		Model:       "gpt-4o",
+		Messages:    []api.ChatMessage{{Role: "user", Content: "Hello"}},
+		Temperature: &temp,
+		MaxTokens:   &maxTok,
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+}
+
+// TestChatCompletions_NonStringContent exercises the non-string Content branch
+// in openAIToInternal.
+func TestChatCompletions_NonStringContent(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "openai",
+		available: true,
+		models:    []string{"gpt-4o"},
+		response: &types.InternalChatResponse{
+			ID:           "chatcmpl-nsc-1",
+			Model:        "gpt-4o",
+			Message:      types.InternalMessage{Role: types.RoleAssistant, Content: "OK"},
+			FinishReason: "stop",
+		},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b))
+
+	// Content as array (non-string) → openAIToInternal falls through to empty string.
+	rawBody := `{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"text","text":"Hi"}]}]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(rawBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
 func TestListModels_WithBrain(t *testing.T) {
 	mock := &mockBrainProvider{
 		name:      "openai",

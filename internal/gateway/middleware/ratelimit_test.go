@@ -60,3 +60,56 @@ func TestRateLimitZeroDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimitClientIP_RemoteAddrWithPort(t *testing.T) {
+	// Test that the rate limiter correctly extracts the client IP from RemoteAddr
+	// when ClientIP() returns empty (by using a non-trusted proxy address).
+	// In practice Gin's ClientIP() always returns something, so we exercise the
+	// rate limit with an explicit RemoteAddr that has a port.
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.RateLimit(100))
+	r.GET("/test", func(c *gin.Context) { c.String(200, "ok") })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.5:54321"
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestRateLimitClientIP_RemoteAddrNoPort(t *testing.T) {
+	// Test rate limiter with a RemoteAddr that has no port (edge case).
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.RateLimit(100))
+	r.GET("/test", func(c *gin.Context) { c.String(200, "ok") })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.6" // no port
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestRateLimitNegativeDisabled(t *testing.T) {
+	// A negative maxPerMinute should also disable the rate limiter.
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.RateLimit(-1))
+	r.GET("/test", func(c *gin.Context) { c.String(200, "ok") })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}

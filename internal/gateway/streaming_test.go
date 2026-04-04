@@ -12,6 +12,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// TestSSEWriter_WriteEvent_ErrorPath tests WriteEvent with a value that cannot
+// be marshalled to JSON, so the error code path is exercised.
+type unmarshalable struct {
+	Ch chan struct{}
+}
+
+func TestSSEWriter_WriteEvent_Error(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/stream-err", func(c *gin.Context) {
+		w := gateway.NewSSEWriter(c)
+		w.WriteHeader()
+		// Pass a channel which is not JSON-serialisable → WriteEvent should return an error.
+		err := w.WriteEvent(make(chan struct{}))
+		if err == nil {
+			t.Error("expected error from WriteEvent with non-marshalable value, got nil")
+		}
+		w.WriteDone()
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/stream-err", nil)
+	r.ServeHTTP(rec, req)
+}
+
 func TestSSEWriter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
