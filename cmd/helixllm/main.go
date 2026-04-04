@@ -17,6 +17,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
 	"github.com/HelixDevelopment/HelixLLM/internal/server"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/analytics"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/config"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/events"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
@@ -63,6 +64,9 @@ func main() {
 	log := logging.New(cfg.Log.Level, cfg.Log.Format)
 	bus := events.NewBus()
 	defer bus.Close()
+
+	analyticsCollector := analytics.NewCollector(cfg.Analytics.ClickHouseAddr, cfg.Analytics.ClickHouseDatabase)
+	defer analyticsCollector.Close() //nolint:errcheck
 
 	obs, err := observability.New(observability.Options{
 		ServiceName: "helixllm",

@@ -47,17 +47,36 @@ func TestNewCollector_EmptyAddr_ReturnsNoOp(t *testing.T) {
 	}
 }
 
-func TestNewCollector_WithAddr_ReturnsCollector(t *testing.T) {
-	// Even with an address, the current implementation returns NoOp (ClickHouse
-	// not yet wired).  We verify the returned value satisfies the interface and
-	// does not panic.
-	c := analytics.NewCollector("localhost:9000", "helixllm")
+// TestNewCollector_UnreachableClickHouse verifies that when a ClickHouse
+// address is provided but the server is not reachable, NewCollector gracefully
+// falls back to a NoOpCollector rather than panicking or returning nil.
+func TestNewCollector_UnreachableClickHouse(t *testing.T) {
+	// Port 19999 is used here as an address that is very unlikely to have a
+	// ClickHouse instance listening during CI/local test runs.
+	c := analytics.NewCollector("127.0.0.1:19999", "helixllm")
 	if c == nil {
-		t.Fatal("NewCollector returned nil")
+		t.Fatal("NewCollector returned nil; expected a fallback NoOpCollector")
+	}
+	// The fallback collector must be fully functional.
+	ev := analytics.Event{Name: "probe", Timestamp: time.Now()}
+	if err := c.Track(context.Background(), ev); err != nil {
+		t.Errorf("Track() on fallback collector error = %v, want nil", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Errorf("Close() on fallback collector error = %v, want nil", err)
+	}
+}
+
+// TestNewCollector_InvalidAddr verifies that a malformed address falls back
+// gracefully without panicking.
+func TestNewCollector_InvalidAddr(t *testing.T) {
+	c := analytics.NewCollector("not-a-valid-addr", "helixllm")
+	if c == nil {
+		t.Fatal("NewCollector returned nil; expected a fallback NoOpCollector")
 	}
 	ev := analytics.Event{Name: "probe", Timestamp: time.Now()}
 	if err := c.Track(context.Background(), ev); err != nil {
-		t.Errorf("Track() error = %v, want nil", err)
+		t.Errorf("Track() on fallback collector error = %v, want nil", err)
 	}
 }
 
