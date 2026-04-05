@@ -1,4 +1,4 @@
-.PHONY: build dev container container-push test-unit test-integration test-e2e test-stress test-chaos test-security test-benchmark test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
+.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-chaos test-security test-benchmark test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
 
 # ── Variables ────────────────────────────────────────────
 BINARY := helixllm
@@ -22,13 +22,16 @@ container-push:
 
 # ── Test ─────────────────────────────────────────────────
 test-unit:
-	go test -v -count=1 -coverprofile=coverage-unit.out ./internal/...
+	go test -v -count=1 -race -coverprofile=coverage-unit.out ./internal/...
 
 test-integration:
-	go test -v -count=1 ./tests/integration/
+	go test -v -count=1 -race ./tests/integration/
 
 test-e2e:
-	go test -v -count=1 -tags=e2e ./tests/integration/...
+	go test -v -count=1 -race -tags=e2e ./tests/integration/...
+
+test-race:
+	GOMAXPROCS=$$(nproc) go test -count=1 -race -p 1 ./internal/... ./pkg/... ./tests/...
 
 test-stress:
 	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
