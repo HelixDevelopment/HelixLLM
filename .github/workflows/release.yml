@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Run tests
+        run: make test-unit
+
+      - name: Build binary
+        run: make build
+
+      - name: Build container
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: make container IMAGE=helixllm TAG="$RELEASE_TAG"
+
+      - name: Generate changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since $PREV_TAG" > /tmp/changelog.md
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" >> /tmp/changelog.md
+          else
+            echo "## Initial Release" > /tmp/changelog.md
+            git log --pretty=format:"- %s (%h)" >> /tmp/changelog.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: /tmp/changelog.md
+          files: bin/helixllm
