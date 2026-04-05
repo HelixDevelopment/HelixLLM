@@ -2,6 +2,9 @@ package brain
 
 import (
 	"context"
+	"fmt"
+
+	"golang.org/x/sync/semaphore"
 
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
@@ -12,6 +15,7 @@ import (
 type Brain struct {
 	router    *Router
 	providers map[string]Provider
+	sem       *semaphore.Weighted
 }
 
 // Config holds the provider credentials and URLs needed to build a Brain.
@@ -24,6 +28,7 @@ type Config struct {
 	AnthropicKey     string
 	AnthropicBaseURL string
 	DefaultProvider  string
+	MaxConcurrent    int // 0 means unlimited
 }
 
 // New creates a Brain and registers whichever providers are configured.
@@ -31,6 +36,10 @@ func New(cfg Config) *Brain {
 	b := &Brain{
 		router:    NewRouter(cfg.DefaultProvider),
 		providers: make(map[string]Provider),
+	}
+
+	if cfg.MaxConcurrent > 0 {
+		b.sem = semaphore.NewWeighted(int64(cfg.MaxConcurrent))
 	}
 
 	// Register llama.cpp if a URL is provided.
@@ -71,6 +80,13 @@ func (b *Brain) RegisterProvider(name string, p Provider) {
 // Complete selects the best provider for the request and returns a full
 // (non-streaming) completion response.
 func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error) {
+	if b.sem != nil {
+		if err := b.sem.Acquire(ctx, 1); err != nil {
+			return nil, fmt.Errorf("brain: acquire semaphore: %w", err)
+		}
+		defer b.sem.Release(1)
+	}
+
 	provider, err := b.router.Route(req)
 	if err != nil {
 		return nil, err
@@ -81,11 +97,42 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 // CompleteStream selects the best provider for the request and returns a
 // channel of streaming chunks. The channel is closed when the stream ends.
 func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatRequest) (<-chan types.StreamChunk, error) {
+	if b.sem != nil {
+		if err := b.sem.Acquire(ctx, 1); err != nil {
+			return nil, fmt.Errorf("brain: acquire semaphore: %w", err)
+		}
+	}
+
 	provider, err := b.router.Route(req)
 	if err != nil {
+		if b.sem != nil {
+			b.sem.Release(1)
+		}
 		return nil, err
 	}
-	return provider.CompleteStream(ctx, req)
+
+	ch, err := provider.CompleteStream(ctx, req)
+	if err != nil {
+		if b.sem != nil {
+			b.sem.Release(1)
+		}
+		return nil, err
+	}
+
+	// Wrap the channel to release the semaphore when the stream completes.
+	out := make(chan types.StreamChunk)
+	go func() {
+		defer close(out)
+		defer func() {
+			if b.sem != nil {
+				b.sem.Release(1)
+			}
+		}()
+		for chunk := range ch {
+			out <- chunk
+		}
+	}()
+	return out, nil
 }
 
 // Models returns the aggregated list of models from all available providers.
