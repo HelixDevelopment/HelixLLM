@@ -1,0 +1,56 @@
+graph TB
+    Client(("Client"))
+
+    subgraph HostA["Host A -- Gateway Node"]
+        GW["Gateway Layer<br/>HTTP/3 + HTTP/2<br/>Auth, Rate Limiting"]
+        GW_SH["Shared Foundation"]
+        GW --- GW_SH
+    end
+
+    subgraph HostB["Host B -- Brain Node"]
+        BR["Brain Layer<br/>llama.cpp, OpenAI, Anthropic"]
+        BR_SH["Shared Foundation"]
+        BR --- BR_SH
+    end
+
+    subgraph HostC["Host C -- Knowledge Node"]
+        KN["Knowledge Layer<br/>RAG Pipeline, Vector Store"]
+        KN_SH["Shared Foundation"]
+        KN --- KN_SH
+    end
+
+    subgraph HostD["Host D -- Agent Workers"]
+        AG["Agents Layer<br/>ReAct Loop, Tool Execution"]
+        AG_SH["Shared Foundation"]
+        AG --- AG_SH
+    end
+
+    subgraph HostE["Host E -- Control Plane"]
+        CP["Control Layer<br/>Probing, Scheduling, Deploy"]
+        CP_SH["Shared Foundation"]
+        CP --- CP_SH
+    end
+
+    subgraph Infrastructure["Shared Infrastructure"]
+        KAFKA["Kafka<br/>Async Messaging"]
+        REDIS["Redis<br/>Rate Limiting, Cache"]
+        PG["PostgreSQL<br/>Sessions, Tasks"]
+        QDRANT["Qdrant<br/>Vector Store"]
+    end
+
+    Client --> GW
+    GW -- "gRPC streaming" --> BR
+    GW -- "gRPC streaming" --> AG
+    AG -- "gRPC streaming" --> BR
+    AG -- "gRPC streaming" --> KN
+    CP -- "SSH probing" --> HostA
+    CP -- "SSH probing" --> HostB
+    CP -- "SSH probing" --> HostC
+    CP -- "SSH probing" --> HostD
+    GW --> KAFKA
+    BR --> KAFKA
+    KN --> KAFKA
+    AG --> KAFKA
+    GW --> REDIS
+    KN --> QDRANT
+    AG --> PG

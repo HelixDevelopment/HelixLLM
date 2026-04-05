@@ -1,0 +1,27 @@
+graph LR
+    Client(("Client")) --> TLS
+
+    subgraph SecurityStack["Security Layer Stack"]
+        direction LR
+        TLS["TLS 1.3<br/>EC P-256"]
+        AUTH["API Key / JWT<br/>Auth Middleware"]
+        RATE["Rate Limiter<br/>Sliding Window"]
+        SECHDRS["Security Headers<br/>HSTS, CSP, X-Frame"]
+        COMPRESS["Compression<br/>Brotli / gzip"]
+        PII["PII Detection<br/>Redaction Engine"]
+        VALIDATE["Input Validation<br/>Type + Bounds"]
+
+        TLS --> AUTH
+        AUTH --> RATE
+        RATE --> SECHDRS
+        SECHDRS --> COMPRESS
+        COMPRESS --> PII
+        PII --> VALIDATE
+    end
+
+    VALIDATE --> APP["Application<br/>Handler"]
+
+    TLS -.- TLS_NOTE["TLS 1.3 minimum<br/>ALPN: h3, h2, http/1.1<br/>Self-signed or CA cert"]
+    AUTH -.- AUTH_NOTE["Bearer token validation<br/>JWT session tokens<br/>401 on failure"]
+    RATE -.- RATE_NOTE["Per-IP sliding window<br/>Redis-backed in distributed<br/>429 + Retry-After"]
+    PII -.- PII_NOTE["Email, phone, SSN, CC<br/>Configurable redaction<br/>Content guardrails"]

@@ -1,0 +1,71 @@
+graph TB
+    subgraph Foundation["Tier 1 -- Foundation"]
+        Config["Config"]
+        EventBus["EventBus"]
+        Logging["Observability"]
+        I18n["I18n"]
+        Recovery["Recovery"]
+        Memory["Memory"]
+        Formatters["Formatters"]
+    end
+
+    subgraph Infrastructure["Tier 2 -- Infrastructure"]
+        Auth["Auth"]
+        Cache["Cache"]
+        Database["Database"]
+        Filesystem["Filesystem"]
+        Middleware["Middleware"]
+        RateLimiter["RateLimiter"]
+        Streaming["Streaming"]
+        Concurrency["Concurrency"]
+        Lazy["Lazy"]
+        Watcher["Watcher"]
+        Security["Security"]
+        TOON["TOON"]
+        MCP["MCP_Module"]
+    end
+
+    subgraph Business["Tier 3 -- Business Logic"]
+        LLMProvider["LLMProvider"]
+        LLMOrchestrator["LLMOrchestrator"]
+        Embeddings["Embeddings"]
+        VectorDB["VectorDB"]
+        RAG["RAG"]
+        ToolSchema["ToolSchema"]
+        SkillRegistry["SkillRegistry"]
+        Agentic["Agentic"]
+        Planning["Planning"]
+        Optimization["Optimization"]
+        BackgroundTasks["BackgroundTasks"]
+        Document["Document"]
+    end
+
+    subgraph Integration["Tier 4 -- Integration and Testing"]
+        Containers["Containers"]
+        Challenges["Challenges"]
+        HelixQA["HelixQA"]
+        Conversation["Conversation"]
+    end
+
+    Infrastructure --> Foundation
+    Business --> Infrastructure
+    Business --> Foundation
+    Integration --> Business
+    Integration --> Infrastructure
+
+    LLMProvider --> Config
+    LLMProvider --> Streaming
+    LLMOrchestrator --> LLMProvider
+    LLMOrchestrator --> Concurrency
+    RAG --> Embeddings
+    RAG --> VectorDB
+    RAG --> Document
+    Agentic --> ToolSchema
+    Agentic --> LLMOrchestrator
+    Agentic --> SkillRegistry
+    HelixQA --> Challenges
+    Containers --> Config
+    Containers --> Lazy
+    Auth --> Config
+    RateLimiter --> Cache
+    Security --> Config

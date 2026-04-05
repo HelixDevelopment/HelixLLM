@@ -1,0 +1,75 @@
+graph TB
+    subgraph Gateway["Gateway Layer"]
+        GW_HTTP3["HTTP/3 + HTTP/2 Server"]
+        GW_OPENAI["OpenAI-Compatible API"]
+        GW_ANTHROPIC["Anthropic-Compatible API"]
+        GW_AUTH["Auth Middleware"]
+        GW_RATE["Rate Limiter"]
+        GW_STREAM["SSE Streaming"]
+    end
+
+    subgraph Brain["Brain Layer"]
+        BR_ROUTER["Provider Router"]
+        BR_LLAMA["llama.cpp Local"]
+        BR_OAI["OpenAI Provider"]
+        BR_ANT["Anthropic Provider"]
+    end
+
+    subgraph Knowledge["Knowledge Layer"]
+        KN_PIPELINE["RAG Pipeline"]
+        KN_CHUNKER["Chunker"]
+        KN_EMBEDDER["Embedder"]
+        KN_STORE["Vector Store"]
+    end
+
+    subgraph Agents["Agents Layer"]
+        AG_REACT["ReAct Loop"]
+        AG_TOOLS["Tool Registry"]
+        AG_CONTEXT["Session Context"]
+        AG_RAG["RAG Hook"]
+    end
+
+    subgraph Control["Control Plane Layer"]
+        CP_PROBER["Host Prober"]
+        CP_SCHED["Scheduler"]
+        CP_DEPLOY["Deployer"]
+        CP_MONITOR["Monitor"]
+    end
+
+    subgraph Shared["Shared Foundation"]
+        SH_CONFIG["Config"]
+        SH_EVENTS["EventBus"]
+        SH_LOG["Logging"]
+        SH_OTEL["Observability"]
+        SH_HEALTH["Health"]
+        SH_ANALYTICS["Analytics"]
+    end
+
+    Client(("Client")) --> GW_HTTP3
+    GW_HTTP3 --> GW_AUTH
+    GW_AUTH --> GW_RATE
+    GW_RATE --> GW_OPENAI
+    GW_RATE --> GW_ANTHROPIC
+    GW_OPENAI --> BR_ROUTER
+    GW_ANTHROPIC --> BR_ROUTER
+    GW_OPENAI --> AG_REACT
+    BR_ROUTER --> BR_LLAMA
+    BR_ROUTER --> BR_OAI
+    BR_ROUTER --> BR_ANT
+    AG_REACT --> AG_RAG
+    AG_RAG --> KN_PIPELINE
+    AG_REACT --> BR_ROUTER
+    AG_REACT --> AG_TOOLS
+    AG_REACT --> AG_CONTEXT
+    KN_PIPELINE --> KN_CHUNKER
+    KN_PIPELINE --> KN_EMBEDDER
+    KN_PIPELINE --> KN_STORE
+    CP_PROBER --> CP_SCHED
+    CP_SCHED --> CP_DEPLOY
+    CP_DEPLOY --> CP_MONITOR
+    Gateway --> Shared
+    Brain --> Shared
+    Knowledge --> Shared
+    Agents --> Shared
+    Control --> Shared
+    GW_OPENAI --> GW_STREAM

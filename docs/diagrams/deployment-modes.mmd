@@ -1,0 +1,51 @@
+graph LR
+    subgraph Full["full mode"]
+        F_GW["Gateway"]
+        F_BR["Brain"]
+        F_KN["Knowledge"]
+        F_AG["Agents"]
+        F_CP["Control"]
+        F_SH["Shared"]
+        F_GW --- F_BR
+        F_BR --- F_KN
+        F_KN --- F_AG
+        F_AG --- F_CP
+        F_CP --- F_SH
+    end
+
+    subgraph GatewayMode["gateway mode"]
+        G_GW["Gateway"]
+        G_SH["Shared"]
+        G_GW --- G_SH
+    end
+
+    subgraph BrainMode["brain mode"]
+        B_BR["Brain"]
+        B_SH["Shared"]
+        B_BR --- B_SH
+    end
+
+    subgraph KnowledgeMode["knowledge mode"]
+        K_KN["Knowledge"]
+        K_SH["Shared"]
+        K_KN --- K_SH
+    end
+
+    subgraph AgentsMode["agents mode"]
+        A_AG["Agents"]
+        A_SH["Shared"]
+        A_AG --- A_SH
+    end
+
+    subgraph ControlMode["control mode"]
+        C_CP["Control"]
+        C_SH["Shared"]
+        C_CP --- C_SH
+    end
+
+    MODE{{"HELIX_MODE"}} --> Full
+    MODE --> GatewayMode
+    MODE --> BrainMode
+    MODE --> KnowledgeMode
+    MODE --> AgentsMode
+    MODE --> ControlMode

@@ -1,0 +1,45 @@
+graph LR
+    Push["Git Push"] --> Format
+
+    subgraph QualityGates["CI Pipeline Stages"]
+        direction LR
+        Format["Format<br/>gofmt + goimports"]
+        Lint["Lint<br/>golangci-lint"]
+        UnitTest["Unit Tests<br/>go test -race"]
+        Coverage["Coverage<br/>Threshold: 91%"]
+        VulnScan["Vuln Scan<br/>govulncheck"]
+        SAST["SAST<br/>gosec"]
+        ContainerScan["Container Scan<br/>Trivy image"]
+        Build["Build<br/>go build -ldflags"]
+
+        Format --> Lint
+        Lint --> UnitTest
+        UnitTest --> Coverage
+        Coverage --> VulnScan
+        VulnScan --> SAST
+        SAST --> ContainerScan
+        ContainerScan --> Build
+    end
+
+    Build --> Artifacts
+
+    subgraph Artifacts["Build Artifacts"]
+        Binary["Binary<br/>bin/helixllm"]
+        Image["Container Image<br/>helixllm:tag"]
+    end
+
+    Artifacts --> IntegrationTest
+
+    subgraph PostBuild["Post-Build Validation"]
+        direction LR
+        IntegrationTest["Integration Tests"]
+        E2ETest["E2E Tests"]
+        ChallengeBank["Challenge Banks"]
+        SonarQube["SonarQube<br/>Quality Gate"]
+
+        IntegrationTest --> E2ETest
+        E2ETest --> ChallengeBank
+        ChallengeBank --> SonarQube
+    end
+
+    SonarQube --> Deploy["Deploy"]

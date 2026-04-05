@@ -1,0 +1,41 @@
+stateDiagram-v2
+    [*] --> Requested: Deploy request received
+
+    Requested --> Pulling: Image not cached
+    Requested --> Creating: Image cached
+
+    Pulling --> Creating: Pull complete
+    Pulling --> Failed: Pull error
+
+    Creating --> Starting: Container created
+    Creating --> Failed: Create error
+
+    Starting --> HealthCheck: Container started
+    Starting --> Failed: Start error
+
+    HealthCheck --> Running: Health check passed
+    HealthCheck --> Failed: Health check failed (retries exhausted)
+
+    Running --> Monitoring: Enter monitoring loop
+
+    state Monitoring {
+        [*] --> CheckHealth
+        CheckHealth --> Healthy: Status OK
+        CheckHealth --> Unhealthy: Status degraded
+        Healthy --> CheckHealth: Poll interval
+        Unhealthy --> Recovering: Attempt recovery
+        Recovering --> CheckHealth: Recovery succeeded
+        Recovering --> FailedInner: Recovery failed
+    }
+
+    Monitoring --> IdleDetected: No requests for IDLE_SHUTDOWN_MINUTES
+    Monitoring --> Failed: Unrecoverable error
+
+    IdleDetected --> ShuttingDown: Graceful stop
+    ShuttingDown --> Stopped: Container removed
+
+    Stopped --> LazyRestart: New request arrives (HELIX_LAZY_INFRA=true)
+    LazyRestart --> Creating: Re-create container
+
+    Failed --> Stopped: Cleanup
+    Stopped --> [*]

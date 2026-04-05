@@ -1,0 +1,29 @@
+sequenceDiagram
+    participant C as Client
+    participant GW as Gateway
+    participant Auth as Auth Middleware
+    participant RL as Rate Limiter
+    participant SH as Security Headers
+    participant BR as Brain Router
+    participant P as LLM Provider
+
+    C->>GW: POST /v1/chat/completions
+    GW->>Auth: Validate Bearer token
+    Auth-->>GW: Authorized
+    GW->>RL: Check rate limit
+    RL-->>GW: Within limits
+    GW->>SH: Apply security headers
+    SH-->>GW: Headers set
+
+    GW->>BR: ChatCompletion(request)
+    BR->>BR: Route by model name
+    BR->>P: Complete(messages)
+    P-->>BR: LLM response
+    BR-->>GW: Internal response
+
+    alt Streaming requested
+        GW-->>C: SSE stream (chunked)
+    else Non-streaming
+        GW->>GW: Compress (Brotli/gzip)
+        GW-->>C: JSON response
+    end

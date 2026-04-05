@@ -1,0 +1,38 @@
+sequenceDiagram
+    participant C as Client
+
+    rect rgb(230, 245, 255)
+        Note over C,VS: Document Ingestion Flow
+        participant KA as Knowledge API
+        participant PL as Pipeline
+        participant CH as Chunker
+        participant EM as Embedder
+        participant VS as Vector Store
+
+        C->>KA: POST /internal/knowledge/ingest
+        KA->>KA: Validate content and collection
+        KA->>PL: Ingest(document)
+        PL->>CH: Chunk(content, size=1000, overlap=200)
+        CH-->>PL: Text chunks[]
+        loop Each chunk
+            PL->>EM: Embed(chunk)
+            EM-->>PL: Vector embedding
+        end
+        PL->>VS: Upsert(collection, vectors)
+        VS-->>PL: Stored
+        PL-->>KA: IngestResult(id, collection, chunk_count)
+        KA-->>C: 200 OK with result
+    end
+
+    rect rgb(255, 245, 230)
+        Note over C,VS: Retrieval Query Flow
+        C->>KA: POST /internal/knowledge/query
+        KA->>KA: Validate query
+        KA->>PL: Query(text, collection, top_k=5)
+        PL->>EM: Embed(query_text)
+        EM-->>PL: Query vector
+        PL->>VS: Search(collection, vector, top_k)
+        VS-->>PL: Ranked results[]
+        PL-->>KA: QueryResult(chunks with scores)
+        KA-->>C: 200 OK with results
+    end

@@ -1,0 +1,41 @@
+sequenceDiagram
+    participant C as Client
+    participant GW as Gateway
+    participant Auth as Auth Middleware
+    participant AG as Agent API
+    participant CTX as Session Context
+    participant RAG as RAG Hook
+    participant KN as Knowledge Pipeline
+    participant BR as Brain Router
+    participant T as Tool Registry
+
+    C->>GW: POST /v1/agents/chat
+    GW->>Auth: Validate Bearer token
+    Auth-->>GW: Authorized
+    GW->>AG: Handle agent chat
+
+    AG->>CTX: Load session history
+    CTX-->>AG: Previous messages
+    AG->>AG: Append new messages
+
+    AG->>RAG: Augment prompt
+    RAG->>KN: Query relevant context
+    KN-->>RAG: Knowledge chunks
+    RAG-->>AG: Augmented prompt
+
+    loop ReAct Loop (max 10 turns)
+        AG->>BR: Send to LLM for reasoning
+        BR-->>AG: LLM response
+
+        alt Response contains tool calls
+            AG->>T: Execute tool(s)
+            T-->>AG: Tool observations
+            AG->>AG: Append observation to context
+        else Final answer
+            AG->>AG: Break loop
+        end
+    end
+
+    AG->>CTX: Save updated session
+    AG-->>GW: Final response
+    GW-->>C: JSON or SSE stream
