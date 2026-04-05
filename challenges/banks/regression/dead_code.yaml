@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Dead Code Regression Tests
+# Verifies all previously-dead or stub features are now reachable and functional.
+
+name: dead-code-regression
+version: 1.0.0
+description: |
+  Regression test suite for dead code elimination. Each step verifies that
+  endpoints and features that were previously unreachable, stubbed, or
+  returning placeholder data are now wired up and respond correctly.
+
+platforms:
+  - linux
+
+timeout: 5m
+
+steps:
+  # DC-REG-001: Embeddings endpoint responds (even without a real provider)
+  - name: embeddings-endpoint-accessible
+    type: http_request
+    params:
+      method: POST
+      path: /v1/embeddings
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "text-embedding-ada-002",
+          "input": "test embedding"
+        }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "503"]
+      - type: not_equal
+        field: status
+        expected: "500"
+    on_failure: |
+      Dead code regression: embeddings endpoint is not reachable or returned 500.
+
+  # DC-REG-002: System starts with in-memory vector store when no backend configured
+  - name: vector-store-memory-fallback
+    type: http_request
+    params:
+      method: GET
+      path: /internal/health
+    assertions:
+      - type: http_status_ok
+    on_failure: |
+      Dead code regression: health endpoint failed — in-memory vector store fallback may be broken.
+
+  # DC-REG-003: Agent tools endpoint lists registered tools
+  - name: agent-tools-registered
+    type: http_request
+    params:
+      method: GET
+      path: /v1/agents/tools
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body
+    on_failure: |
+      Dead code regression: agent tools endpoint did not return 200 or returned empty body.
+
+  # DC-REG-004: TOON content negotiation is active
+  - name: toon-content-negotiation
+    type: http_request
+    params:
+      method: GET
+      path: /v1/models
+      headers:
+        Accept: application/toon
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: headers.Content-Type
+        expected: "application/toon"
+      - type: contains
+        field: headers.X-Content-Format
+        expected: "toon"
+    on_failure: |
+      Dead code regression: TOON content negotiation middleware is not active.
+
+  # DC-REG-005: Models endpoint returns non-empty list
+  - name: models-endpoint-populated
+    type: http_request
+    params:
+      method: GET
+      path: /v1/models
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.data
+    on_failure: |
+      Dead code regression: models endpoint returned empty data array — providers may not be registered.
+
+  # DC-REG-006: Chat completions endpoint is wired
+  - name: chat-completions-wired
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "llama-3.1-70b",
+          "messages": [{"role": "user", "content": "Hello"}],
+          "max_tokens": 1
+        }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "503"]
+      - type: not_equal
+        field: status
+        expected: "404"
+    on_failure: |
+      Dead code regression: chat completions endpoint returned 404 — handler not registered.
+
+  # DC-REG-007: Anthropic messages endpoint is wired
+  - name: anthropic-messages-wired
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "claude-sonnet-4-20250514",
+          "max_tokens": 1,
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: one_of
+        field: status
+        expected: ["200", "503"]
+      - type: not_equal
+        field: status
+        expected: "404"
+    on_failure: |
+      Dead code regression: Anthropic messages endpoint returned 404 — handler not registered.
