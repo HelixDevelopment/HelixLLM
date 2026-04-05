@@ -1,6 +1,11 @@
 # ── Builder ──────────────────────────────────────────────
 FROM docker.io/library/golang:1.24-alpine AS builder
 
+# Install Go 1.26.1 if needed
+RUN wget -O- https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C /usr/local -xzf - && \
+    ln -sf /usr/local/go/bin/go /usr/local/bin/go && \
+    ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
 RUN apk add --no-cache git ca-certificates
 
 WORKDIR /build

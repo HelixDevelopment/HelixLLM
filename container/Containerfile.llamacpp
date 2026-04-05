@@ -15,7 +15,7 @@ RUN apk add --no-cache \
 
 # Clone llama.cpp (shallow clone for speed)
 WORKDIR /src
-RUN git clone --depth 1 --branch b4654 https://github.com/ggml-org/llama.cpp.git .
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git .
 
 # Build with CPU optimizations (AVX2, AVX512 if available)
 # Using static linking for portability
