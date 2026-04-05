@@ -1,4 +1,4 @@
-.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-stress-go test-chaos test-security test-benchmark test-benchmark-go test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
+.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-stress-go test-chaos test-security test-benchmark test-benchmark-go test-automation test-usecases test-all coverage scan-vuln scan-sast scan-snyk scan-sonar scan-container scan-fs scan-quick scan-all probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
 
 # ── Variables ────────────────────────────────────────────
 BINARY := helixllm
@@ -81,6 +81,35 @@ coverage: test-unit
 	fi; \
 	echo "PASS: coverage meets threshold"
 	@echo "Full coverage report: go tool cover -html=coverage-unit.out"
+
+# ── Security Scanning ───────────────────────────────────
+scan-vuln:
+	govulncheck ./...
+
+scan-sast:
+	golangci-lint run --enable-only gosec ./...
+
+scan-snyk:
+	@command -v snyk >/dev/null 2>&1 && snyk test --all-projects || echo "Snyk CLI not installed — install via: npm install -g snyk"
+
+scan-sonar:
+	@echo "Starting SonarQube via compose..."
+	$(CONTAINER_RUNTIME) compose -f deploy/compose.security.yaml --profile sonar up -d sonarqube
+	@echo "Waiting for SonarQube to be ready (this may take 2-3 minutes)..."
+	@timeout 180 bash -c 'until curl -sf http://localhost:9000/api/system/status | grep -q UP; do sleep 5; done' || (echo "SonarQube failed to start" && exit 1)
+	@echo "Running SonarQube scanner..."
+	$(CONTAINER_RUNTIME) run --rm --network host -v $$(pwd):/usr/src -w /usr/src sonarsource/sonar-scanner-cli:latest
+	@echo "SonarQube results at http://localhost:9000/dashboard?id=helixllm"
+
+scan-container:
+	$(CONTAINER_RUNTIME) run --rm -v $$(pwd):/project aquasec/trivy:latest image $(IMAGE):$(TAG)
+
+scan-fs:
+	$(CONTAINER_RUNTIME) run --rm -v $$(pwd):/project aquasec/trivy:latest fs /project
+
+scan-quick: scan-vuln scan-sast
+
+scan-all: scan-vuln scan-sast scan-snyk scan-fs
 
 # ── Cluster ──────────────────────────────────────────────
 probe:
