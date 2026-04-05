@@ -1,0 +1,30 @@
+name: LLM Provider Failure
+description: Validates graceful degradation when LLM providers are unavailable
+category: chaos
+priority: high
+
+challenges:
+  - name: chat_without_provider
+    description: Chat completion returns meaningful error when no LLM is available
+    steps:
+      - method: POST
+        path: /v1/chat/completions
+        body:
+          model: "nonexistent-model"
+          messages:
+            - role: user
+              content: "test"
+        assertions:
+          - type: status_one_of
+            values: [404, 503]
+          - type: response_time_ms
+            max: 5000
+
+  - name: models_always_responds
+    description: Models endpoint responds even when providers are down
+    steps:
+      - method: GET
+        path: /v1/models
+        assertions:
+          - type: status
+            value: 200

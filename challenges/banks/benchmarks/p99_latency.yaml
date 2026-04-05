@@ -1,0 +1,25 @@
+name: P99 Latency Assertions
+description: Validates p99 latency SLOs per endpoint type
+category: benchmarks
+priority: high
+
+challenges:
+  - name: health_p99
+    description: Health endpoint p99 latency under 50ms
+    steps:
+      - method: GET
+        path: /internal/health
+        repeat: 100
+        assertions:
+          - type: response_time_p99_ms
+            max: 50
+
+  - name: models_p99
+    description: Models endpoint p99 latency under 100ms
+    steps:
+      - method: GET
+        path: /v1/models
+        repeat: 100
+        assertions:
+          - type: response_time_p99_ms
+            max: 100

@@ -1,0 +1,19 @@
+name: Redis Cache Failure
+description: Validates system operates correctly without cache layer
+category: chaos
+priority: medium
+
+challenges:
+  - name: api_without_cache
+    description: API endpoints still function without Redis
+    steps:
+      - method: GET
+        path: /internal/health
+        assertions:
+          - type: status
+            value: 200
+      - method: GET
+        path: /v1/models
+        assertions:
+          - type: status
+            value: 200

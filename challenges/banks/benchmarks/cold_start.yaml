@@ -1,0 +1,17 @@
+name: Cold Start
+description: Measures time from binary start to first request served
+category: benchmarks
+priority: medium
+
+challenges:
+  - name: first_health_response
+    description: First health check after start completes in under 5 seconds
+    steps:
+      - method: GET
+        path: /internal/health
+        retry:
+          max_attempts: 10
+          interval_ms: 500
+        assertions:
+          - type: status
+            value: 200
