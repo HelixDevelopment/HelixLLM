@@ -1,4 +1,4 @@
-.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-chaos test-security test-benchmark test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
+.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-chaos test-security test-benchmark test-benchmark-go test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
 
 # ── Variables ────────────────────────────────────────────
 BINARY := helixllm
@@ -61,6 +61,9 @@ test-challenges-api:
 	./bin/helixllm --challenges --banks-dir=challenges/banks/api/ --base-url=https://localhost:8443
 
 test-all: test-unit test-integration
+
+test-benchmark-go:
+	go test -bench=. -benchmem -count=3 -run=^$$ ./internal/...
 
 COVERAGE_THRESHOLD := 85
 
