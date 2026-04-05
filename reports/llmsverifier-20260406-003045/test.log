@@ -1,0 +1,146 @@
+[0;36m====================================[0m
+[0;36mHelixLLM Advanced LLMsVerifier Test Suite[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Report Directory: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260406-003045
+[0;34m[INFO][0m Configuration:
+[0;34m[INFO][0m   HELIXLLM_ENDPOINT: https://localhost:8443
+[0;34m[INFO][0m   LLAMACPP_ENDPOINT: http://localhost:8081
+[0;34m[INFO][0m   TEST_TIMEOUT: 300
+[0;36m====================================[0m
+[0;36mCORE MODEL CAPABILITIES[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m --- Reasoning & Logic ---
+[0;34m[INFO][0m Running: Chain of Thought Reasoning (Max Score: 15)
+[1;33m[WARN][0m Chain of Thought Reasoning - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Logical Deduction (Max Score: 15)
+[1;33m[WARN][0m Logical Deduction - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Multi-step Problem Solving (Max Score: 20)
+[1;33m[WARN][0m Multi-step Problem Solving - Non-critical failure (12ms)
+[0;34m[INFO][0m --- Coding & Software Engineering ---
+[0;34m[INFO][0m Running: Generate Fibonacci Function (Max Score: 15)
+[1;33m[WARN][0m Generate Fibonacci Function - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Code Explanation (Max Score: 15)
+[1;33m[WARN][0m Code Explanation - Non-critical failure (11ms)
+[0;34m[INFO][0m Running: Debug Code (Max Score: 15)
+[1;33m[WARN][0m Debug Code - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Algorithm Design (Max Score: 15)
+[1;33m[WARN][0m Algorithm Design - Non-critical failure (12ms)
+[0;34m[INFO][0m --- Mathematics & Logic ---
+[0;34m[INFO][0m Running: Basic Arithmetic (Max Score: 10)
+[1;33m[WARN][0m Basic Arithmetic - Non-critical failure (11ms)
+[0;34m[INFO][0m Running: Algebra Problem (Max Score: 15)
+[1;33m[WARN][0m Algebra Problem - Non-critical failure (11ms)
+[0;34m[INFO][0m Running: Pattern Recognition (Max Score: 15)
+[1;33m[WARN][0m Pattern Recognition - Non-critical failure (11ms)
+[0;36m====================================[0m
+[0;36mMCP (Model Context Protocol) INTEGRATION[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: MCP Tool Discovery (Max Score: 20)
+[0;32m[PASS][0m MCP Tool Discovery (11ms)
+[0;34m[INFO][0m Running: MCP Echo Tool Execution (Max Score: 25)
+[0;32m[PASS][0m MCP Echo Tool Execution (14ms)
+[0;34m[INFO][0m Running: MCP Time Tool Execution (Max Score: 25)
+[0;32m[PASS][0m MCP Time Tool Execution (12ms)
+[0;34m[INFO][0m Running: MCP Knowledge Query Tool (Max Score: 30)
+[0;32m[PASS][0m MCP Knowledge Query Tool (12ms)
+[0;36m====================================[0m
+[0;36mRAG (Retrieval-Augmented Generation) SYSTEM[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: RAG Document Ingestion Endpoint (Max Score: 25)
+[0;32m[PASS][0m RAG Document Ingestion Endpoint (12ms)
+[0;34m[INFO][0m Running: RAG Query Endpoint (Max Score: 25)
+[0;32m[PASS][0m RAG Query Endpoint (11ms)
+[0;34m[INFO][0m Running: RAG Health Check (Max Score: 25)
+[0;32m[PASS][0m RAG Health Check (11ms)
+[0;34m[INFO][0m Running: RAG Collection Stats (Max Score: 25)
+[0;32m[PASS][0m RAG Collection Stats (11ms)
+[0;36m====================================[0m
+[0;36mLSP (Language Server Protocol) INTEGRATION[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: LSP Bridge Health (Max Score: 25)
+[0;32m[PASS][0m LSP Bridge Health (11ms)
+[0;34m[INFO][0m Running: LSP Go Language Server Status (Max Score: 25)
+[0;32m[PASS][0m LSP Go Language Server Status (11ms)
+[0;34m[INFO][0m Running: LSP Code Analysis Endpoint (Max Score: 25)
+[0;32m[PASS][0m LSP Code Analysis Endpoint (11ms)
+[0;34m[INFO][0m Running: LSP Definition Lookup (Max Score: 25)
+[0;32m[PASS][0m LSP Definition Lookup (11ms)
+[0;36m====================================[0m
+[0;36mACP (Agent Communication Protocol) MULTI-AGENT[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: ACP Agent Registry (Max Score: 20)
+[0;32m[PASS][0m ACP Agent Registry (11ms)
+[0;34m[INFO][0m Running: ACP Task Creation (Max Score: 25)
+[0;32m[PASS][0m ACP Task Creation (11ms)
+[0;34m[INFO][0m Running: ACP Coordinator Health (Max Score: 25)
+[0;32m[PASS][0m ACP Coordinator Health (11ms)
+[0;34m[INFO][0m Running: ACP Memory Remember (Max Score: 15)
+[0;32m[PASS][0m ACP Memory Remember (11ms)
+[0;34m[INFO][0m Running: ACP Memory Recall (Max Score: 15)
+[0;32m[PASS][0m ACP Memory Recall (11ms)
+[0;36m====================================[0m
+[0;36mEMBEDDINGS SYSTEM[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: Text Embedding Generation (Max Score: 25)
+[0;32m[PASS][0m Text Embedding Generation (12ms)
+[0;34m[INFO][0m Running: Embedding Vector Dimensions (Max Score: 25)
+[0;32m[PASS][0m Embedding Vector Dimensions (11ms)
+[0;34m[INFO][0m Running: Batch Embedding Processing (Max Score: 25)
+[0;32m[PASS][0m Batch Embedding Processing (11ms)
+[0;36m====================================[0m
+[0;36mSTREAMING & REAL-TIME CAPABILITIES[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: Streaming Chat Completion (Max Score: 25)
+[1;33m[WARN][0m Streaming Chat Completion - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Streaming Response Format (Max Score: 25)
+[1;33m[WARN][0m Streaming Response Format - Non-critical failure (13ms)
+[0;34m[INFO][0m Running: Server-Sent Events Protocol (Max Score: 25)
+[1;33m[WARN][0m Server-Sent Events Protocol - Non-critical failure (12ms)
+[0;36m====================================[0m
+[0;36mCONTEXT WINDOW & LONG TEXT HANDLING[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: Multi-turn Conversation (Max Score: 25)
+[1;33m[WARN][0m Multi-turn Conversation - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Context Retention (Max Score: 25)
+[1;33m[WARN][0m Context Retention - Non-critical failure (11ms)
+[0;36m====================================[0m
+[0;36mPERFORMANCE BENCHMARKS[0m
+[0;36m====================================[0m
+[1;33m[WARN][0m Response Time: Endpoint not available
+[0;34m[INFO][0m Running: Concurrent Request Handling (Max Score: 25)
+[0;32m[PASS][0m Concurrent Request Handling (18ms)
+[0;34m[INFO][0m Running: Token Generation Rate (Max Score: 25)
+[1;33m[WARN][0m Token Generation Rate - Non-critical failure (16ms)
+[0;36m====================================[0m
+[0;36mAPI COMPATIBILITY[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: OpenAI-compatible /v1/models (Max Score: 15)
+[0;32m[PASS][0m OpenAI-compatible /v1/models (15ms)
+[0;34m[INFO][0m Running: OpenAI-compatible /v1/chat/completions (Max Score: 15)
+[1;33m[WARN][0m OpenAI-compatible /v1/chat/completions - Non-critical failure (14ms)
+[0;34m[INFO][0m Running: Anthropic-compatible /v1/messages (Max Score: 10)
+[0;32m[PASS][0m Anthropic-compatible /v1/messages (12ms)
+[0;34m[INFO][0m Running: Health Endpoint (Max Score: 10)
+[0;32m[PASS][0m Health Endpoint (11ms)
+[0;36m====================================[0m
+[0;36mSECURITY & SAFETY[0m
+[0;36m====================================[0m
+[0;34m[INFO][0m Running: TLS/HTTPS Enabled (Max Score: 15)
+[1;33m[WARN][0m TLS/HTTPS Enabled - Non-critical failure (12ms)
+[0;34m[INFO][0m Running: Request Validation (Max Score: 15)
+[0;32m[PASS][0m Request Validation (12ms)
+[0;34m[INFO][0m Running: Rate Limiting Headers (Max Score: 10)
+[0;32m[PASS][0m Rate Limiting Headers (13ms)
+[0;34m[INFO][0m Running: Content Security Policy (Max Score: 10)
+[0;32m[PASS][0m Content Security Policy (11ms)
+[0;36m====================================[0m
+[0;36mGENERATING REPORT[0m
+[0;36m====================================[0m
+[0;32m[PASS][0m Reports generated:
+[0;34m[INFO][0m   JSON: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260406-003045/report.json
+[0;34m[INFO][0m   Markdown: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260406-003045/REPORT.md
+[0;34m[INFO][0m   Log: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260406-003045/test.log
+[0;36m====================================[0m
+[0;36mFINAL SUMMARY[0m
+[0;36m====================================[0m
+[0;32m[PASS][0m ALL TESTS PASSED!

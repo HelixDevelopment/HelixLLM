@@ -73,6 +73,18 @@ func RegisterAgentRoutes(r *gin.Engine, agent *Agent, ctx *ConversationContext) 
 	RegisterAgentRoutesWithExtras(r, agent, ctx, nil, nil, nil)
 }
 
+// ToolExecuteRequest is the request body for POST /v1/agents/tools/execute.
+type ToolExecuteRequest struct {
+	Tool   string                 `json:"tool" binding:"required"`
+	Params map[string]interface{} `json:"params"`
+}
+
+// ToolExecuteResponse is the response body for POST /v1/agents/tools/execute.
+type ToolExecuteResponse struct {
+	Result string `json:"result"`
+	Error  string `json:"error,omitempty"`
+}
+
 // RegisterAgentRoutesWithExtras wires all agent routes including the optional
 // Coordinator and MemoryManager.  Either may be nil, in which case the
 // corresponding endpoints return 501 Not Implemented.
@@ -87,6 +99,7 @@ func RegisterAgentRoutesWithExtras(
 	v1 := r.Group("/v1/agents")
 	v1.POST("/chat", agentChatHandler(agent, convCtx))
 	v1.GET("/tools", agentToolsHandler(agent))
+	v1.POST("/tools/execute", toolExecuteHandler(agent))
 	v1.POST("/coordinate", coordinateHandler(coordinator))
 	v1.POST("/plan", planHandler(planner))
 	v1.POST("/memory/remember", memoryRememberHandler(memMgr))
@@ -267,5 +280,35 @@ func memoryRecallHandler(memMgr *MemoryManager) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, MemoryRecallResponse{Memories: memories})
+	}
+}
+
+// toolExecuteHandler returns a Gin handler for POST /v1/agents/tools/execute.
+func toolExecuteHandler(agent *Agent) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if agent.tools == nil {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "tool registry not configured"})
+			return
+		}
+
+		var req ToolExecuteRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		tool, ok := agent.tools.Get(req.Tool)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tool not found: " + req.Tool})
+			return
+		}
+
+		result, err := tool.Execute(c.Request.Context(), req.Params)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ToolExecuteResponse{Error: err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, ToolExecuteResponse{Result: result})
 	}
 }

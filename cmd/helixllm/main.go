@@ -136,7 +136,7 @@ func main() {
 
 	// Create Brain — registers whichever providers are configured.
 	brainSvc := brain.New(brain.Config{
-		LlamaCppURL:     fmt.Sprintf("http://localhost:%d", cfg.LLM.LocalRPCPort),
+		LlamaCppURL:     fmt.Sprintf("http://%s:%d", cfg.LLM.LocalRPCHost, cfg.LLM.LocalRPCPort),
 		LlamaCppModels:  []string{cfg.LLM.LocalModel},
 		OpenAIKey:       cfg.LLM.OpenAIKey,
 		AnthropicKey:    cfg.LLM.AnthropicKey,

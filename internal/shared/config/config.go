@@ -45,6 +45,7 @@ type ServerConfig struct {
 // LLMConfig holds large-language-model provider settings.
 type LLMConfig struct {
 	LocalModel      string `env:"HELIX_LLM_LOCAL_MODEL" default:"Llama-3.1-70B-Instruct-Q4_K_M"`
+	LocalRPCHost    string `env:"HELIX_LLM_LOCAL_RPC_HOST" default:"localhost"`
 	LocalRPCPort    int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
 	OpenAIKey       string `env:"HELIX_LLM_OPENAI_KEY"`
 	AnthropicKey    string `env:"HELIX_LLM_ANTHROPIC_KEY"`
