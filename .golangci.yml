@@ -1,0 +1,43 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - gosec
+    - bodyclose
+    - durationcheck
+    - gocritic
+    - gosimple
+    - ineffassign
+    - misspell
+    - noctx
+    - prealloc
+    - unconvert
+    - unparam
+    - unused
+
+linters-settings:
+  gosec:
+    severity: medium
+    confidence: medium
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    - path: mock_
+      linters:
+        - unused
