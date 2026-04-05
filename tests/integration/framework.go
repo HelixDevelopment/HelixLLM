@@ -20,6 +20,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/control"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
+	srvmw "github.com/HelixDevelopment/HelixLLM/internal/server/middleware"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
 )
 
@@ -36,6 +37,7 @@ func NewTestServer() *TestServer {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.Use(srvmw.RequestID())
 
 	// Health endpoint.
 	checker := health.NewChecker()
