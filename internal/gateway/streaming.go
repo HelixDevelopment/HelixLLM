@@ -2,11 +2,19 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
 
 // SSEWriter wraps a Gin context and writes Server-Sent Events in the OpenAI
 // text/event-stream format.
@@ -32,12 +40,18 @@ func (w *SSEWriter) WriteHeader() {
 // WriteEvent serialises data as JSON and writes a single SSE data line
 // followed by the mandatory blank line separator. It flushes the response
 // writer immediately so the client receives the chunk without buffering.
+// A sync.Pool is used to reuse encoding buffers across calls.
 func (w *SSEWriter) WriteEvent(data interface{}) error {
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufPool.Put(buf)
+
+	if err := json.NewEncoder(buf).Encode(data); err != nil {
 		return err
 	}
-	fmt.Fprintf(w.c.Writer, "data: %s\n\n", jsonBytes)
+	// Encode adds a trailing newline; trim it for SSE format.
+	b := bytes.TrimRight(buf.Bytes(), "\n")
+	fmt.Fprintf(w.c.Writer, "data: %s\n\n", b)
 	w.c.Writer.Flush()
 	return nil
 }
