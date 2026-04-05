@@ -249,3 +249,16 @@ HELIX_LOG_FORMAT=text
 HELIX_OTEL_EXPORTER=stdout
 HELIX_LLM_DEFAULT_PROVIDER=local
 ```
+
+## External Dependencies
+
+Some submodules reference modules that live outside the HelixLLM repository:
+
+| Module | Required By | Purpose | Setup |
+|--------|-------------|---------|-------|
+| `digital.vasic.models` | LLMProvider, BackgroundTasks | Shared model type definitions | Clone from vasic-digital org, place at `../Models` relative to submodule |
+| `digital.vasic.messaging` | conversation | Messaging abstractions | Clone from vasic-digital org, place at `../Messaging` relative to submodule |
+| `digital.vasic.docprocessor` | HelixQA | Document processing | Clone from vasic-digital org, place at `../DocProcessor` |
+| `digital.vasic.visionengine` | HelixQA | Vision processing | Clone from vasic-digital org, place at `../VisionEngine` |
+
+These are only needed when working directly on the listed submodules. The main HelixLLM binary builds without them.
