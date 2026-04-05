@@ -1,0 +1,51 @@
+erDiagram
+    agent_sessions {
+        UUID id PK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+        JSONB metadata
+    }
+
+    agent_messages {
+        UUID id PK
+        UUID session_id FK
+        VARCHAR role
+        TEXT content
+        JSONB tool_calls
+        TIMESTAMPTZ created_at
+    }
+
+    skills {
+        UUID id PK
+        VARCHAR name UK
+        TEXT description
+        VARCHAR version
+        JSONB schema_json
+        BOOLEAN enabled
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    background_tasks {
+        UUID id PK
+        VARCHAR type
+        VARCHAR status
+        JSONB payload
+        JSONB result
+        TEXT error
+        INTEGER attempts
+        INTEGER max_retries
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ started_at
+        TIMESTAMPTZ completed_at
+    }
+
+    analytics_events {
+        BIGSERIAL id PK
+        VARCHAR event_type
+        VARCHAR source
+        JSONB payload
+        TIMESTAMPTZ created_at
+    }
+
+    agent_sessions ||--o{ agent_messages : "has many"
