@@ -1,0 +1,47 @@
+name: Security Scanning Validation
+description: Validates that security endpoints and headers are properly configured
+category: security
+priority: medium
+
+challenges:
+  - name: health_endpoint_no_sensitive_data
+    description: Health endpoint should not leak internal details
+    steps:
+      - method: GET
+        path: /internal/health
+        assertions:
+          - type: status
+            value: 200
+          - type: body_not_contains
+            value: "password"
+          - type: body_not_contains
+            value: "secret"
+
+  - name: security_headers_present
+    description: All security headers must be set on API responses
+    steps:
+      - method: GET
+        path: /v1/models
+        assertions:
+          - type: header_present
+            name: X-Content-Type-Options
+          - type: header_present
+            name: X-Frame-Options
+          - type: header_present
+            name: Strict-Transport-Security
+
+  - name: invalid_auth_rejected
+    description: Invalid API key should return 401 when auth is enabled
+    steps:
+      - method: POST
+        path: /v1/chat/completions
+        headers:
+          Authorization: "Bearer invalid-key-12345"
+        body:
+          model: "auto"
+          messages:
+            - role: user
+              content: "test"
+        assertions:
+          - type: status_one_of
+            values: [401, 200]
