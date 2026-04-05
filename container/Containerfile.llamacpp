@@ -1,0 +1,100 @@
+# ── llama.cpp Builder ───────────────────────────────────
+# Builds llama.cpp from source with CPU optimizations
+# Includes automatic model download and server startup
+
+FROM docker.io/library/alpine:3.20 AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    git \
+    cmake \
+    build-base \
+    g++ \
+    gcc \
+    linux-headers
+
+# Clone llama.cpp (shallow clone for speed)
+WORKDIR /src
+RUN git clone --depth 1 --branch b4654 https://github.com/ggml-org/llama.cpp.git .
+
+# Build with CPU optimizations (AVX2, AVX512 if available)
+# Using static linking for portability
+RUN cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLAMA_NATIVE=OFF \
+    -DLLAMA_AVX=ON \
+    -DLLAMA_AVX2=ON \
+    -DLLAMA_AVX512=OFF \
+    -DLLAMA_FMA=ON \
+    -DLLAMA_F16C=ON \
+    -DLLAMA_STATIC=OFF \
+    -DBUILD_SHARED_LIBS=OFF
+
+RUN cmake --build build --config Release -j$(nproc)
+
+# ── Runtime ─────────────────────────────────────────────
+FROM docker.io/library/alpine:3.20
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    curl \
+    wget
+
+# Copy built binaries
+COPY --from=builder /src/build/bin/llama-server /usr/local/bin/llama-server
+COPY --from=builder /src/build/bin/llama-cli /usr/local/bin/llama-cli
+
+# Create models directory
+RUN mkdir -p /models
+
+# Download script for fetching models
+COPY <<'EOF' /usr/local/bin/download-model
+#!/bin/sh
+set -e
+
+MODEL_URL="${MODEL_URL:-https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf}"
+MODEL_PATH="${MODEL_PATH:-/models/model.gguf}"
+
+if [ -f "$MODEL_PATH" ]; then
+    echo "Model already exists at $MODEL_PATH"
+    exit 0
+fi
+
+echo "Downloading model from $MODEL_URL..."
+curl -L --progress-bar -o "$MODEL_PATH.tmp" "$MODEL_URL"
+mv "$MODEL_PATH.tmp" "$MODEL_PATH"
+echo "Model downloaded to $MODEL_PATH"
+EOF
+
+RUN chmod +x /usr/local/bin/download-model
+
+# Startup script
+COPY <<'EOF' /usr/local/bin/start-server
+#!/bin/sh
+set -e
+
+# Download model if not present
+/usr/local/bin/download-model
+
+# Start llama-server with optimized settings
+exec llama-server \
+    --host "${LLAMA_HOST:-0.0.0.0}" \
+    --port "${LLAMA_PORT:-8080}" \
+    --model "${MODEL_PATH:-/models/model.gguf}" \
+    --ctx-size "${LLAMA_CTX_SIZE:-8192}" \
+    --threads "${LLAMA_THREADS:-4}" \
+    --threads-batch "${LLAMA_THREADS_BATCH:-4}" \
+    --batch-size "${LLAMA_BATCH_SIZE:-2048}" \
+    --n-predict "${LLAMA_N_PREDICT:--1}" \
+    --parallel "${LLAMA_PARALLEL:-1}" \
+    --cont-batching \
+    --metrics \
+    "$@"
+EOF
+
+RUN chmod +x /usr/local/bin/start-server
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/start-server"]
