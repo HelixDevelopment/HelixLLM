@@ -35,11 +35,13 @@ RUN cmake --build build --config Release -j$(nproc)
 # ── Runtime ─────────────────────────────────────────────
 FROM docker.io/library/alpine:3.20
 
-# Install runtime dependencies
+# Install runtime dependencies including C++ standard library
 RUN apk add --no-cache \
     ca-certificates \
     curl \
-    wget
+    wget \
+    libstdc++ \
+    libgomp
 
 # Copy built binaries
 COPY --from=builder /src/build/bin/llama-server /usr/local/bin/llama-server
