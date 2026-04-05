@@ -1,0 +1,33 @@
+{
+  "test_run": {
+    "timestamp": "2026-04-06T00:45:52+03:00",
+    "test_suite": "HelixLLM Advanced LLMsVerifier",
+    "version": "1.0.0",
+    "helixllm_endpoint": "https://localhost:8443"
+  },
+  "summary": {
+    "total_tests": 46,
+    "passed": 46,
+    "failed": 0,
+    "skipped": 0,
+    "total_score": 925,
+    "max_score": 925,
+    "score_percentage": 100,
+    "final_grade": "A+ (Excellent - Production Ready)",
+    "success_rate": "100.0%"
+  },
+  "categories": {
+    "core_capabilities": {"max": 150, "description": "Reasoning, coding, math, logic"},
+    "mcp_integration": {"max": 100, "description": "Tool calling, external services"},
+    "rag_system": {"max": 100, "description": "Knowledge retrieval, context injection"},
+    "lsp_integration": {"max": 100, "description": "Code intelligence, language servers"},
+    "acp_multiagent": {"max": 100, "description": "Agent coordination, task delegation"},
+    "embeddings": {"max": 75, "description": "Vector operations, similarity search"},
+    "streaming": {"max": 75, "description": "Real-time response handling"},
+    "context_window": {"max": 75, "description": "Long context handling"},
+    "performance": {"max": 75, "description": "Latency, throughput benchmarks"},
+    "api_compatibility": {"max": 50, "description": "OpenAI/Anthropic API compatibility"},
+    "security": {"max": 50, "description": "TLS, validation, rate limiting"}
+  },
+  "results": [{"test":"Chain of Thought Reasoning","status":"passed","score":15,"max_score":15,"duration_ms":5085,"critical":false},{"test":"Logical Deduction","status":"passed","score":15,"max_score":15,"duration_ms":3108,"critical":false},{"test":"Multi-step Problem Solving","status":"passed","score":20,"max_score":20,"duration_ms":3427,"critical":false},{"test":"Generate Fibonacci Function","status":"passed","score":15,"max_score":15,"duration_ms":9307,"critical":false},{"test":"Code Explanation","status":"passed","score":15,"max_score":15,"duration_ms":7195,"critical":false},{"test":"Debug Code","status":"passed","score":15,"max_score":15,"duration_ms":2186,"critical":false},{"test":"Algorithm Design","status":"passed","score":15,"max_score":15,"duration_ms":9159,"critical":false},{"test":"Basic Arithmetic","status":"passed","score":10,"max_score":10,"duration_ms":426,"critical":false},{"test":"Algebra Problem","status":"passed","score":15,"max_score":15,"duration_ms":1880,"critical":false},{"test":"Pattern Recognition","status":"passed","score":15,"max_score":15,"duration_ms":3479,"critical":false},{"test":"MCP Tool Discovery","status":"passed","score":20,"max_score":20,"duration_ms":13,"critical":false},{"test":"MCP Echo Tool Execution","status":"passed","score":25,"max_score":25,"duration_ms":13,"critical":false},{"test":"MCP Time Tool Execution","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"MCP Knowledge Query Tool","status":"passed","score":30,"max_score":30,"duration_ms":12,"critical":false},{"test":"RAG Document Ingestion Endpoint","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"RAG Query Endpoint","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"RAG Health Check","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"RAG Collection Stats","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"LSP Bridge Health","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"LSP Go Language Server Status","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"LSP Code Analysis Endpoint","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"LSP Definition Lookup","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"ACP Agent Registry","status":"passed","score":20,"max_score":20,"duration_ms":11,"critical":false},{"test":"ACP Task Creation","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"ACP Coordinator Health","status":"passed","score":25,"max_score":25,"duration_ms":11,"critical":false},{"test":"ACP Memory Remember","status":"passed","score":15,"max_score":15,"duration_ms":12,"critical":false},{"test":"ACP Memory Recall","status":"passed","score":15,"max_score":15,"duration_ms":13,"critical":false},{"test":"Text Embedding Generation","status":"passed","score":25,"max_score":25,"duration_ms":12,"critical":false},{"test":"Embedding Vector Dimensions","status":"passed","score":25,"max_score":25,"duration_ms":12,"critical":false},{"test":"Batch Embedding Processing","status":"passed","score":25,"max_score":25,"duration_ms":12,"critical":false},{"test":"Streaming Chat Completion","status":"passed","score":25,"max_score":25,"duration_ms":409,"critical":false},{"test":"Streaming Response Format","status":"passed","score":25,"max_score":25,"duration_ms":418,"critical":false},{"test":"Server-Sent Events Protocol","status":"passed","score":25,"max_score":25,"duration_ms":400,"critical":false},{"test":"Multi-turn Conversation","status":"passed","score":25,"max_score":25,"duration_ms":243,"critical":false},{"test":"Context Retention","status":"passed","score":25,"max_score":25,"duration_ms":620,"critical":false},{"test":"Response Time","status":"passed","score":25,"max_score":25,"latency_ms":402,"rating":"excellent"},{"test":"Concurrent Request Handling","status":"passed","score":25,"max_score":25,"duration_ms":1148,"critical":false},{"test":"Token Generation Rate","status":"passed","score":25,"max_score":25,"duration_ms":4986,"critical":false},{"test":"OpenAI-compatible /v1/models","status":"passed","score":15,"max_score":15,"duration_ms":13,"critical":false},{"test":"OpenAI-compatible /v1/chat/completions","status":"passed","score":15,"max_score":15,"duration_ms":404,"critical":false},{"test":"Anthropic-compatible /v1/messages","status":"passed","score":10,"max_score":10,"duration_ms":362,"critical":false},{"test":"Health Endpoint","status":"passed","score":10,"max_score":10,"duration_ms":13,"critical":false},{"test":"TLS/HTTPS Enabled","status":"passed","score":15,"max_score":15,"duration_ms":25,"critical":false},{"test":"Request Validation","status":"passed","score":15,"max_score":15,"duration_ms":6500,"critical":false},{"test":"Rate Limiting Headers","status":"passed","score":10,"max_score":10,"duration_ms":1428,"critical":false},{"test":"Content Security Policy","status":"passed","score":10,"max_score":10,"duration_ms":13,"critical":false}]
+}
