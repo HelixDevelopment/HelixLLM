@@ -1,4 +1,4 @@
-.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-chaos test-security test-benchmark test-benchmark-go test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
+.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-stress-go test-chaos test-security test-benchmark test-benchmark-go test-automation test-usecases test-all coverage probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
 
 # ── Variables ────────────────────────────────────────────
 BINARY := helixllm
@@ -35,6 +35,9 @@ test-race:
 
 test-stress:
 	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
+
+test-stress-go:
+	go test -v -count=1 -tags=stress -timeout=10m ./tests/stress/...
 
 test-chaos:
 	./bin/helixllm --challenges --banks-dir=challenges/banks/chaos/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
