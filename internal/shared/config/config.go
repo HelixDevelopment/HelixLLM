@@ -30,6 +30,7 @@ type HelixConfig struct {
 	Features          FeatureConfig
 	Analytics         AnalyticsConfig
 	Proxy             ProxyConfig
+	Concurrency       ConcurrencyConfig
 }
 
 // ServerConfig holds HTTP/TLS server settings.
@@ -125,6 +126,17 @@ type ProxyConfig struct {
 	HTTPSProxy string `env:"HELIX_HTTPS_PROXY"`
 	NoProxy    string `env:"HELIX_NO_PROXY"`
 	SOCKSProxy string `env:"HELIX_SOCKS_PROXY"`
+}
+
+// ConcurrencyConfig holds concurrency limits and lazy-infrastructure settings.
+// A value of 0 for any max-concurrent field means unlimited.
+type ConcurrencyConfig struct {
+	LLMMaxConcurrent       int  `env:"HELIX_LLM_MAX_CONCURRENT" default:"10"`
+	EmbeddingMaxConcurrent int  `env:"HELIX_EMBEDDING_MAX_CONCURRENT" default:"20"`
+	AgentMaxConcurrentTools int `env:"HELIX_AGENT_MAX_CONCURRENT_TOOLS" default:"5"`
+	SSHMaxConcurrent       int  `env:"HELIX_SSH_MAX_CONCURRENT" default:"10"`
+	LazyInfra              bool `env:"HELIX_LAZY_INFRA" default:"false"`
+	IdleShutdownMinutes    int  `env:"HELIX_IDLE_SHUTDOWN_MINUTES" default:"0"`
 }
 
 // Load reads configuration from environment variables, applying defaults
