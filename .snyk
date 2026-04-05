@@ -1,0 +1,5 @@
+# Snyk policy file — documents accepted risks.
+# See https://snyk.io/docs/snyk-policy-file/
+version: v1.25.0
+ignore: {}
+patch: {}

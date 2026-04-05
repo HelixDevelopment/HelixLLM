@@ -1,0 +1,15 @@
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+security-checks:
+  - vuln
+  - config
+  - secret
+
+ignore-unfixed: true
+
+exit-code: 1
+
+timeout: 10m
