@@ -263,6 +263,47 @@ func (c *LSPClient) Diagnostics(_ context.Context, file string) ([]Diagnostic, e
 
 // --- internal helpers ---------------------------------------------------------
 
+// registerPending creates a buffered channel for a pending request and stores
+// it in the pending map. The lock is held via defer for panic safety.
+func (c *LSPClient) registerPending(id int64) chan json.RawMessage {
+	c.pendMu.Lock()
+	defer c.pendMu.Unlock()
+	ch := make(chan json.RawMessage, 1)
+	c.pending[id] = ch
+	return ch
+}
+
+// removePending deletes a pending request from the map. Safe to call if the
+// entry was already removed (e.g. by readLoop dispatching the response).
+func (c *LSPClient) removePending(id int64) {
+	c.pendMu.Lock()
+	defer c.pendMu.Unlock()
+	delete(c.pending, id)
+}
+
+// dispatchPending retrieves and removes the pending channel for id.
+// Returns the channel and true if found, nil and false otherwise.
+func (c *LSPClient) dispatchPending(id int64) (chan json.RawMessage, bool) {
+	c.pendMu.Lock()
+	defer c.pendMu.Unlock()
+	ch, ok := c.pending[id]
+	if ok {
+		delete(c.pending, id)
+	}
+	return ch, ok
+}
+
+// drainAllPending sends nil to every pending caller and clears the map.
+// Used when the reader goroutine exits (EOF / server crash).
+func (c *LSPClient) drainAllPending() {
+	c.pendMu.Lock()
+	defer c.pendMu.Unlock()
+	for _, ch := range c.pending {
+		ch <- nil
+	}
+	c.pending = make(map[int64]chan json.RawMessage)
+}
+
 // call sends a JSON-RPC request and blocks until the response arrives or ctx is
 // cancelled. It returns the raw JSON result field.
 func (c *LSPClient) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
@@ -275,28 +316,18 @@ func (c *LSPClient) call(ctx context.Context, method string, params interface{})
 		Params:  params,
 	}
 
-	ch := make(chan json.RawMessage, 1)
-
-	c.pendMu.Lock()
-	c.pending[id] = ch
-	c.pendMu.Unlock()
+	ch := c.registerPending(id)
 
 	if err := c.writeRequest(req); err != nil {
-		c.pendMu.Lock()
-		delete(c.pending, id)
-		c.pendMu.Unlock()
+		c.removePending(id)
 		return nil, err
 	}
 
 	select {
 	case <-ctx.Done():
-		c.pendMu.Lock()
-		delete(c.pending, id)
-		c.pendMu.Unlock()
+		c.removePending(id)
 		return nil, ctx.Err()
 	case raw := <-ch:
-		// A nil value in the channel signals a transport-level error or server
-		// shutdown; in normal operation the channel carries the raw result JSON.
 		return raw, nil
 	case <-c.done:
 		return nil, fmt.Errorf("lsp: server closed")
@@ -349,17 +380,10 @@ func (c *LSPClient) readLoop() {
 	for {
 		body, err := c.readFrame()
 		if err != nil {
-			// EOF or closed pipe — signal all waiting callers.
-			c.pendMu.Lock()
-			for _, ch := range c.pending {
-				ch <- nil
-			}
-			c.pending = make(map[int64]chan json.RawMessage)
-			c.pendMu.Unlock()
+			c.drainAllPending()
 			return
 		}
 
-		// Determine whether it is a response (has "id") or a notification.
 		var peek struct {
 			ID     *int64 `json:"id"`
 			Method string `json:"method"`
@@ -369,20 +393,13 @@ func (c *LSPClient) readLoop() {
 		}
 
 		if peek.ID != nil {
-			// Response to a pending call.
 			var resp lspResponse
 			if err := json.Unmarshal(body, &resp); err != nil {
 				continue
 			}
-			c.pendMu.Lock()
-			ch, ok := c.pending[resp.ID]
-			if ok {
-				delete(c.pending, resp.ID)
-			}
-			c.pendMu.Unlock()
+			ch, ok := c.dispatchPending(resp.ID)
 			if ok {
 				if resp.Error != nil {
-					// Encode the error into the result so the caller can detect it.
 					errMsg, _ := json.Marshal(map[string]string{"_lspError": resp.Error.Error()})
 					ch <- errMsg
 				} else {
@@ -390,14 +407,12 @@ func (c *LSPClient) readLoop() {
 				}
 			}
 		} else if peek.Method == "textDocument/publishDiagnostics" {
-			// Push notification — cache it.
 			var notif lspNotification
 			if err := json.Unmarshal(body, &notif); err != nil {
 				continue
 			}
 			c.handlePublishDiagnostics(notif.Params)
 		}
-		// Other notifications (window/logMessage, etc.) are silently ignored.
 	}
 }
 
@@ -449,8 +464,8 @@ func (c *LSPClient) handlePublishDiagnostics(raw json.RawMessage) {
 		return
 	}
 	c.diagMu.Lock()
+	defer c.diagMu.Unlock()
 	c.diagnostics[params.URI] = params.Diagnostics
-	c.diagMu.Unlock()
 }
 
 // textDocumentPositionParams builds the standard TextDocumentPositionParams map.
