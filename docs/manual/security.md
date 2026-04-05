@@ -182,3 +182,235 @@ For production deployments:
 - [ ] Review and configure PII detection rules
 - [ ] Set appropriate rate limits
 - [ ] Keep all submodules updated
+
+---
+
+## Security Scanning
+
+HelixLLM provides multiple scanning tools for vulnerability detection, static analysis, and container security. These are orchestrated via Makefile targets and can be integrated into CI pipelines.
+
+### Quick Scan
+
+```bash
+make scan-quick
+```
+
+Runs the two fastest scanners in sequence:
+
+1. **govulncheck** -- Checks Go dependencies against the Go vulnerability database
+2. **gosec** -- Static analysis for Go security issues (via golangci-lint)
+
+Use this as a pre-commit check or in fast CI feedback loops.
+
+### Full Scan Suite
+
+```bash
+make scan-all
+```
+
+Runs the complete scanning suite:
+
+1. **govulncheck** (`scan-vuln`) -- Dependency vulnerability check
+2. **gosec** (`scan-sast`) -- Static application security testing
+3. **Snyk** (`scan-snyk`) -- Third-party vulnerability database (requires Snyk CLI)
+4. **Trivy filesystem** (`scan-fs`) -- Filesystem scan for vulnerabilities, misconfigurations, and secrets
+
+### Individual Scanners
+
+#### Vulnerability Check (govulncheck)
+
+```bash
+make scan-vuln
+```
+
+Underlying command:
+
+```bash
+govulncheck ./...
+```
+
+Scans all Go packages against the official Go vulnerability database. Reports only vulnerabilities that are actually reachable in the call graph, reducing false positives compared to dependency-only scanners.
+
+Install: `go install golang.org/x/vuln/cmd/govulncheck@latest`
+
+#### Static Application Security Testing (gosec)
+
+```bash
+make scan-sast
+```
+
+Underlying command:
+
+```bash
+golangci-lint run --enable-only gosec ./...
+```
+
+Runs gosec rules through golangci-lint for consistent integration with the existing lint pipeline. Detects common Go security issues including hardcoded credentials, SQL injection, weak cryptography, and insecure file permissions.
+
+#### Snyk Dependency Scan
+
+```bash
+make scan-snyk
+```
+
+Scans all project dependencies using the Snyk vulnerability database. Requires the Snyk CLI:
+
+```bash
+npm install -g snyk
+snyk auth
+```
+
+If the Snyk CLI is not installed, the target prints installation instructions and exits gracefully.
+
+#### SonarQube Analysis
+
+```bash
+make scan-sonar
+```
+
+Starts a SonarQube instance via container compose and runs the scanner. The process:
+
+1. Starts SonarQube via `deploy/compose.security.yaml` (sonar profile)
+2. Waits up to 3 minutes for SonarQube to report UP status
+3. Runs the sonar-scanner-cli container against the project
+4. Results are available at `http://localhost:9000/dashboard?id=helixllm`
+
+The scanner uses the configuration in `sonar-project.properties`:
+
+```properties
+sonar.projectKey=helixllm
+sonar.projectName=HelixLLM
+sonar.projectVersion=1.0
+
+sonar.sources=internal/,pkg/,cmd/
+sonar.tests=internal/,tests/
+sonar.test.inclusions=**/*_test.go
+
+sonar.go.coverage.reportPaths=coverage-unit.out
+sonar.go.tests.reportPaths=test-report.json
+
+sonar.exclusions=submodules/**,vendor/**,bin/**,certs/**
+
+sonar.qualitygate.wait=true
+```
+
+Key configuration points:
+
+- **Sources:** Scans `internal/`, `pkg/`, and `cmd/` directories
+- **Test inclusions:** All `*_test.go` files
+- **Exclusions:** Submodules, vendor, build artifacts, and certificates are excluded
+- **Quality gate:** The scan waits for the quality gate result and fails if the gate is not passed
+- **Coverage:** Reads from `coverage-unit.out` (run `make coverage` first for accurate results)
+
+#### Container Image Scan (Trivy)
+
+```bash
+make scan-container
+```
+
+Underlying command:
+
+```bash
+podman run --rm -v $(pwd):/project aquasec/trivy:latest image helixllm:dev
+```
+
+Scans the built container image (`helixllm:dev`) for OS package vulnerabilities, language-specific dependency issues, and misconfigurations. Build the container first with `make container`.
+
+#### Filesystem Scan (Trivy)
+
+```bash
+make scan-fs
+```
+
+Underlying command:
+
+```bash
+podman run --rm -v $(pwd):/project aquasec/trivy:latest fs /project
+```
+
+Scans the project filesystem for vulnerabilities in dependencies, exposed secrets, and IaC misconfigurations. Does not require a built container image.
+
+### Trivy Configuration
+
+Trivy is configured via `.trivy.yaml` in the project root:
+
+```yaml
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+security-checks:
+  - vuln
+  - config
+  - secret
+
+ignore-unfixed: true
+
+exit-code: 1
+
+timeout: 10m
+```
+
+Configuration details:
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `severity` | CRITICAL, HIGH, MEDIUM | Only report vulnerabilities at these levels; LOW is ignored |
+| `security-checks` | vuln, config, secret | Check for vulnerabilities, misconfigurations, and leaked secrets |
+| `ignore-unfixed` | true | Suppress findings that have no available fix yet |
+| `exit-code` | 1 | Return non-zero on findings, causing CI failure |
+| `timeout` | 10m | Maximum scan duration before timeout |
+
+### Snyk Policy File
+
+The `.snyk` policy file documents accepted risks and applied patches:
+
+```yaml
+version: v1.25.0
+ignore: {}
+patch: {}
+```
+
+To ignore a known false positive or accepted risk:
+
+```yaml
+ignore:
+  SNYK-GOLANG-EXAMPLE-12345:
+    - '*':
+        reason: 'False positive, not reachable in our code'
+        expires: 2026-07-01T00:00:00.000Z
+```
+
+The `ignore` section suppresses specific vulnerability IDs. Each entry requires a `reason` and an `expires` date to force periodic review. The `patch` section can apply Snyk-provided patches to vulnerable dependencies.
+
+### Vulnerability Triage Process
+
+When a scanner reports a finding, follow this triage process:
+
+1. **Assess reachability:** Determine whether the vulnerable code path is actually called in HelixLLM. govulncheck already does this for Go dependencies; for container vulnerabilities, manual review is needed.
+
+2. **Check severity:** CRITICAL and HIGH findings must be addressed before the next release. MEDIUM findings should be tracked and resolved within two release cycles. LOW findings are informational.
+
+3. **Determine resolution:**
+   - **Upgrade:** If a fixed version exists, update the dependency
+   - **Patch:** If a Snyk patch is available, apply it via `.snyk`
+   - **Mitigate:** If no fix exists, document the mitigation (e.g., network-level controls) and add to `.snyk` ignore with expiration
+   - **Accept:** For false positives or unreachable code, add to `.snyk` ignore with reason
+
+4. **Document:** Record the triage decision in the commit message or pull request description. Include the vulnerability ID, severity, and resolution.
+
+5. **Verify:** After resolution, re-run the relevant scanner to confirm the finding is resolved.
+
+### Scanning in CI
+
+The recommended CI integration runs scanners in this order:
+
+```
+make scan-quick          # Fast feedback (govulncheck + gosec)
+make scan-fs             # Filesystem scan (Trivy)
+make scan-container      # Container image scan (after build)
+make scan-sonar          # Full quality analysis (optional, requires SonarQube)
+```
+
+The `scan-quick` target should be part of every CI run. Container scanning runs after `make container`. SonarQube analysis is typically run on merge to the main branch or as a scheduled nightly job.
