@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
 // mockSSHClient implements SSHClient for testing.
 type mockSSHClient struct {
+	mu sync.Mutex
 	// outputs maps "host:command-prefix" to stdout responses.
 	outputs   map[string]string
 	reachable map[string]bool
@@ -30,9 +32,11 @@ func newMockSSHClient() *mockSSHClient {
 func (m *mockSSHClient) Run(
 	ctx context.Context, host, command string,
 ) (string, error) {
+	m.mu.Lock()
 	m.runCalls = append(m.runCalls, mockRunCall{
 		Host: host, Command: command,
 	})
+	m.mu.Unlock()
 	key := host
 	if out, ok := m.outputs[key]; ok {
 		return out, nil

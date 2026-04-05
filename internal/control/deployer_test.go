@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
 // deployMockSSH implements SSHClient for deployer tests.
 type deployMockSSH struct {
+	mu        sync.Mutex
 	runs      []mockRunCall
 	responses map[string]string
 	errors    map[string]error
@@ -26,9 +28,11 @@ func newDeployMockSSH() *deployMockSSH {
 func (m *deployMockSSH) Run(
 	ctx context.Context, host, command string,
 ) (string, error) {
+	m.mu.Lock()
 	m.runs = append(m.runs, mockRunCall{
 		Host: host, Command: command,
 	})
+	m.mu.Unlock()
 	key := host
 	if err, ok := m.errors[key]; ok {
 		return "", err
@@ -320,12 +324,16 @@ func TestDeployer_Undeploy_SSHError(t *testing.T) {
 // runFailSSH fails on the second SSH command (the "run" command) but
 // succeeds on the first (the "rm" command).
 type runFailSSH struct {
+	mu        sync.Mutex
 	callCount int
 }
 
 func (r *runFailSSH) Run(_ context.Context, _, _ string) (string, error) {
+	r.mu.Lock()
 	r.callCount++
-	if r.callCount >= 2 {
+	count := r.callCount
+	r.mu.Unlock()
+	if count >= 2 {
 		return "", fmt.Errorf("container run failed")
 	}
 	return "", nil

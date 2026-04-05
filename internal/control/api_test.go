@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -456,6 +457,7 @@ func TestAPI_ClusterStatus_Timestamps(t *testing.T) {
 // partialFailSSH succeeds for probe commands (returning probe output)
 // but makes the deploy run command fail by counting calls per host.
 type partialFailSSH struct {
+	mu          sync.Mutex
 	probeOutput string
 	runCounts   map[string]int
 }
@@ -470,10 +472,13 @@ func newPartialFailSSH(probeOutput string) *partialFailSSH {
 func (p *partialFailSSH) Run(
 	ctx context.Context, host, command string,
 ) (string, error) {
+	p.mu.Lock()
 	p.runCounts[host]++
+	count := p.runCounts[host]
+	p.mu.Unlock()
 	// The first Run call per host is the probe compound command.
 	// Subsequent calls are deployer commands — fail the second host.
-	if p.runCounts[host] == 1 {
+	if count == 1 {
 		return p.probeOutput, nil
 	}
 	// Fail deployments on the second host to exercise the errors loop.
