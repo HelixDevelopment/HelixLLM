@@ -68,7 +68,7 @@ test-all: test-unit test-integration
 test-benchmark-go:
 	go test -bench=. -benchmem -count=3 -run=^$$ ./internal/...
 
-COVERAGE_THRESHOLD := 85
+COVERAGE_THRESHOLD := 91
 
 coverage: test-unit
 	go tool cover -func=coverage-unit.out
