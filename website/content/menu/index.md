@@ -1,0 +1,25 @@
+---
+headless: true
+---
+
+- **User Guide**
+  - [Getting Started](/docs/user-guide/getting-started/)
+  - [Configuration](/docs/user-guide/configuration/)
+  - [API Reference](/docs/user-guide/api-reference/)
+  - [Models](/docs/user-guide/models/)
+  - [Agents](/docs/user-guide/agents/)
+  - [RAG Knowledge](/docs/user-guide/rag-knowledge/)
+  - [Multi-Host Setup](/docs/user-guide/multi-host-setup/)
+  - [Monitoring](/docs/user-guide/monitoring/)
+  - [Troubleshooting](/docs/user-guide/troubleshooting/)
+- **Developer Manual**
+  - [Architecture](/docs/manual/architecture/)
+  - [Development](/docs/manual/development/)
+  - [Testing](/docs/manual/testing/)
+  - [Security](/docs/manual/security/)
+  - [Operations](/docs/manual/operations/)
+  - [Modules](/docs/manual/modules/)
+- [**API Reference**](/api/)
+- [**Video Courses**](/courses/)
+- [**Blog**](/blog/)
+- [**Community**](/community/)
