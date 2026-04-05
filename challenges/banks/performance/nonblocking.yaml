@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: Non-Blocking Behavior
+# Validates that slow operations do not block fast ones.
+
+name: nonblocking
+version: 1.0.0
+description: |
+  Non-blocking behavior challenge suite for HelixLLM. Validates that
+  lightweight endpoints (health, models) remain responsive while
+  heavyweight operations (chat completions, RAG queries) are in progress.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-PERF-NB-001: Health endpoint stays fast even when chat is processing
+  - name: health_during_chat
+    type: benchmark
+    params:
+      iterations: 10
+      warmup: 0
+      background:
+        - request:
+            method: POST
+            path: /v1/chat/completions
+            headers:
+              Content-Type: application/json
+            body: |
+              {
+                "model": "auto",
+                "messages": [{"role": "user", "content": "Write a very long essay about the history of computing"}],
+                "max_tokens": 2000
+              }
+      request:
+        method: GET
+        path: /internal/health
+    assertions:
+      - type: status
+        expected: 200
+      - type: latency_p95_lte
+        field: response_time_ms
+        expected: 100
+    on_failure: |
+      Health endpoint exceeded 100ms while a chat completion was in progress.
+      This indicates that the LLM request path is blocking the health check.
+
+  # CH-PERF-NB-002: Models listing stays fast during streaming chat
+  - name: models_during_stream
+    type: benchmark
+    params:
+      iterations: 10
+      warmup: 0
+      background:
+        - request:
+            method: POST
+            path: /v1/chat/completions
+            headers:
+              Content-Type: application/json
+            body: |
+              {
+                "model": "auto",
+                "messages": [{"role": "user", "content": "Explain quantum computing in detail"}],
+                "stream": true,
+                "max_tokens": 2000
+              }
+      request:
+        method: GET
+        path: /v1/models
+    assertions:
+      - type: status
+        expected: 200
+      - type: latency_p95_lte
+        field: response_time_ms
+        expected: 200
+    on_failure: |
+      Models listing exceeded 200ms while a streaming completion was active.
+      This indicates that streaming responses are blocking metadata endpoints.
