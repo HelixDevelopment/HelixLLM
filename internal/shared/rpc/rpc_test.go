@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -263,5 +264,107 @@ func TestBrainProxy_Available(t *testing.T) {
 
 	if !proxy.Available() {
 		t.Error("Available() = false, want true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent calls, stop, and late handler registration
+// ---------------------------------------------------------------------------
+
+func TestRoundTrip_ConcurrentCalls(t *testing.T) {
+	addr := freePort(t)
+	srv, cancel := startServer(t, addr)
+	defer cancel()
+	defer srv.Stop()
+
+	srv.Handle("echo", func(_ context.Context, params json.RawMessage) (json.RawMessage, error) {
+		return params, nil
+	})
+
+	const numClients = 5
+	const callsPerClient = 10
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, numClients*callsPerClient)
+
+	for c := 0; c < numClients; c++ {
+		cl, err := rpc.NewClient(addr)
+		if err != nil {
+			t.Fatalf("NewClient[%d]: %v", c, err)
+		}
+		wg.Add(1)
+		go func(cl *rpc.Client, id int) {
+			defer wg.Done()
+			defer cl.Close()
+			for i := 0; i < callsPerClient; i++ {
+				type payload struct {
+					Msg string `json:"msg"`
+				}
+				var result payload
+				if err := cl.Call(context.Background(), "echo", payload{Msg: "hello"}, &result); err != nil {
+					errCh <- err
+					return
+				}
+				if result.Msg != "hello" {
+					errCh <- fmt.Errorf("client %d call %d: got %q, want %q", id, i, result.Msg, "hello")
+				}
+			}
+		}(cl, c)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Error(err)
+	}
+}
+
+func TestServer_StopClosesListener(t *testing.T) {
+	addr := freePort(t)
+	srv := rpc.NewServer(addr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe(ctx)
+	}()
+	time.Sleep(20 * time.Millisecond)
+
+	srv.Stop()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Logf("ListenAndServe returned: %v (acceptable on stop)", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ListenAndServe did not return after Stop()")
+	}
+}
+
+func TestServer_HandleAfterStart(t *testing.T) {
+	addr := freePort(t)
+	srv, cancel := startServer(t, addr)
+	defer cancel()
+	defer srv.Stop()
+
+	srv.Handle("late", func(_ context.Context, _ json.RawMessage) (json.RawMessage, error) {
+		return json.Marshal("registered-late")
+	})
+
+	client, err := rpc.NewClient(addr)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	var result string
+	if err := client.Call(context.Background(), "late", nil, &result); err != nil {
+		t.Fatalf("Call late: %v", err)
+	}
+	if result != "registered-late" {
+		t.Errorf("result = %q, want %q", result, "registered-late")
 	}
 }
