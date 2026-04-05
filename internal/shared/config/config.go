@@ -97,7 +97,18 @@ type AuthConfig struct {
 
 // FeatureConfig holds feature-flag settings.
 type FeatureConfig struct {
-	GRPC        bool `env:"HELIX_FEATURE_GRPC" default:"true"`
+	GRPC bool `env:"HELIX_FEATURE_GRPC" default:"true"`
+	// TOON controls whether TOON (Token-Oriented Object Notation) content
+	// negotiation is available. The TOON submodule (digital.vasic.toon) provides
+	// a compact serialization format optimized for LLM token efficiency. When
+	// enabled, clients can request "Accept: application/toon" and the
+	// ContentNegotiation middleware in internal/gateway/middleware/negotiation.go
+	// will encode responses using the TOON encoder. The current TOON
+	// implementation uses compact JSON as a wire format; when the native TOON
+	// encoder lands, the plumbing is already in place.
+	//
+	// Note: as of Phase 4 the middleware is always applied regardless of this
+	// flag. A future change should gate ContentNegotiation() behind this flag.
 	TOON        bool `env:"HELIX_FEATURE_TOON" default:"true"`
 	SelfImprove bool `env:"HELIX_FEATURE_SELFIMPROVE" default:"false"`
 }

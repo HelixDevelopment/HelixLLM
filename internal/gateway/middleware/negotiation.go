@@ -7,6 +7,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	// digital.vasic.toon provides TOON (Token-Oriented Object Notation) encoding.
+	// The submodule at submodules/TOON is a fully implemented serialization library
+	// offering Marshal/Unmarshal, Encoder/Decoder, and token-efficiency comparison.
+	// The current wire format is compact JSON; native TOON encoding is planned.
+	// This import is gated by the HELIX_FEATURE_TOON feature flag in config, but
+	// the middleware is currently always applied (flag check not yet wired in).
 	"digital.vasic.toon/pkg/toon"
 )
 

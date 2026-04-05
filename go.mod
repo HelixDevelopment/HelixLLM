@@ -121,7 +121,7 @@ replace (
 	digital.vasic.security => ./submodules/Security
 	digital.vasic.streaming => ./submodules/Streaming
 	digital.vasic.toolschema => ./submodules/ToolSchema
-	digital.vasic.toon => ./submodules/TOON
+	digital.vasic.toon => ./submodules/TOON // TOON: Token-Oriented Object Notation — compact serialization for LLM token efficiency. Used by gateway ContentNegotiation middleware.
 	digital.vasic.vectordb => ./submodules/VectorDB
 	digital.vasic.watcher => ./submodules/Watcher
 )
