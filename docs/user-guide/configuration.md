@@ -158,3 +158,147 @@ HELIX_LLM_DEFAULT_PROVIDER=auto
 HELIX_LLM_OPENAI_KEY=sk-...
 HELIX_LLM_ANTHROPIC_KEY=sk-ant-...
 ```
+
+---
+
+## Concurrency Limits
+
+Concurrency settings control how many simultaneous operations each subsystem allows. These are critical for preventing resource exhaustion under load and for tuning throughput on hardware with known constraints.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HELIX_LLM_MAX_CONCURRENT` | `10` | Maximum concurrent LLM inference requests across all providers. Requests exceeding this limit are queued. Set to `0` for unlimited. |
+| `HELIX_EMBEDDING_MAX_CONCURRENT` | `20` | Maximum concurrent embedding operations. Higher than LLM concurrency because embeddings are cheaper and faster. Set to `0` for unlimited. |
+| `HELIX_AGENT_MAX_CONCURRENT_TOOLS` | `5` | Maximum concurrent tool executions within a single agent ReAct loop. Limits parallel tool calls when the LLM requests multiple tools in one turn. |
+| `HELIX_SSH_MAX_CONCURRENT` | `10` | Maximum concurrent SSH connections to remote hosts. Applies to the control plane prober, deployer, and monitor. |
+
+All concurrency limits use semaphore-based flow control. When the limit is reached, new operations block until a slot becomes available. A value of `0` disables the limit (unlimited concurrency).
+
+### Tuning Guidelines
+
+**LLM concurrency (`HELIX_LLM_MAX_CONCURRENT`):**
+- For local llama.cpp with a single GPU: set to `1`-`3` depending on VRAM
+- For cloud providers (OpenAI, Anthropic): set to `10`-`50` depending on API tier
+- For mixed local + cloud with `auto` routing: set to `10` (the default balances both)
+
+**Embedding concurrency (`HELIX_EMBEDDING_MAX_CONCURRENT`):**
+- For local embedding models: match to CPU core count
+- For cloud embedding APIs: set to `20`-`100` (API rate limits are the real constraint)
+
+**Tool concurrency (`HELIX_AGENT_MAX_CONCURRENT_TOOLS`):**
+- Keep low (`3`-`5`) to avoid overwhelming downstream services
+- Each tool execution may trigger network calls, database queries, or LLM requests
+
+**SSH concurrency (`HELIX_SSH_MAX_CONCURRENT`):**
+- Match to the number of cluster hosts (no benefit exceeding the host count)
+- Lower values reduce load on target hosts during mass operations
+
+## Lazy Infrastructure
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HELIX_LAZY_INFRA` | `false` | Enable lazy initialization of infrastructure components. When true, containers and services start on first request rather than at boot time. |
+| `HELIX_IDLE_SHUTDOWN_MINUTES` | `0` | Minutes of inactivity before idle services are shut down. Set to `0` to disable idle shutdown. Only effective when `HELIX_LAZY_INFRA=true`. |
+
+When `HELIX_LAZY_INFRA=true`, the system defers starting infrastructure components (containers, database connections, vector store clients) until they receive their first request. Combined with `HELIX_IDLE_SHUTDOWN_MINUTES`, this enables a serverless-like lifecycle where resources are consumed only when needed.
+
+Example for development environments:
+
+```bash
+HELIX_LAZY_INFRA=true
+HELIX_IDLE_SHUTDOWN_MINUTES=15
+```
+
+This starts with minimal resource usage and shuts down idle components after 15 minutes of inactivity. The next request triggers a lazy restart.
+
+## Analytics
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HELIX_CLICKHOUSE_ADDR` | (empty) | ClickHouse server address (`host:port`). Leave empty to disable analytics collection. |
+| `HELIX_CLICKHOUSE_DATABASE` | `helixllm` | ClickHouse database name for analytics events. |
+
+When `HELIX_CLICKHOUSE_ADDR` is set, the analytics collector writes events (request metrics, provider latencies, error rates) to ClickHouse. If ClickHouse is unavailable at startup, the system falls back gracefully and logs a warning.
+
+## Proxy Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HELIX_HTTP_PROXY` | (empty) | HTTP proxy for outbound connections. |
+| `HELIX_HTTPS_PROXY` | (empty) | HTTPS proxy for outbound connections (used by LLM providers). |
+| `HELIX_NO_PROXY` | (empty) | Comma-separated list of hosts that bypass the proxy. |
+| `HELIX_SOCKS_PROXY` | (empty) | SOCKS5 proxy for outbound connections. |
+
+Proxy settings affect all outbound HTTP calls, including LLM provider API requests, embedding API calls, and vector database connections. Internal cluster communication (gRPC, SSH) is not affected by these settings.
+
+## Configuration Loading Precedence
+
+Configuration values are resolved from multiple sources. When the same setting is defined in multiple places, later sources override earlier ones:
+
+```
+1. Struct tag defaults (compiled into the binary)
+   |
+   v  overridden by
+2. .env file (in the working directory)
+   |
+   v  overridden by
+3. Environment variables (shell, systemd, container runtime)
+   |
+   v  overridden by
+4. CLI flags (--mode, --port, etc.)
+```
+
+**Struct tag defaults** are defined in `internal/shared/config/config.go` using `default:"..."` tags on each field. These provide sensible values for single-host development and are always present.
+
+**The `.env` file** is loaded from the working directory at startup. It is read once; changes to `.env` require a restart. The `.env` file is gitignored and should never be committed.
+
+**Environment variables** from the shell or container runtime override `.env` values. This is the recommended mechanism for production deployments (e.g., via systemd `EnvironmentFile`, Kubernetes ConfigMaps, or container `--env` flags).
+
+**CLI flags** have the highest precedence. Currently `--mode` overrides `HELIX_MODE`. Not all variables have CLI flag equivalents.
+
+### Precedence Example
+
+Given:
+
+```
+# Struct tag default: HELIX_PORT = 8443
+# .env file:          HELIX_PORT=9443
+# Shell:              export HELIX_PORT=7443
+# CLI:                (no --port flag)
+```
+
+The effective value is `7443` (environment variable overrides `.env`, which overrides the default).
+
+## Hot-Reload Behavior
+
+HelixLLM does not support full hot-reload of configuration. The following summarizes what can and cannot be changed without a restart:
+
+### Requires Restart
+
+- `HELIX_MODE` -- Mode determines which layers are initialized at startup
+- `HELIX_PORT`, `HELIX_HOST` -- Server bind address and port
+- `HELIX_TLS_CERT`, `HELIX_TLS_KEY` -- TLS certificates
+- `HELIX_DB_*` -- Database connection parameters
+- `HELIX_REDIS_*` -- Redis connection parameters
+- `HELIX_KAFKA_BROKERS` -- Kafka broker addresses
+- `HELIX_OTEL_EXPORTER`, `HELIX_OTEL_ENDPOINT` -- Tracing configuration
+- `HELIX_FEATURE_*` -- Feature flags
+- All concurrency limits (`HELIX_LLM_MAX_CONCURRENT`, etc.)
+
+### Changeable via API (No Restart)
+
+- **API keys:** Keys in `HELIX_AUTH_API_KEYS` are validated per-request from the loaded config. To rotate keys, update the environment and restart.
+- **Log level:** Can be changed at runtime by sending a signal or via the internal management API, if available in the deployment.
+
+### Graceful Restart
+
+For production deployments, use a graceful restart to apply configuration changes without dropping active connections:
+
+```bash
+# Send SIGTERM -- the server finishes in-flight requests, then exits
+kill -TERM $(pidof helixllm)
+
+# A process manager (systemd, container runtime) restarts with the new config
+```
+
+The server handles `SIGTERM` and `SIGINT` with graceful shutdown: it stops accepting new connections, waits for active requests to complete (with a timeout), and then exits cleanly.
