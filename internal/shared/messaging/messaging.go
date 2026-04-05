@@ -86,12 +86,7 @@ func (d *DistributedBus) Publish(topic events.Topic, source string, payload inte
 // Remote messages received from the broker are re-published locally so all
 // in-process subscribers are notified.
 func (d *DistributedBus) Subscribe(topic events.Topic) {
-	d.mu.Lock()
-	alreadySubscribed := d.topics[string(topic)]
-	d.topics[string(topic)] = true
-	d.mu.Unlock()
-
-	if alreadySubscribed {
+	if d.markSubscribed(topic) {
 		return
 	}
 
@@ -109,6 +104,16 @@ func (d *DistributedBus) Subscribe(topic events.Topic) {
 // separately by its owner.
 func (d *DistributedBus) Close() error {
 	return d.broker.Close()
+}
+
+// markSubscribed records topic as subscribed and returns true if it was already
+// subscribed. The write lock is held only during the map operation via defer.
+func (d *DistributedBus) markSubscribed(topic events.Topic) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	already := d.topics[string(topic)]
+	d.topics[string(topic)] = true
+	return already
 }
 
 // ---------------------------------------------------------------------------
@@ -132,19 +137,27 @@ func NewInMemoryBroker() *InMemoryBroker {
 
 // Publish delivers data to all handlers registered for topic.
 func (b *InMemoryBroker) Publish(topic string, data []byte) error {
-	b.mu.RLock()
-	if b.closed {
-		b.mu.RUnlock()
-		return fmt.Errorf("broker closed")
+	handlers, err := b.handlersForTopic(topic)
+	if err != nil {
+		return err
 	}
-	handlers := make([]func([]byte), len(b.handlers[topic]))
-	copy(handlers, b.handlers[topic])
-	b.mu.RUnlock()
-
 	for _, h := range handlers {
 		h(data)
 	}
 	return nil
+}
+
+// handlersForTopic returns a snapshot of handlers for topic under read lock.
+// Callers invoke handlers outside the lock to avoid re-entrant deadlocks.
+func (b *InMemoryBroker) handlersForTopic(topic string) ([]func([]byte), error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.closed {
+		return nil, fmt.Errorf("broker closed")
+	}
+	handlers := make([]func([]byte), len(b.handlers[topic]))
+	copy(handlers, b.handlers[topic])
+	return handlers, nil
 }
 
 // Subscribe registers handler for all messages published to topic.
