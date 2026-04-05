@@ -108,8 +108,8 @@ type FeatureConfig struct {
 	// implementation uses compact JSON as a wire format; when the native TOON
 	// encoder lands, the plumbing is already in place.
 	//
-	// Note: as of Phase 4 the middleware is always applied regardless of this
-	// flag. A future change should gate ContentNegotiation() behind this flag.
+	// The gateway's RegisterRoutes conditionally applies ContentNegotiation()
+	// only when this flag is true.
 	TOON        bool `env:"HELIX_FEATURE_TOON" default:"true"`
 	SelfImprove bool `env:"HELIX_FEATURE_SELFIMPROVE" default:"false"`
 }

@@ -145,9 +145,10 @@ func main() {
 
 	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
-		APIKeys:   cfg.Auth.APIKeys,
-		RateLimit: cfg.Server.RatePerMinute,
-		Brain:     brainSvc,
+		APIKeys:     cfg.Auth.APIKeys,
+		RateLimit:   cfg.Server.RatePerMinute,
+		Brain:       brainSvc,
+		TOONEnabled: cfg.Features.TOON,
 	})
 
 	// Create knowledge pipeline using configured backends.

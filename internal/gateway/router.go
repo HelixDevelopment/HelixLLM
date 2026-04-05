@@ -18,6 +18,9 @@ type RouterOptions struct {
 	// Brain is the LLM coordination service. When non-nil, handlers delegate
 	// to it instead of returning development fallback responses.
 	Brain *brain.Brain
+	// TOONEnabled controls whether the TOON content negotiation middleware
+	// is applied. When false, ContentNegotiation() is skipped entirely.
+	TOONEnabled bool
 }
 
 // RegisterRoutes attaches all gateway endpoint handlers and middleware to r
@@ -27,7 +30,9 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1.Use(gwmw.APIKeyAuth(opts.APIKeys))
 	v1.Use(gwmw.RateLimit(opts.RateLimit))
 	v1.Use(gwmw.SecurityHeaders())
-	v1.Use(gwmw.ContentNegotiation())
+	if opts.TOONEnabled {
+		v1.Use(gwmw.ContentNegotiation())
+	}
 
 	// OpenAI-compatible endpoints
 	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain))

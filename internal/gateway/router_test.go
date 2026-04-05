@@ -14,7 +14,7 @@ import (
 func TestGatewayRouter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	gateway.RegisterRoutes(r, gateway.RouterOptions{})
+	gateway.RegisterRoutes(r, gateway.RouterOptions{TOONEnabled: true})
 
 	// Test models endpoint
 	w := httptest.NewRecorder()
