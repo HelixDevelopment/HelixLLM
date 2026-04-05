@@ -1,4 +1,4 @@
-.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-stress-go test-chaos test-security test-benchmark test-benchmark-go test-monitoring test-performance test-automation test-usecases test-all coverage scan-vuln scan-sast scan-snyk scan-sonar scan-container scan-fs scan-quick scan-all probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs
+.PHONY: build dev container container-push test-unit test-integration test-e2e test-race test-stress test-stress-go test-chaos test-security test-benchmark test-benchmark-go test-monitoring test-performance test-automation test-usecases test-all coverage scan-vuln scan-sast scan-snyk scan-sonar scan-container scan-fs scan-quick scan-all probe deploy status logs monitor rebalance ingest collections stats lint fmt docs gen deps clean certs website website-serve website-clean
 
 # ── Variables ────────────────────────────────────────────
 BINARY := helixllm
@@ -177,3 +177,13 @@ certs:
 		-subj "/CN=localhost" \
 		-addext "subjectAltName=DNS:localhost,DNS:nezha.local,IP:127.0.0.1" 2>/dev/null
 	@echo "TLS certs ready at certs/"
+
+# ── Website ─────────────────────────────────────────────
+website:
+	cd website && hugo --minify
+
+website-serve:
+	cd website && hugo server --bind 0.0.0.0 --port 1313
+
+website-clean:
+	rm -rf website/public/
