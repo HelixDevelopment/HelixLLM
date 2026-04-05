@@ -1,0 +1,45 @@
+name: Concurrency Safety
+description: Validates the system remains stable under concurrent request pressure
+category: safety
+priority: high
+
+challenges:
+  - name: concurrent_chat_completions
+    description: 100 parallel chat completion requests should all succeed or return proper errors
+    steps:
+      - method: POST
+        path: /v1/chat/completions
+        concurrent: 100
+        body:
+          model: "auto"
+          messages:
+            - role: user
+              content: "Say hello"
+        assertions:
+          - type: status_one_of
+            values: [200, 429]
+          - type: no_5xx
+
+  - name: concurrent_model_listing
+    description: 50 parallel model list requests under concurrent chat load
+    steps:
+      - method: GET
+        path: /v1/models
+        concurrent: 50
+        assertions:
+          - type: status
+            value: 200
+          - type: response_time_ms
+            max: 500
+
+  - name: concurrent_health_checks
+    description: Health endpoint remains responsive under load
+    steps:
+      - method: GET
+        path: /internal/health
+        concurrent: 200
+        assertions:
+          - type: status
+            value: 200
+          - type: response_time_ms
+            max: 100
