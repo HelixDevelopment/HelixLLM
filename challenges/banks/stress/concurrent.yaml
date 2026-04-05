@@ -1,0 +1,34 @@
+name: Concurrent Request Stress
+description: Validates system stability under parallel request floods
+category: stress
+priority: high
+
+challenges:
+  - name: 100_concurrent_completions
+    description: 100 parallel chat completions
+    steps:
+      - method: POST
+        path: /v1/chat/completions
+        concurrent: 100
+        body:
+          model: "auto"
+          messages:
+            - role: user
+              content: "Respond with OK"
+        assertions:
+          - type: status_one_of
+            values: [200, 429, 503]
+          - type: no_5xx_except
+            values: [503]
+
+  - name: 500_concurrent_model_list
+    description: 500 parallel model listing requests
+    steps:
+      - method: GET
+        path: /v1/models
+        concurrent: 500
+        assertions:
+          - type: status
+            value: 200
+          - type: response_time_ms
+            max: 1000

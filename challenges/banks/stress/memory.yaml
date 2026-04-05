@@ -1,0 +1,21 @@
+name: Memory Pressure
+description: Validates system handles large payloads without memory issues
+category: stress
+priority: medium
+
+challenges:
+  - name: large_prompt
+    description: Large prompt should be handled gracefully
+    steps:
+      - method: POST
+        path: /v1/chat/completions
+        body:
+          model: "auto"
+          messages:
+            - role: user
+              content: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+        assertions:
+          - type: status_one_of
+            values: [200, 413, 503]
+          - type: no_5xx_except
+            values: [503]

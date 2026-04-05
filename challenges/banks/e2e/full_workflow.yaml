@@ -1,0 +1,34 @@
+name: Full E2E Workflow
+description: Complete user workflow from health check to chat completion
+category: e2e
+priority: critical
+
+challenges:
+  - name: health_then_models_then_chat
+    description: Sequential workflow - health check, list models, then chat
+    steps:
+      - method: GET
+        path: /internal/health
+        assertions:
+          - type: status
+            value: 200
+
+      - method: GET
+        path: /v1/models
+        assertions:
+          - type: status
+            value: 200
+          - type: json_path
+            path: $.object
+            value: "list"
+
+      - method: POST
+        path: /v1/chat/completions
+        body:
+          model: "auto"
+          messages:
+            - role: user
+              content: "Hello"
+        assertions:
+          - type: status_one_of
+            values: [200, 503]
