@@ -46,6 +46,25 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		}
 
 		if b != nil {
+			// Boost tool reasoning for small models: if tools are provided,
+			// inject a concise system instruction that tells the model to use them.
+			if len(req.Tools) > 0 {
+				toolInstruction := api.ChatMessage{
+					Role:    "system",
+					Content: "You have access to tools. When the user asks you to perform actions like reading files, writing files, listing directories, or modifying code, you MUST use the provided tool functions. Do not describe what you would do — call the tool directly.",
+				}
+				// Prepend after any existing system messages
+				insertIdx := 0
+				for i, m := range req.Messages {
+					if m.Role == "system" {
+						insertIdx = i + 1
+					} else {
+						break
+					}
+				}
+				req.Messages = append(req.Messages[:insertIdx], append([]api.ChatMessage{toolInstruction}, req.Messages[insertIdx:]...)...)
+			}
+
 			internalReq := openAIToInternal(&req)
 			if req.Stream {
 				ch, err := b.CompleteStream(c.Request.Context(), internalReq)
