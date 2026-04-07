@@ -95,9 +95,14 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 	// Smart tool routing: if request has tools and the routed provider is
 	// llamacpp (which has limited tool calling support), prefer OpenAI-compatible
 	// provider (e.g., DeepSeek) that properly supports function calling.
+	// Also switch the model name to one the cloud provider supports.
 	if len(req.Tools) > 0 && provider.Name() == "llamacpp" {
 		if openai, ok := b.providers["openai"]; ok && openai.Available() {
 			provider = openai
+			models := openai.Models()
+			if len(models) > 0 {
+				req.Model = models[0]
+			}
 		}
 	}
 
