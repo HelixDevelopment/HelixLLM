@@ -92,19 +92,8 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 		return nil, err
 	}
 
-	// Smart tool routing: if request has tools and the routed provider is
-	// llamacpp (which has limited tool calling support), prefer OpenAI-compatible
-	// provider (e.g., DeepSeek) that properly supports function calling.
-	// Also switch the model name to one the cloud provider supports.
-	if len(req.Tools) > 0 && provider.Name() == "llamacpp" {
-		if openai, ok := b.providers["openai"]; ok && openai.Available() {
-			provider = openai
-			models := openai.Models()
-			if len(models) > 0 {
-				req.Model = models[0]
-			}
-		}
-	}
+	// NOTE: Tool calling is handled locally by llama.cpp (--jinja flag).
+	// No cloud provider fallback needed — local Qwen 2.5 7B supports tools natively.
 
 	return provider.Complete(ctx, req)
 }

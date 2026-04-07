@@ -22,6 +22,7 @@ exec llama-server \
     --batch-size "${LLAMA_BATCH_SIZE:-2048}" \
     --n-predict "${LLAMA_N_PREDICT:--1}" \
     --parallel "${LLAMA_PARALLEL:-1}" \
+    --jinja \
     --cont-batching \
     --metrics \
     $RPC_ARGS \
