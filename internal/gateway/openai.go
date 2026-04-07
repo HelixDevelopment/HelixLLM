@@ -62,10 +62,17 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 				created := time.Now().Unix()
 				w := NewSSEWriter(c)
 				w.WriteHeader()
+				// First chunk MUST include role per OpenAI spec — required by Vercel AI SDK
+				firstChunk := true
 				for chunk := range ch {
 					finishReason := &chunk.FinishReason
 					if chunk.FinishReason == "" {
 						finishReason = nil
+					}
+					delta := api.ChatMessageDelta{Content: chunk.Content}
+					if firstChunk {
+						delta.Role = "assistant"
+						firstChunk = false
 					}
 					w.WriteEvent(api.ChatCompletionChunk{ //nolint:errcheck
 						ID:      id,
@@ -75,7 +82,7 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 						Choices: []api.ChatCompletionChunkChoice{
 							{
 								Index:        0,
-								Delta:        api.ChatMessageDelta{Content: chunk.Content},
+								Delta:        delta,
 								FinishReason: finishReason,
 							},
 						},
