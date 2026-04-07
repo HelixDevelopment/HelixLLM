@@ -139,6 +139,7 @@ func main() {
 		LlamaCppURL:     fmt.Sprintf("http://%s:%d", cfg.LLM.LocalRPCHost, cfg.LLM.LocalRPCPort),
 		LlamaCppModels:  []string{cfg.LLM.LocalModel},
 		OpenAIKey:       cfg.LLM.OpenAIKey,
+		OpenAIBaseURL:   cfg.LLM.OpenAIBaseURL,
 		AnthropicKey:    cfg.LLM.AnthropicKey,
 		DefaultProvider: cfg.LLM.DefaultProvider,
 	})

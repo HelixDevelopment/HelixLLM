@@ -48,6 +48,7 @@ type LLMConfig struct {
 	LocalRPCHost    string `env:"HELIX_LLM_LOCAL_RPC_HOST" default:"localhost"`
 	LocalRPCPort    int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
 	OpenAIKey       string `env:"HELIX_LLM_OPENAI_KEY"`
+	OpenAIBaseURL   string `env:"HELIX_LLM_OPENAI_BASE_URL"`
 	AnthropicKey    string `env:"HELIX_LLM_ANTHROPIC_KEY"`
 	DefaultProvider string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
 }
