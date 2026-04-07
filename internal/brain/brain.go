@@ -115,12 +115,7 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 		return nil, err
 	}
 
-	// Smart tool routing for streaming too
-	if len(req.Tools) > 0 && provider.Name() == "llamacpp" {
-		if openai, ok := b.providers["openai"]; ok && openai.Available() {
-			provider = openai
-		}
-	}
+	// NOTE: Tool calling handled locally by llama.cpp (--jinja). No cloud fallback.
 
 	ch, err := provider.CompleteStream(ctx, req)
 	if err != nil {
