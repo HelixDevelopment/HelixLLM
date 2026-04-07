@@ -91,6 +91,16 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 	if err != nil {
 		return nil, err
 	}
+
+	// Smart tool routing: if request has tools and the routed provider is
+	// llamacpp (which has limited tool calling support), prefer OpenAI-compatible
+	// provider (e.g., DeepSeek) that properly supports function calling.
+	if len(req.Tools) > 0 && provider.Name() == "llamacpp" {
+		if openai, ok := b.providers["openai"]; ok && openai.Available() {
+			provider = openai
+		}
+	}
+
 	return provider.Complete(ctx, req)
 }
 
@@ -109,6 +119,13 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 			b.sem.Release(1)
 		}
 		return nil, err
+	}
+
+	// Smart tool routing for streaming too
+	if len(req.Tools) > 0 && provider.Name() == "llamacpp" {
+		if openai, ok := b.providers["openai"]; ok && openai.Available() {
+			provider = openai
+		}
 	}
 
 	ch, err := provider.CompleteStream(ctx, req)
