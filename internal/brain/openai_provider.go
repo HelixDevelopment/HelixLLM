@@ -166,15 +166,28 @@ func (p *OpenAIProvider) readSSEStream(ctx context.Context, resp *http.Response,
 func (p *OpenAIProvider) toAPIRequest(req *types.InternalChatRequest) api.ChatCompletionRequest {
 	messages := make([]api.ChatMessage, len(req.Messages))
 	for i, m := range req.Messages {
-		messages[i] = api.ChatMessage{
-			Role:    string(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
+		msg := api.ChatMessage{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			Name:       m.Name,
+			ToolCallID: m.ToolCallID,
 		}
+		for _, tc := range m.ToolCalls {
+			msg.ToolCalls = append(msg.ToolCalls, api.ToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: api.ToolCallFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		messages[i] = msg
 	}
 	apiReq := api.ChatCompletionRequest{
-		Model:    req.Model,
-		Messages: messages,
+		Model:      req.Model,
+		Messages:   messages,
+		ToolChoice: req.ToolChoice,
 	}
 	if req.MaxTokens > 0 {
 		mt := req.MaxTokens
@@ -183,6 +196,22 @@ func (p *OpenAIProvider) toAPIRequest(req *types.InternalChatRequest) api.ChatCo
 	if req.Temperature > 0 {
 		temp := req.Temperature
 		apiReq.Temperature = &temp
+	}
+	// Pass tools through to the upstream API
+	for _, t := range req.Tools {
+		apiReq.Tools = append(apiReq.Tools, api.Tool{
+			Type: t.Type,
+			Function: func() api.ToolFunction {
+				if fn, ok := t.Function.(api.ToolFunction); ok {
+					return fn
+				}
+				// Re-marshal/unmarshal for interface conversion
+				data, _ := json.Marshal(t.Function)
+				var fn api.ToolFunction
+				json.Unmarshal(data, &fn) //nolint:errcheck
+				return fn
+			}(),
+		})
 	}
 	return apiReq
 }
@@ -201,10 +230,25 @@ func (p *OpenAIProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *type
 		case string:
 			content = v
 		}
-		result.Message = types.InternalMessage{
+		msg := types.InternalMessage{
 			Role:    types.Role(choice.Message.Role),
 			Content: content,
 		}
+		// Pass tool calls from upstream response
+		for _, tc := range choice.Message.ToolCalls {
+			msg.ToolCalls = append(msg.ToolCalls, types.InternalToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				}{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		result.Message = msg
 		result.FinishReason = choice.FinishReason
 	}
 	if resp.Usage != nil {

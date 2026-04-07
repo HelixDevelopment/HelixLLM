@@ -19,11 +19,29 @@ const (
 	ProviderAnthropic Provider = "anthropic"
 )
 
+// InternalToolCall represents a tool call in a message.
+type InternalToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"` // function
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// InternalTool represents a tool definition.
+type InternalTool struct {
+	Type     string      `json:"type"` // function
+	Function interface{} `json:"function"`
+}
+
 // InternalMessage is the canonical message format within HelixLLM.
 type InternalMessage struct {
-	Role    Role   `json:"role"`
-	Content string `json:"content"`
-	Name    string `json:"name,omitempty"`
+	Role       Role               `json:"role"`
+	Content    string             `json:"content"`
+	Name       string             `json:"name,omitempty"`
+	ToolCalls  []InternalToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string             `json:"tool_call_id,omitempty"`
 }
 
 // InternalChatRequest is the canonical chat request format.
@@ -34,6 +52,8 @@ type InternalChatRequest struct {
 	Temperature float64           `json:"temperature,omitempty"`
 	Stream      bool              `json:"stream,omitempty"`
 	Provider    Provider          `json:"provider,omitempty"`
+	Tools       []InternalTool    `json:"tools,omitempty"`
+	ToolChoice  interface{}       `json:"tool_choice,omitempty"`
 }
 
 // InternalChatResponse is the canonical chat response format.

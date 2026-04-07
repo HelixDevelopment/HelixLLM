@@ -368,22 +368,46 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 		case string:
 			content = v
 		}
-		msgs = append(msgs, types.InternalMessage{
-			Role:    types.Role(m.Role),
-			Content: content,
-			Name:    m.Name,
-		})
+		msg := types.InternalMessage{
+			Role:       types.Role(m.Role),
+			Content:    content,
+			Name:       m.Name,
+			ToolCallID: m.ToolCallID,
+		}
+		// Convert tool calls
+		for _, tc := range m.ToolCalls {
+			msg.ToolCalls = append(msg.ToolCalls, types.InternalToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				}{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		msgs = append(msgs, msg)
 	}
 	internal := &types.InternalChatRequest{
-		Model:    req.Model,
-		Messages: msgs,
-		Stream:   req.Stream,
+		Model:      req.Model,
+		Messages:   msgs,
+		Stream:     req.Stream,
+		ToolChoice: req.ToolChoice,
 	}
 	if req.MaxTokens != nil {
 		internal.MaxTokens = *req.MaxTokens
 	}
 	if req.Temperature != nil {
 		internal.Temperature = *req.Temperature
+	}
+	// Pass tools through
+	for _, t := range req.Tools {
+		internal.Tools = append(internal.Tools, types.InternalTool{
+			Type:     t.Type,
+			Function: t.Function,
+		})
 	}
 	return internal
 }
@@ -393,6 +417,21 @@ func internalToOpenAI(resp *types.InternalChatResponse, model string) api.ChatCo
 	if resp.Model != "" {
 		model = resp.Model
 	}
+	msg := api.ChatMessage{
+		Role:    string(resp.Message.Role),
+		Content: resp.Message.Content,
+	}
+	// Pass tool calls from brain response back to client
+	for _, tc := range resp.Message.ToolCalls {
+		msg.ToolCalls = append(msg.ToolCalls, api.ToolCall{
+			ID:   tc.ID,
+			Type: tc.Type,
+			Function: api.ToolCallFunction{
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			},
+		})
+	}
 	return api.ChatCompletionResponse{
 		ID:      resp.ID,
 		Object:  "chat.completion",
@@ -400,11 +439,8 @@ func internalToOpenAI(resp *types.InternalChatResponse, model string) api.ChatCo
 		Model:   model,
 		Choices: []api.ChatCompletionChoice{
 			{
-				Index: 0,
-				Message: api.ChatMessage{
-					Role:    string(resp.Message.Role),
-					Content: resp.Message.Content,
-				},
+				Index:        0,
+				Message:      msg,
 				FinishReason: resp.FinishReason,
 			},
 		},
