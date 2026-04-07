@@ -3,43 +3,179 @@ package brain
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
+// modelCacheTTL is how long discovered models are considered fresh.
+const modelCacheTTL = 1 * time.Hour
+
+// defaultOpenAIModels are used as fallback when dynamic discovery fails.
+var defaultOpenAIModels = []string{"gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"}
+
 // OpenAIProvider implements Provider by calling OpenAI's chat completions API.
+// On creation it attempts to discover the real model list from the upstream
+// /v1/models endpoint and caches the result with a 1-hour TTL. If discovery
+// fails it falls back to defaultOpenAIModels.
 type OpenAIProvider struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
-	models     []string
+
+	mu           sync.RWMutex
+	models       []string
+	modelsFetched time.Time
 }
 
 // NewOpenAI creates a new OpenAI provider. If baseURL is empty it defaults to
-// "https://api.openai.com". If models is nil it defaults to the standard GPT
-// model list.
-func NewOpenAI(apiKey, baseURL string) *OpenAIProvider {
+// "https://api.openai.com". The provider immediately attempts to discover
+// models from the upstream API; on failure it falls back to a default list.
+// Set insecureSkipVerify to true to skip TLS certificate verification for
+// self-signed certificates.
+func NewOpenAI(apiKey, baseURL string, opts ...OpenAIOption) *OpenAIProvider {
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
-	return &OpenAIProvider{
+
+	cfg := openAIConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	transport := &http.Transport{}
+	if cfg.insecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // user-configurable for self-signed certs
+		}
+	}
+
+	p := &OpenAIProvider{
 		apiKey:  apiKey,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 5 * time.Minute,
+			Timeout:   5 * time.Minute,
+			Transport: transport,
 		},
-		models: []string{"gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"},
+		models: append([]string(nil), defaultOpenAIModels...),
+	}
+
+	return p
+}
+
+// OpenAIOption configures optional behaviour of the OpenAI provider.
+type OpenAIOption func(*openAIConfig)
+
+type openAIConfig struct {
+	insecureSkipVerify bool
+}
+
+// WithInsecureSkipVerify makes the HTTP client skip TLS certificate
+// verification. Use this when the upstream API uses self-signed certificates.
+func WithInsecureSkipVerify(skip bool) OpenAIOption {
+	return func(c *openAIConfig) {
+		c.insecureSkipVerify = skip
 	}
 }
 
-func (p *OpenAIProvider) Name() string     { return "openai" }
-func (p *OpenAIProvider) Models() []string { return p.models }
+func (p *OpenAIProvider) Name() string { return "openai" }
+
+// Models returns the dynamically discovered model list. If the cache has
+// expired it re-fetches in the background; stale data is returned immediately
+// so callers are never blocked.
+func (p *OpenAIProvider) Models() []string {
+	p.mu.RLock()
+	models := p.models
+	fetched := p.modelsFetched
+	p.mu.RUnlock()
+
+	if time.Since(fetched) > modelCacheTTL {
+		go p.refreshModelsIfStale()
+	}
+
+	return models
+}
+
+// RefreshModels forces a synchronous model list refresh from the upstream API.
+func (p *OpenAIProvider) RefreshModels() {
+	p.discoverModels()
+}
+
+// refreshModelsIfStale re-discovers models only when the cache has expired.
+func (p *OpenAIProvider) refreshModelsIfStale() {
+	p.mu.RLock()
+	fresh := time.Since(p.modelsFetched) <= modelCacheTTL
+	p.mu.RUnlock()
+	if fresh {
+		return
+	}
+	p.discoverModels()
+}
+
+// modelsListResponse is the envelope returned by /v1/models.
+type modelsListResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// discoverModels queries the upstream /v1/models endpoint and updates the
+// cached model list. On failure the existing list (or defaults) is kept.
+func (p *OpenAIProvider) discoverModels() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		p.baseURL+"/v1/models", nil)
+	if err != nil {
+		return
+	}
+	if p.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	var listing modelsListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil {
+		return
+	}
+
+	if len(listing.Data) == 0 {
+		return
+	}
+
+	ids := make([]string, 0, len(listing.Data))
+	for _, m := range listing.Data {
+		if m.ID != "" {
+			ids = append(ids, m.ID)
+		}
+	}
+
+	if len(ids) == 0 {
+		return
+	}
+
+	p.mu.Lock()
+	p.models = ids
+	p.modelsFetched = time.Now()
+	p.mu.Unlock()
+}
 
 // Available returns true when an API key is configured. The OpenAI API is a
 // remote service so we do not make a network call; we just verify that a key
