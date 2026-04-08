@@ -49,7 +49,7 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			// Context protection: smart-truncate oversized system messages to fit
 			// the local model's context window. Keeps the start (project overview)
 			// and end (key rules) of the original content for maximum usefulness.
-			const maxSystemChars = 8000 // ~2K tokens — safe for 32K context models
+			const maxSystemChars = 4000 // ~1K tokens — aggressive truncation for 32K context models
 			for i, m := range req.Messages {
 				if m.Role == "system" {
 					if content, ok := m.Content.(string); ok && len(content) > maxSystemChars {
