@@ -46,45 +46,38 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		}
 
 		if b != nil {
-			// Context protection: enforce a TOTAL budget for all system messages
-			// combined. OpenCode sends CLAUDE.md + AGENTS.md + its own system prompt
-			// which combined can exceed 37K tokens. The local model has 32K context.
-			// Budget: ~4K chars total for all system messages (~1K tokens), leaving
-			// ~31K tokens for OpenCode's internal prompt + tools + conversation.
-			const totalSystemBudget = 4000 // total chars across ALL system messages
-			totalSystemLen := 0
-			for _, m := range req.Messages {
-				if m.Role == "system" {
-					if content, ok := m.Content.(string); ok {
-						totalSystemLen += len(content)
-					}
-				}
+			// Context protection: limit tools to prevent exceeding 32K context.
+			// OpenCode sends 200+ tools from MCPs which consume ~29K tokens.
+			// Limit to 15 most important tools (~2K tokens).
+			const maxTools = 15
+			if len(req.Tools) > maxTools {
+				req.Tools = req.Tools[:maxTools]
 			}
-			if totalSystemLen > totalSystemBudget {
-				budgetRemaining := totalSystemBudget
-				for i, m := range req.Messages {
-					if m.Role == "system" {
-						if content, ok := m.Content.(string); ok {
-							if budgetRemaining <= 0 {
-								// No budget left — remove this system message
-								req.Messages[i].Content = ""
-							} else if len(content) > budgetRemaining {
-								// Truncate: keep start + end
-								headSize := budgetRemaining * 2 / 3
-								tailSize := budgetRemaining / 3
-								if tailSize > len(content) {
-									tailSize = 0
-								}
-								if headSize+tailSize < len(content) && tailSize > 0 {
-									req.Messages[i].Content = content[:headSize] + "\n...[truncated]...\n" + content[len(content)-tailSize:]
-								} else {
-									req.Messages[i].Content = content[:budgetRemaining]
-								}
-								budgetRemaining = 0
-							} else {
-								budgetRemaining -= len(content)
+
+			// Truncate oversized messages to fit remaining context.
+			const maxMsgChars = 4000
+			for i, m := range req.Messages {
+				switch content := m.Content.(type) {
+				case string:
+					if len(content) > maxMsgChars {
+						headSize := maxMsgChars * 2 / 3
+						tailSize := maxMsgChars / 3
+						req.Messages[i].Content = content[:headSize] + "\n...[truncated]...\n" + content[len(content)-tailSize:]
+					}
+				case []interface{}:
+					// ContentPart array — extract text, truncate, replace with single string
+					var fullText string
+					for _, part := range content {
+						if pm, ok := part.(map[string]interface{}); ok {
+							if t, ok := pm["text"].(string); ok {
+								fullText += t
 							}
 						}
+					}
+					if len(fullText) > maxMsgChars {
+						headSize := maxMsgChars * 2 / 3
+						tailSize := maxMsgChars / 3
+						req.Messages[i].Content = fullText[:headSize] + "\n...[truncated]...\n" + fullText[len(fullText)-tailSize:]
 					}
 				}
 			}
@@ -430,12 +423,34 @@ func HandleEmbeddings(_ *brain.Brain) gin.HandlerFunc {
 
 // openAIToInternal converts an api.ChatCompletionRequest to types.InternalChatRequest.
 func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest {
+	// Context protection: enforce a TOTAL character budget across ALL messages.
+	// OpenCode can send 37+ messages totaling 148K+ chars (~37K tokens) which
+	// exceeds the 32K token model context. We budget 80K total chars (~20K tokens)
+	// leaving ~12K tokens for tool definitions and model overhead.
+	const maxTotalChars = 80000
+	const maxPerMsgChars = 4000
+	totalBudget := maxTotalChars
 	msgs := make([]types.InternalMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		content := ""
 		switch v := m.Content.(type) {
 		case string:
 			content = v
+		}
+		// Per-message truncation
+		if len(content) > maxPerMsgChars {
+			headSize := maxPerMsgChars * 2 / 3
+			tailSize := maxPerMsgChars / 3
+			content = content[:headSize] + "\n...[truncated]...\n" + content[len(content)-tailSize:]
+		}
+		// Total budget enforcement
+		if totalBudget <= 0 {
+			content = "" // budget exhausted, drop content
+		} else if len(content) > totalBudget {
+			content = content[:totalBudget]
+			totalBudget = 0
+		} else {
+			totalBudget -= len(content)
 		}
 		msg := types.InternalMessage{
 			Role:       types.Role(m.Role),
