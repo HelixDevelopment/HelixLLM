@@ -427,8 +427,8 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 	// Truncated markdown produces garbled model output (`????`). Replacement
 	// with a clean prompt gives coherent responses.
 	// Also enforce total budget to prevent many medium messages exceeding context.
-	const maxPerMsgChars = 2000  // ~500 tokens per message
-	const maxTotalChars = 40000  // ~10K tokens total for all messages
+	const maxPerMsgChars = 800   // ~200 tokens per message — stays under Q4_K_M degradation threshold
+	const maxTotalChars = 12000  // ~3K tokens total — safe for 7B Q4_K_M (degrades at ~8K tokens)
 	const replacementPrompt = "You are an expert AI coding assistant. You have full access to the user's codebase through the provided tools. When asked about files, code, or the project, ALWAYS use tools (read_file, write_file, list_directory, edit_file) to interact directly. Never say you cannot access files."
 	totalBudget := maxTotalChars
 	msgs := make([]types.InternalMessage, 0, len(req.Messages))
