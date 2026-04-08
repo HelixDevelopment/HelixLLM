@@ -46,6 +46,20 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		}
 
 		if b != nil {
+			// Context protection: smart-truncate oversized system messages to fit
+			// the local model's context window. Keeps the start (project overview)
+			// and end (key rules) of the original content for maximum usefulness.
+			const maxSystemChars = 8000 // ~2K tokens — safe for 32K context models
+			for i, m := range req.Messages {
+				if m.Role == "system" {
+					if content, ok := m.Content.(string); ok && len(content) > maxSystemChars {
+						headSize := maxSystemChars * 2 / 3 // 2/3 from start
+						tailSize := maxSystemChars / 3     // 1/3 from end
+						req.Messages[i].Content = content[:headSize] + "\n\n...[content omitted for context limit]...\n\n" + content[len(content)-tailSize:]
+					}
+				}
+			}
+
 			// Boost tool reasoning for small models: if tools are provided,
 			// inject a concise system instruction that tells the model to use them.
 			if len(req.Tools) > 0 {
