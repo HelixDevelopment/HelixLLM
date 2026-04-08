@@ -471,7 +471,12 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 				},
 			})
 		}
-		msgs = append(msgs, msg)
+		// Merge consecutive assistant messages (Qwen rejects 2+ assistant at end)
+		if len(msgs) > 0 && msgs[len(msgs)-1].Role == "assistant" && msg.Role == "assistant" {
+			msgs[len(msgs)-1].Content += "\n" + msg.Content
+		} else if msg.Content != "" || len(msg.ToolCalls) > 0 || msg.Role == "user" {
+			msgs = append(msgs, msg)
+		}
 	}
 	internal := &types.InternalChatRequest{
 		Model:      req.Model,
