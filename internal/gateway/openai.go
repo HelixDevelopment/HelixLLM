@@ -49,7 +49,7 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			// Context protection: limit tools to prevent exceeding 32K context.
 			// OpenCode sends 200+ tools from MCPs which consume ~29K tokens.
 			// Limit to 15 most important tools (~2K tokens).
-			const maxTools = 15
+			const maxTools = 5 // 5 tools max — each tool is ~500 tokens with full schema
 			if len(req.Tools) > maxTools {
 				req.Tools = req.Tools[:maxTools]
 			}
