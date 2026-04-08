@@ -423,12 +423,13 @@ func HandleEmbeddings(_ *brain.Brain) gin.HandlerFunc {
 
 // openAIToInternal converts an api.ChatCompletionRequest to types.InternalChatRequest.
 func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest {
-	// Context protection: enforce a TOTAL character budget across ALL messages.
-	// OpenCode can send 37+ messages totaling 148K+ chars (~37K tokens) which
-	// exceeds the 32K token model context. We budget 80K total chars (~20K tokens)
-	// leaving ~12K tokens for tool definitions and model overhead.
-	const maxTotalChars = 80000
-	const maxPerMsgChars = 4000
+	// Context protection: REPLACE oversized messages with a concise instruction.
+	// Truncated markdown produces garbled model output (`????`). Replacement
+	// with a clean prompt gives coherent responses.
+	// Also enforce total budget to prevent many medium messages exceeding context.
+	const maxPerMsgChars = 2000  // ~500 tokens per message
+	const maxTotalChars = 40000  // ~10K tokens total for all messages
+	const replacementPrompt = "You are an expert AI coding assistant. You have full access to the user's codebase through the provided tools. When asked about files, code, or the project, ALWAYS use tools (read_file, write_file, list_directory, edit_file) to interact directly. Never say you cannot access files."
 	totalBudget := maxTotalChars
 	msgs := make([]types.InternalMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
@@ -437,17 +438,15 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 		case string:
 			content = v
 		}
-		// Per-message truncation
+		// Replace oversized messages (don't truncate — truncation produces garbage)
 		if len(content) > maxPerMsgChars {
-			headSize := maxPerMsgChars * 2 / 3
-			tailSize := maxPerMsgChars / 3
-			content = content[:headSize] + "\n...[truncated]...\n" + content[len(content)-tailSize:]
+			content = replacementPrompt
 		}
 		// Total budget enforcement
 		if totalBudget <= 0 {
-			content = "" // budget exhausted, drop content
+			content = ""
 		} else if len(content) > totalBudget {
-			content = content[:totalBudget]
+			content = replacementPrompt
 			totalBudget = 0
 		} else {
 			totalBudget -= len(content)
