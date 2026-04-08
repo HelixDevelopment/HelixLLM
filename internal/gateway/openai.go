@@ -46,16 +46,45 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		}
 
 		if b != nil {
-			// Context protection: smart-truncate oversized system messages to fit
-			// the local model's context window. Keeps the start (project overview)
-			// and end (key rules) of the original content for maximum usefulness.
-			const maxSystemChars = 4000 // ~1K tokens — aggressive truncation for 32K context models
-			for i, m := range req.Messages {
+			// Context protection: enforce a TOTAL budget for all system messages
+			// combined. OpenCode sends CLAUDE.md + AGENTS.md + its own system prompt
+			// which combined can exceed 37K tokens. The local model has 32K context.
+			// Budget: ~4K chars total for all system messages (~1K tokens), leaving
+			// ~31K tokens for OpenCode's internal prompt + tools + conversation.
+			const totalSystemBudget = 4000 // total chars across ALL system messages
+			totalSystemLen := 0
+			for _, m := range req.Messages {
 				if m.Role == "system" {
-					if content, ok := m.Content.(string); ok && len(content) > maxSystemChars {
-						headSize := maxSystemChars * 2 / 3 // 2/3 from start
-						tailSize := maxSystemChars / 3     // 1/3 from end
-						req.Messages[i].Content = content[:headSize] + "\n\n...[content omitted for context limit]...\n\n" + content[len(content)-tailSize:]
+					if content, ok := m.Content.(string); ok {
+						totalSystemLen += len(content)
+					}
+				}
+			}
+			if totalSystemLen > totalSystemBudget {
+				budgetRemaining := totalSystemBudget
+				for i, m := range req.Messages {
+					if m.Role == "system" {
+						if content, ok := m.Content.(string); ok {
+							if budgetRemaining <= 0 {
+								// No budget left — remove this system message
+								req.Messages[i].Content = ""
+							} else if len(content) > budgetRemaining {
+								// Truncate: keep start + end
+								headSize := budgetRemaining * 2 / 3
+								tailSize := budgetRemaining / 3
+								if tailSize > len(content) {
+									tailSize = 0
+								}
+								if headSize+tailSize < len(content) && tailSize > 0 {
+									req.Messages[i].Content = content[:headSize] + "\n...[truncated]...\n" + content[len(content)-tailSize:]
+								} else {
+									req.Messages[i].Content = content[:budgetRemaining]
+								}
+								budgetRemaining = 0
+							} else {
+								budgetRemaining -= len(content)
+							}
+						}
 					}
 				}
 			}
