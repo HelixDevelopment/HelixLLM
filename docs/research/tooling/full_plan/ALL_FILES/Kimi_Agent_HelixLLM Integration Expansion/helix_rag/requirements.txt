@@ -1,0 +1,50 @@
+# HelixLLM RAG Pipeline Dependencies
+# ==================================
+# Optimized for RTX 6GB VRAM, 32GB RAM
+
+# Core Dependencies
+# -----------------
+
+# LLM inference and embeddings
+llama-cpp-python>=0.2.0
+
+# Vector database
+chromadb>=0.4.0
+
+# Sentence transformers for cross-encoder re-ranking
+sentence-transformers>=2.2.0
+
+# Scientific computing
+numpy>=1.24.0
+
+# Data processing
+pandas>=2.0.0
+
+# PDF processing (optional)
+pypdf>=3.0.0
+
+# YAML processing
+pyyaml>=6.0
+
+# Utilities
+# ---------
+
+tqdm>=4.65.0          # Progress bars
+python-dotenv>=1.0.0  # Environment variables
+
+# Development Dependencies (optional)
+# -----------------------------------
+# pytest>=7.0.0
+# black>=23.0.0
+# mypy>=1.0.0
+
+# GPU Acceleration (optional, for CUDA support)
+# ---------------------------------------------
+# Install llama-cpp-python with CUDA support:
+# CMAKE_ARGS="-DLLAMA_CUDA=on" pip install llama-cpp-python
+
+# For ROCm support:
+# CMAKE_ARGS="-DLLAMA_HIPBLAS=on" pip install llama-cpp-python
+
+# For Metal support (macOS):
+# CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python

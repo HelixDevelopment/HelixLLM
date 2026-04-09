@@ -1,0 +1,88 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "HelixLLM API Dashboard",
+    "tags": ["helixllm", "api", "llm"],
+    "timezone": "browser",
+    "schemaVersion": 36,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Active Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "active_connections",
+            "legendFormat": "Connections"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Token Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(tokens_total[5m])",
+            "legendFormat": "{{type}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 16, "x": 8, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Error Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "5xx errors"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "Endpoint Breakdown",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "sum by (endpoint) (rate(http_requests_total[5m]))",
+            "format": "table"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      }
+    ]
+  }
+}

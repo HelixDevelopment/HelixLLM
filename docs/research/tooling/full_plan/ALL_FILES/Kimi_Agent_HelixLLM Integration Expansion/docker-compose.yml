@@ -1,0 +1,234 @@
+version: '3.8'
+
+# HelixLLM + HelixAgent Docker Compose Configuration
+# ==================================================
+# This configuration sets up the complete Helix system with:
+# - HelixLLM API server
+# - ChromaDB vector store
+# - Optional: Monitoring with Prometheus/Grafana
+
+services:
+  # ==========================================================================
+  # HelixLLM API Server
+  # ==========================================================================
+  helixllm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - CUDA_VERSION=12.1
+
+    container_name: helixllm
+
+    ports:
+      - "${HELIX_PORT:-8000}:8000"
+
+    volumes:
+      # Model files (read-only)
+      - ${HELIX_MODEL_PATH:-./models}:/app/models:ro
+
+      # Data persistence
+      - helix_data:/app/data
+
+      # Configuration
+      - ${HELIX_CONFIG_PATH:-./config.yaml}:/app/config.yaml:ro
+
+      # Logs
+      - helix_logs:/app/logs
+
+    environment:
+      # Core settings
+      - HELIX_MODEL_PATH=/app/models/${HELIX_MODEL_FILE:-helix-1.5b-q4_k_m.gguf}
+      - HELIX_GPU_LAYERS=${HELIX_GPU_LAYERS:--1}
+      - HELIX_CONTEXT_LENGTH=${HELIX_CONTEXT_LENGTH:-4096}
+      - HELIX_CPU_THREADS=${HELIX_CPU_THREADS:-16}
+
+      # Storage
+      - HELIX_CHROMA_PATH=/app/data/chroma
+      - HELIX_DOCUMENTS_PATH=/app/data/documents
+
+      # API
+      - HELIX_API_HOST=0.0.0.0
+      - HELIX_API_PORT=8000
+      - HELIX_AUTH_ENABLED=${HELIX_AUTH_ENABLED:-false}
+
+      # Performance
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+
+      # Logging
+      - HELIX_LOG_LEVEL=${HELIX_LOG_LEVEL:-info}
+
+    # GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Networking
+    networks:
+      - helix_network
+
+    # Dependencies
+    depends_on:
+      chromadb:
+        condition: service_healthy
+
+  # ==========================================================================
+  # ChromaDB Vector Store
+  # ==========================================================================
+  chromadb:
+    image: chromadb/chroma:0.4.22
+
+    container_name: helix_chromadb
+
+    ports:
+      - "${CHROMA_PORT:-8001}:8000"
+
+    volumes:
+      - chroma_data:/chroma/chroma
+
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
+    networks:
+      - helix_network
+
+  # ==========================================================================
+  # Optional: Redis for Session Caching
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+
+    container_name: helix_redis
+
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+    volumes:
+      - redis_data:/data
+
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+    restart: unless-stopped
+
+    networks:
+      - helix_network
+
+    profiles:
+      - with-redis
+
+  # ==========================================================================
+  # Optional: Prometheus Monitoring
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+
+    container_name: helix_prometheus
+
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+    restart: unless-stopped
+
+    networks:
+      - helix_network
+
+    profiles:
+      - monitoring
+
+  # ==========================================================================
+  # Optional: Grafana Dashboard
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:latest
+
+    container_name: helix_grafana
+
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+    restart: unless-stopped
+
+    networks:
+      - helix_network
+
+    profiles:
+      - monitoring
+
+# ==========================================================================
+# Volumes
+# ==========================================================================
+volumes:
+  helix_data:
+    driver: local
+
+  helix_logs:
+    driver: local
+
+  chroma_data:
+    driver: local
+
+  redis_data:
+    driver: local
+
+  prometheus_data:
+    driver: local
+
+  grafana_data:
+    driver: local
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  helix_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

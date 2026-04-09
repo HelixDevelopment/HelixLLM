@@ -1,0 +1,205 @@
+# HelixLLM + HelixAgent Configuration
+# ================================
+# This is the main configuration file for the Helix system.
+# Copy this to config.yaml and customize for your environment.
+
+# Model Configuration
+# -------------------
+model:
+  # Path to the GGUF model file
+  path: "./models/helix-1.5b-q4_k_m.gguf"
+
+  # Context window size (4096-8192 recommended)
+  context_length: 4096
+
+  # Number of layers to offload to GPU (-1 = all layers)
+  # For 6GB VRAM with 1.5B model: -1 (all layers fit)
+  gpu_layers: -1
+
+  # Number of CPU threads for inference
+  # Set to number of physical cores (16 for Ryzen 9)
+  cpu_threads: 16
+
+  # Batch size for processing
+  batch_size: 512
+
+  # Quantization format
+  quantization: "Q4_K_M"
+
+# Embedding Configuration
+# -----------------------
+embedding:
+  # Model name or path
+  model_name: "nomic-ai/nomic-embed-text-v1.5"
+
+  # Alternative: local path to downloaded model
+  # model_path: "./models/nomic-embed-text-v1.5"
+
+  # Device for embedding ("cuda" or "cpu")
+  device: "cuda"
+
+  # Normalize embeddings (recommended for cosine similarity)
+  normalize: true
+
+  # Cache settings
+  cache_size: 10000  # Number of embeddings to cache
+  cache_ttl: 3600    # Cache TTL in seconds
+
+# Vector Store Configuration
+# --------------------------
+storage:
+  # ChromaDB persistence directory
+  chroma_path: "./data/chroma"
+
+  # Default collection name
+  collection: "default"
+
+  # Distance metric ("cosine", "l2", "ip")
+  distance_metric: "cosine"
+
+  # Document storage
+  documents_path: "./data/documents"
+
+  # Session storage
+  sessions_path: "./data/sessions"
+
+# Text Chunking Configuration
+# ---------------------------
+chunking:
+  # Chunking strategy ("fixed", "semantic", "recursive", "token")
+  strategy: "fixed"
+
+  # Chunk size in tokens
+  chunk_size: 512
+
+  # Overlap between chunks in tokens
+  chunk_overlap: 50
+
+# RAG Configuration
+# -----------------
+rag:
+  # Enable RAG enhancement
+  enabled: true
+
+  # Maximum context tokens for retrieved documents
+  max_context_tokens: 1500
+
+  # Number of documents to retrieve
+  top_k: 5
+
+  # Minimum similarity threshold (0-1)
+  min_similarity: 0.7
+
+  # Keywords that trigger RAG
+  trigger_keywords:
+    - "what is"
+    - "how to"
+    - "explain"
+    - "tell me about"
+    - "what are"
+    - "how do"
+    - "documentation"
+    - "docs"
+    - "reference"
+
+# Tool System Configuration
+# -------------------------
+tools:
+  # Tool execution timeout in seconds
+  timeout_seconds: 30
+
+  # Maximum retries for failed tools
+  max_retries: 1
+
+  # Enable sandbox for tool execution
+  sandbox_enabled: false
+
+  # Maximum tool iterations per request
+  max_iterations: 5
+
+# CLI Agent Bridge Configuration
+# ------------------------------
+cli_bridge:
+  # Path to CLI agent executable
+  agent_path: "./agents/helix_agent_cli"
+
+  # Environment variables for CLI agent
+  env_vars:
+    HELIX_AGENT_MODE: "server"
+    HELIX_AGENT_LOG_LEVEL: "info"
+
+# API Server Configuration
+# ------------------------
+api:
+  # Server host
+  host: "0.0.0.0"
+
+  # Server port
+  port: 8000
+
+  # Enable authentication
+  auth_enabled: false
+
+  # API keys for authentication (if auth_enabled)
+  keys:
+    - "sk-helix-dev-key-1"
+    - "sk-helix-dev-key-2"
+
+  # Rate limit (requests per minute)
+  rate_limit: 60
+
+  # CORS allowed origins
+  allowed_origins:
+    - "*"
+
+  # Model ID for API responses
+  model_id: "helix-1.5b"
+
+# WebSocket Configuration
+# -----------------------
+websocket:
+  # Ping interval in seconds
+  ping_interval: 20
+
+  # Ping timeout in seconds
+  ping_timeout: 10
+
+# Session Configuration
+# ---------------------
+session:
+  # Session TTL in seconds
+  ttl_seconds: 3600
+
+  # Maximum messages per session
+  max_history: 100
+
+# Logging Configuration
+# ---------------------
+logging:
+  # Log level ("debug", "info", "warning", "error")
+  level: "info"
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Log file (null for stdout only)
+  file: "./logs/helix.log"
+
+  # Log rotation
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+
+# Performance Configuration
+# -------------------------
+performance:
+  # Enable Flash Attention (if available)
+  flash_attention: true
+
+  # Memory-mapped model loading
+  mmap: true
+
+  # Lock model in memory
+  mlock: false
+
+  # Continuous batching
+  continuous_batching: true

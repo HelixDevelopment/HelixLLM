@@ -1,0 +1,36 @@
+{
+  "_comment": "HelixLLM RAG Pipeline Configuration - Optimized for RTX 6GB VRAM",
+  
+  "embedding_model_path": "models/nomic-embed-text-v1.5.Q4_K_M.gguf",
+  "embedding_n_ctx": 8192,
+  "embedding_n_batch": 512,
+  "embedding_n_gpu_layers": -1,
+  
+  "chunk_size": 512,
+  "chunk_overlap": 128,
+  "preserve_functions": true,
+  "preserve_classes": true,
+  
+  "vector_store_path": "./chroma_db",
+  "collection_name": "helix_knowledge",
+  "hnsw_M": 16,
+  "hnsw_construction_ef": 128,
+  "hnsw_search_ef": 64,
+  
+  "retrieval_top_k": 10,
+  "retrieval_final_k": 5,
+  "semantic_weight": 0.7,
+  "keyword_weight": 0.3,
+  "reranker_type": "hybrid",
+  "min_score_threshold": 0.3,
+  
+  "max_context_tokens": 2048,
+  "max_response_tokens": 1024,
+  "enable_citations": true,
+  
+  "knowledge_base_path": "./knowledge_base",
+  "enable_versioning": true,
+  
+  "batch_size": 32,
+  "use_cache": true
+}

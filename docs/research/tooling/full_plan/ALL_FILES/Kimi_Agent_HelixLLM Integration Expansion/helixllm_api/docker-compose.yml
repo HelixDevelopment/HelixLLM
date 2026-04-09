@@ -1,0 +1,155 @@
+# HelixLLM API Docker Compose Configuration
+# ==========================================
+# Complete deployment configuration for HelixLLM API Server
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # HelixLLM API Server
+  # ---------------------------------------------------------------------------
+  helixllm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: helixllm-api
+    restart: unless-stopped
+    
+    ports:
+      - "${HELIXLLM_PORT:-8000}:8000"
+    
+    environment:
+      # Server Configuration
+      - HELIXLLM_HOST=0.0.0.0
+      - HELIXLLM_PORT=8000
+      - HELIXLLM_API_KEY=${HELIXLLM_API_KEY:-}
+      
+      # Model Configuration
+      - HELIXLLM_MODEL=${HELIXLLM_MODEL:-helix-llm}
+      - HELIXLLM_VERSION=${HELIXLLM_VERSION:-1.0.0}
+      - HELIXLLM_MAX_TOKENS=${HELIXLLM_MAX_TOKENS:-4096}
+      - HELIXLLM_TEMPERATURE=${HELIXLLM_TEMPERATURE:-0.7}
+      
+      # Feature Flags
+      - HELIXLLM_ENABLE_STREAMING=${HELIXLLM_ENABLE_STREAMING:-true}
+      - HELIXLLM_LOG_LEVEL=${HELIXLLM_LOG_LEVEL:-INFO}
+      
+      # CORS Configuration
+      - HELIXLLM_CORS_ORIGINS=${HELIXLLM_CORS_ORIGINS:-*}
+      
+      # Rate Limiting
+      - HELIXLLM_RATE_LIMIT=${HELIXLLM_RATE_LIMIT:-false}
+      - HELIXLLM_RATE_LIMIT_REQUESTS=${HELIXLLM_RATE_LIMIT_REQUESTS:-100}
+      - HELIXLLM_RATE_LIMIT_WINDOW=${HELIXLLM_RATE_LIMIT_WINDOW:-60}
+    
+    networks:
+      - helixllm-network
+    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+    # Resource limits (optional)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2.0'
+    #       memory: 4G
+    #     reservations:
+    #       cpus: '1.0'
+    #       memory: 2G
+
+  # ---------------------------------------------------------------------------
+  # Optional: Nginx Reverse Proxy
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: helixllm-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - helixllm-api
+    networks:
+      - helixllm-network
+    profiles:
+      - with-nginx
+
+  # ---------------------------------------------------------------------------
+  # Optional: Redis for Rate Limiting
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: helixllm-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - helixllm-network
+    profiles:
+      - with-redis
+
+  # ---------------------------------------------------------------------------
+  # Optional: Prometheus Monitoring
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: helixllm-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - helixllm-network
+    profiles:
+      - monitoring
+
+  # ---------------------------------------------------------------------------
+  # Optional: Grafana Dashboard
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: helixllm-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - helixllm-network
+    profiles:
+      - monitoring
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  helixllm-network:
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:

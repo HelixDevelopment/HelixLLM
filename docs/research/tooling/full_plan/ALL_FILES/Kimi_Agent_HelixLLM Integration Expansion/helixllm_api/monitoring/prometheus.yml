@@ -1,0 +1,28 @@
+# Prometheus Configuration for HelixLLM API
+# ==========================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  # - "rules/*.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # HelixLLM API metrics
+  - job_name: 'helixllm-api'
+    static_configs:
+      - targets: ['helixllm-api:8000']
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
