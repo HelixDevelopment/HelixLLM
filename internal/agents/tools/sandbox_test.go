@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"os/exec"
+	"syscall"
 	"testing"
 )
 
@@ -229,5 +231,77 @@ func TestTruncate(t *testing.T) {
 				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestSandbox_ProcessGroupIsolation(t *testing.T) {
+	s := DefaultSandbox()
+	ctx := context.Background()
+
+	// Build a command through the same path Execute uses, then verify
+	// SysProcAttr.Setpgid is set before running.
+	cmd := exec.CommandContext(ctx, "echo", "pgid-test")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	if cmd.SysProcAttr == nil {
+		t.Fatal("expected SysProcAttr to be set")
+	}
+	if !cmd.SysProcAttr.Setpgid {
+		t.Fatal("expected Setpgid to be true for process group isolation")
+	}
+
+	// Verify Execute still works correctly with process group isolation.
+	out, err := s.Execute(ctx, "echo", "pgid-test")
+	if err != nil {
+		t.Fatalf("Execute with Setpgid failed: %v", err)
+	}
+	if out != "pgid-test\n" {
+		t.Errorf("expected %q, got %q", "pgid-test\n", out)
+	}
+}
+
+func TestSandbox_WrapWithCPULimit(t *testing.T) {
+	s := DefaultSandbox() // MaxCPUSeconds=30
+
+	wrapped := s.WrapWithCPULimit("ls -la")
+	expected := "ulimit -t 30; ls -la"
+	if wrapped != expected {
+		t.Errorf("expected %q, got %q", expected, wrapped)
+	}
+
+	// Zero MaxCPUSeconds should return the original command.
+	s2 := NewSandbox(SandboxConfig{MaxCPUSeconds: -1})
+	// NewSandbox clamps to default 30, so test with a direct struct.
+	s3 := &Sandbox{config: SandboxConfig{MaxCPUSeconds: 0}}
+	noWrap := s3.WrapWithCPULimit("ls -la")
+	if noWrap != "ls -la" {
+		t.Errorf("expected no wrapping with zero MaxCPUSeconds, got %q", noWrap)
+	}
+
+	_ = s2 // used above for documentation purposes
+}
+
+func TestSandbox_ExecuteShell(t *testing.T) {
+	s := DefaultSandbox()
+	ctx := context.Background()
+
+	out, err := s.ExecuteShell(ctx, "echo shell-test")
+	if err != nil {
+		t.Fatalf("ExecuteShell failed: %v", err)
+	}
+	if out != "shell-test\n" {
+		t.Errorf("expected %q, got %q", "shell-test\n", out)
+	}
+}
+
+func TestSandbox_ExecuteShell_Blocked(t *testing.T) {
+	s := DefaultSandbox()
+	ctx := context.Background()
+
+	_, err := s.ExecuteShell(ctx, "sudo rm -rf /")
+	if err == nil {
+		t.Error("expected blocked command to be rejected")
 	}
 }

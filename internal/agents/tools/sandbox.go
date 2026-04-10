@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -159,6 +160,9 @@ func (s *Sandbox) Execute(ctx context.Context, name string, args ...string) (str
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- sandboxed via ValidateCommand
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group for cleanup
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -182,6 +186,29 @@ func (s *Sandbox) Execute(ctx context.Context, name string, args ...string) (str
 		output = stderr.String()
 	}
 	return truncate(output, s.config.MaxOutputBytes), nil
+}
+
+// WrapWithCPULimit prepends a ulimit CPU-time guard to a shell command string.
+// If MaxCPUSeconds is zero or negative, the original command is returned
+// unchanged.
+func (s *Sandbox) WrapWithCPULimit(shellCmd string) string {
+	if s.config.MaxCPUSeconds <= 0 {
+		return shellCmd
+	}
+	return fmt.Sprintf("ulimit -t %d; %s", s.config.MaxCPUSeconds, shellCmd)
+}
+
+// ExecuteShell runs a shell command string through /bin/sh with CPU-time
+// limiting via ulimit. The command is validated against blocked patterns
+// before execution. Process group isolation is applied so the entire process
+// tree can be cleaned up on timeout.
+func (s *Sandbox) ExecuteShell(ctx context.Context, shellCmd string) (string, error) {
+	if err := s.ValidateCommand(shellCmd); err != nil {
+		return "", err
+	}
+
+	wrapped := s.WrapWithCPULimit(shellCmd)
+	return s.Execute(ctx, "/bin/sh", "-c", wrapped)
 }
 
 // truncate returns s truncated to maxBytes. If truncation occurs a marker is
