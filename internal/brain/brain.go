@@ -19,6 +19,7 @@ type Brain struct {
 	sem        *semaphore.Weighted
 	complexity *ComplexityAnalyzer
 	registry   *models.Registry
+	kvCache    KVCacher // optional context-persistence cache
 }
 
 // Config holds the provider credentials and URLs needed to build a Brain.
@@ -34,6 +35,7 @@ type Config struct {
 	MaxConcurrent     int // 0 means unlimited
 	ComplexityEnabled bool
 	Registry          *models.Registry
+	KVCache           KVCacher // optional context-persistence cache
 }
 
 // New creates a Brain and registers whichever providers are configured.
@@ -76,8 +78,15 @@ func New(cfg Config) *Brain {
 		b.complexity = NewComplexityAnalyzer()
 	}
 	b.registry = cfg.Registry
+	b.kvCache = cfg.KVCache
 
 	return b
+}
+
+// KVCache returns the optional context-persistence cache, or nil if none was
+// configured. Callers must nil-check before use.
+func (b *Brain) KVCache() KVCacher {
+	return b.kvCache
 }
 
 // RegisterProvider adds or replaces a provider by name. It is used by tests to
