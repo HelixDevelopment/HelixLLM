@@ -1,0 +1,137 @@
+version: "3.8"
+
+services:
+  helixllm:
+    build:
+      context: .
+      dockerfile: container/Containerfile.llamacpp-router
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+    volumes:
+      - models_data:/models:ro
+      - ./certs:/app/certs:ro
+      - helixllm_config:/config
+    environment:
+      - HELIX_MODE=full
+      - HELIX_PORT=8443
+      - HELIX_MODELS_DIR=/models
+      - HELIX_MODELS_MAX=3
+      - HELIX_LLAMA_SERVER_PORT=8080
+      - HELIX_LLAMA_SERVER_EMBEDDED=true
+      - HELIX_REDIS_HOST=redis
+      - HELIX_REDIS_PORT=6379
+      - HELIX_VECTOR_DB=qdrant
+      - HELIX_COMPLEXITY_ENABLED=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "https://localhost:8443/internal/health", "--insecure"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+    networks:
+      - helixllm
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - helixllm
+
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+    networks:
+      - helixllm
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      helixllm:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - helixllm
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+    networks:
+      - helixllm
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-helixllm}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - helixllm
+    profiles:
+      - monitoring
+
+networks:
+  helixllm:
+    driver: bridge
+
+volumes:
+  models_data:
+  redis_data:
+  chroma_data:
+  prometheus_data:
+  grafana_data:
+  helixllm_config:
