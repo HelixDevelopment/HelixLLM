@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/agents"
 	"github.com/HelixDevelopment/HelixLLM/internal/agents/tools"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
+	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
 	"github.com/HelixDevelopment/HelixLLM/internal/control"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
@@ -20,6 +22,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/analytics"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/config"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/events"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/hardware"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/logging"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/observability"
@@ -134,22 +137,113 @@ func main() {
 		Obs:     obs,
 	})
 
+	// Multi-model fleet initialization
+	hwProfile := hardware.Detect()
+	log.WithFields(map[string]interface{}{
+		"gpu":     hwProfile.GPU.Available,
+		"vram_mb": hwProfile.GPU.VRAMTotal / (1024 * 1024),
+		"preset":  hwProfile.PresetProfile,
+	}).Info("Hardware detected")
+
+	catalog := models.DefaultCatalog()
+	var available []models.ModelDefinition
+	if hwProfile.GPU.Available {
+		available = catalog.FilterByVRAM(hwProfile.GPU.VRAMFree)
+	} else {
+		available = catalog.FilterByVRAM(0)
+		// CPU-only: just use the smallest model
+		if fast := catalog.ByTier(models.TierFast); len(fast) > 0 {
+			available = fast
+		}
+	}
+
+	registry := models.NewRegistry()
+	downloader := brain.NewDownloader(cfg.LLM.ModelsDir)
+	for _, def := range available {
+		rm := models.RuntimeModel{
+			Definition: def,
+			Status:     models.StatusUnloaded,
+			FilePath:   filepath.Join(cfg.LLM.ModelsDir, def.Filename),
+			Downloaded: downloader.ModelExists(def.Filename),
+		}
+		registry.Add(rm)
+	}
+
+	// Download missing models
+	if cfg.LLM.ModelsAutoDownload {
+		for _, def := range available {
+			if !downloader.ModelExists(def.Filename) {
+				url := downloader.HuggingFaceURL(def.HuggingFaceRepo, def.Filename)
+				log.WithField("model", def.ID).Info("Downloading model from HuggingFace")
+				if err := downloader.Download(ctx, brain.DownloadRequest{URL: url, Filename: def.Filename}); err != nil {
+					log.WithError(err).WithField("model", def.ID).Warn("Failed to download model, skipping")
+				}
+			}
+		}
+	}
+
+	// Generate presets and optionally start embedded llama-server
+	var llamaSrv *brain.LlamaServer
+	if cfg.LLM.LlamaServerEmbed {
+		var downloadedModels []models.ModelDefinition
+		for _, def := range available {
+			if downloader.ModelExists(def.Filename) {
+				downloadedModels = append(downloadedModels, def)
+			}
+		}
+		if len(downloadedModels) > 0 {
+			presetsINI, _ := models.GeneratePresets(downloadedModels, hwProfile)
+			presetsPath := filepath.Join(os.TempDir(), "helixllm-presets.ini")
+			os.WriteFile(presetsPath, []byte(presetsINI), 0644) //nolint:errcheck
+
+			llamaSrv = brain.NewLlamaServer(brain.LlamaServerConfig{
+				Port:         cfg.LLM.LlamaServerPort,
+				ModelsDir:    cfg.LLM.ModelsDir,
+				PresetsPath:  presetsPath,
+				MaxModels:    cfg.LLM.ModelsMax,
+				Threads:      hwProfile.InferenceThreads(),
+				ThreadsBatch: hwProfile.BatchThreads(),
+			})
+			if err := llamaSrv.Start(ctx); err != nil {
+				log.WithError(err).Warn("Failed to start embedded llama-server")
+			} else {
+				log.Info("Waiting for llama-server to be ready...")
+				if err := llamaSrv.WaitReady(ctx, 120*time.Second); err != nil {
+					log.WithError(err).Warn("llama-server not ready within timeout")
+				} else {
+					for _, def := range downloadedModels {
+						registry.UpdateStatus(def.ID, models.StatusLoaded)
+					}
+				}
+			}
+		}
+	}
+	if llamaSrv != nil {
+		defer llamaSrv.Stop() //nolint:errcheck
+		// Override to use embedded server
+		cfg.LLM.LocalRPCHost = "127.0.0.1"
+		cfg.LLM.LocalRPCPort = cfg.LLM.LlamaServerPort
+	}
+
 	// Create Brain — registers whichever providers are configured.
 	brainSvc := brain.New(brain.Config{
-		LlamaCppURL:     fmt.Sprintf("http://%s:%d", cfg.LLM.LocalRPCHost, cfg.LLM.LocalRPCPort),
-		LlamaCppModels:  []string{cfg.LLM.LocalModel},
-		OpenAIKey:       cfg.LLM.OpenAIKey,
-		OpenAIBaseURL:   cfg.LLM.OpenAIBaseURL,
-		AnthropicKey:    cfg.LLM.AnthropicKey,
-		DefaultProvider: cfg.LLM.DefaultProvider,
+		LlamaCppURL:       fmt.Sprintf("http://%s:%d", cfg.LLM.LocalRPCHost, cfg.LLM.LocalRPCPort),
+		LlamaCppModels:    []string{cfg.LLM.LocalModel},
+		OpenAIKey:         cfg.LLM.OpenAIKey,
+		OpenAIBaseURL:     cfg.LLM.OpenAIBaseURL,
+		AnthropicKey:      cfg.LLM.AnthropicKey,
+		DefaultProvider:   cfg.LLM.DefaultProvider,
+		ComplexityEnabled: cfg.LLM.ComplexityEnabled,
+		Registry:          registry,
 	})
 
 	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
-		APIKeys:     cfg.Auth.APIKeys,
-		RateLimit:   cfg.Server.RatePerMinute,
-		Brain:       brainSvc,
-		TOONEnabled: cfg.Features.TOON,
+		APIKeys:         cfg.Auth.APIKeys,
+		RateLimit:       cfg.Server.RatePerMinute,
+		Brain:           brainSvc,
+		TOONEnabled:     cfg.Features.TOON,
+		HardwareProfile: hwProfile,
 	})
 
 	// Create knowledge pipeline using configured backends.
