@@ -72,6 +72,35 @@ Shared     → Config (env-based), EventBus, logging (logrus), observability (OT
 
 `cmd/helixllm/main.go` -- parses flags, loads config, initializes all layers in sequence (logging → events → observability → analytics → control plane → brain → gateway → knowledge → agents), starts HTTP/3 server with graceful shutdown.
 
+## Multi-Model Fleet
+
+HelixLLM uses llama.cpp's native router mode to serve a fleet of lightweight models simultaneously from a single process.
+
+**Default models (all Apache-2.0 / MIT):**
+
+| Model | Tier | VRAM | TPS | Purpose |
+|-------|------|------|-----|---------|
+| Qwen2.5-Coder-1.5B Q4_K_M | fast | ~1GB | 180-250 | Primary: quick tool calls |
+| Qwen2.5-Coder-3B Q4_K_M | balanced | ~2GB | 120-160 | Moderate complexity |
+| Functionary-small-v3.2 Q4_0 | powerful | ~5GB | 45-65 | Complex reasoning (optional) |
+| nomic-embed-text-v1.5 Q4_K_M | embed | ~90MB | — | Local embeddings (768 dims) |
+
+**Task complexity routing:** Incoming requests are scored heuristically (<5ms). Simple tasks (score 0-2) route to the 1.5B fast model. Moderate tasks (3-5) route to the 3B balanced model. Complex tasks (6+) route to the powerful tier if available, otherwise fall back.
+
+**Hardware auto-profiling:** At boot, GPU/CPU/RAM are detected. Models and llama.cpp settings (GPU layers, context size, batch size) are auto-configured based on available VRAM. Preset profiles: `cpu_only`, `consumer_6gb`, `consumer_8gb`, `high_end`.
+
+**Auto-download:** Missing models are downloaded from HuggingFace on first boot. Set `HF_TOKEN` for gated repos.
+
+**Key env vars:**
+- `HELIX_MODELS_DIR` — GGUF file directory (default: `/models`)
+- `HELIX_MODELS_AUTO_DOWNLOAD` — download missing at boot (default: `true`)
+- `HELIX_MODELS_MAX` — max concurrent loaded models (default: `3`)
+- `HELIX_COMPLEXITY_ENABLED` — enable multi-model routing (default: `true`)
+- `HELIX_LLAMA_SERVER_PORT` — internal llama-server port (default: `8080`)
+- `HELIX_LLAMA_SERVER_EMBEDDED` — spawn llama-server as child process (default: `true`)
+
+**CUDA container:** `container/Containerfile.llamacpp-router` — multi-stage build with CUDA 12.6, RPC support, router mode.
+
 ## Submodules
 
 37 Git submodules under `submodules/` are imported via `replace` directives in `go.mod`. They form the `digital.vasic.*` and `dev.helix.*` module ecosystem. Each submodule has its own `CLAUDE.md`. Run `make deps` after cloning or when submodule references change.
