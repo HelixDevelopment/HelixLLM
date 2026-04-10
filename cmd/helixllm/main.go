@@ -143,6 +143,7 @@ func main() {
 
 	// Multi-model fleet initialization
 	hwProfile := hardware.Detect()
+	hardware.UpdateSystemMetrics(hwProfile)
 	log.WithFields(map[string]interface{}{
 		"gpu":     hwProfile.GPU.Available,
 		"vram_mb": hwProfile.GPU.VRAMTotal / (1024 * 1024),
@@ -229,6 +230,24 @@ func main() {
 		cfg.LLM.LocalRPCPort = cfg.LLM.LlamaServerPort
 	}
 
+	// Create KV cache for conversation context persistence.
+	var kvCache brain.KVCacher
+	if cfg.Cache.RedisHost != "" {
+		kvCache = brain.NewKVCache(brain.KVCacheConfig{
+			RedisAddr:     fmt.Sprintf("%s:%d", cfg.Cache.RedisHost, cfg.Cache.RedisPort),
+			RedisPassword: cfg.Cache.RedisPassword,
+		})
+		if kvCache.Available() {
+			log.Info("KV cache: Redis connected")
+		} else {
+			log.Warn("KV cache: Redis unreachable, falling back to in-memory")
+			kvCache = brain.NewMemoryKVCache(time.Hour)
+		}
+	} else {
+		kvCache = brain.NewMemoryKVCache(time.Hour)
+		log.Info("KV cache: using in-memory (no Redis configured)")
+	}
+
 	// Create Brain — registers whichever providers are configured.
 	brainSvc := brain.New(brain.Config{
 		LlamaCppURL:       fmt.Sprintf("http://%s:%d", cfg.LLM.LocalRPCHost, cfg.LLM.LocalRPCPort),
@@ -239,6 +258,7 @@ func main() {
 		DefaultProvider:   cfg.LLM.DefaultProvider,
 		ComplexityEnabled: cfg.LLM.ComplexityEnabled,
 		Registry:          registry,
+		KVCache:           kvCache,
 	})
 
 	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
@@ -339,8 +359,8 @@ func main() {
 	// Create task planner (LLM-driven goal decomposition into ordered steps).
 	planner := agents.NewPlanner(brainSvc)
 
-	// Register agent routes (chat, tools, coordinate, plan, memory/remember, memory/recall).
-	agents.RegisterAgentRoutesWithExtras(srv.Router(), agentSvc, convCtx, coordinator, planner, memMgr)
+	// Register agent routes (chat, tools, coordinate, plan, memory/remember, memory/recall, cache/stats).
+	agents.RegisterAgentRoutesWithExtras(srv.Router(), agentSvc, convCtx, coordinator, planner, memMgr, kvCache)
 
 	control.RegisterRoutes(srv.Router(), cp)
 

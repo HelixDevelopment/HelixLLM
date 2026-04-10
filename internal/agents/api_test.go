@@ -24,7 +24,7 @@ func newTestRouter(agent *Agent, convCtx *ConversationContext) *gin.Engine {
 }
 
 // newExtrasRouter wires the full set of routes including coordinator, planner,
-// and memory manager.
+// memory manager, and an optional KV cache.
 func newExtrasRouter(
 	agent *Agent,
 	convCtx *ConversationContext,
@@ -33,7 +33,7 @@ func newExtrasRouter(
 	memMgr *MemoryManager,
 ) *gin.Engine {
 	r := gin.New()
-	RegisterAgentRoutesWithExtras(r, agent, convCtx, coord, planner, memMgr)
+	RegisterAgentRoutesWithExtras(r, agent, convCtx, coord, planner, memMgr, nil)
 	return r
 }
 

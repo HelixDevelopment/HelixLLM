@@ -1,8 +1,10 @@
 package agents
 
 import (
+	"log"
 	"net/http"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 	"github.com/gin-gonic/gin"
 )
@@ -70,7 +72,7 @@ type MemoryRecallResponse struct {
 //	POST /v1/agents/memory/remember   — store a memory
 //	POST /v1/agents/memory/recall     — recall memories
 func RegisterAgentRoutes(r *gin.Engine, agent *Agent, ctx *ConversationContext) {
-	RegisterAgentRoutesWithExtras(r, agent, ctx, nil, nil, nil)
+	RegisterAgentRoutesWithExtras(r, agent, ctx, nil, nil, nil, nil)
 }
 
 // ToolExecuteRequest is the request body for POST /v1/agents/tools/execute.
@@ -86,8 +88,8 @@ type ToolExecuteResponse struct {
 }
 
 // RegisterAgentRoutesWithExtras wires all agent routes including the optional
-// Coordinator and MemoryManager.  Either may be nil, in which case the
-// corresponding endpoints return 501 Not Implemented.
+// Coordinator, MemoryManager, and KV cache.  Any may be nil, in which case
+// the corresponding endpoints return 501 Not Implemented or degrade gracefully.
 func RegisterAgentRoutesWithExtras(
 	r *gin.Engine,
 	agent *Agent,
@@ -95,19 +97,27 @@ func RegisterAgentRoutesWithExtras(
 	coordinator *Coordinator,
 	planner *Planner,
 	memMgr *MemoryManager,
+	kvCache brain.KVCacher,
 ) {
 	v1 := r.Group("/v1/agents")
-	v1.POST("/chat", agentChatHandler(agent, convCtx))
+	v1.POST("/chat", agentChatHandler(agent, convCtx, kvCache))
 	v1.GET("/tools", agentToolsHandler(agent))
 	v1.POST("/tools/execute", toolExecuteHandler(agent))
 	v1.POST("/coordinate", coordinateHandler(coordinator))
 	v1.POST("/plan", planHandler(planner))
 	v1.POST("/memory/remember", memoryRememberHandler(memMgr))
 	v1.POST("/memory/recall", memoryRecallHandler(memMgr))
+
+	// Cache stats — registered under /v1 (sibling of /v1/agents).
+	cacheGroup := r.Group("/v1")
+	cacheGroup.GET("/cache/stats", cacheStatsHandler(kvCache))
 }
 
 // agentChatHandler returns a Gin handler for POST /v1/agents/chat.
-func agentChatHandler(agent *Agent, convCtx *ConversationContext) gin.HandlerFunc {
+// When a KV cache is provided and the request carries a SessionID, cached
+// conversation history is restored before the agent loop and persisted
+// afterwards, giving context persistence across server restarts.
+func agentChatHandler(agent *Agent, convCtx *ConversationContext, kvCache brain.KVCacher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req AgentChatRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -121,7 +131,16 @@ func agentChatHandler(agent *Agent, convCtx *ConversationContext) gin.HandlerFun
 
 		// Build the full message list: history (if any) + new messages.
 		var messages []types.InternalMessage
-		if req.SessionID != "" && convCtx != nil {
+
+		// Try KV cache first (survives restarts), then fall back to in-memory.
+		if req.SessionID != "" && kvCache != nil && kvCache.Available() {
+			cached, err := kvCache.Retrieve(c.Request.Context(), req.SessionID)
+			if err != nil {
+				log.Printf("kvcache: retrieve session %q: %v", req.SessionID, err)
+			} else if len(cached) > 0 {
+				messages = append(messages, cached...)
+			}
+		} else if req.SessionID != "" && convCtx != nil {
 			history := convCtx.Get(req.SessionID)
 			messages = append(messages, history...)
 		}
@@ -134,10 +153,21 @@ func agentChatHandler(agent *Agent, convCtx *ConversationContext) gin.HandlerFun
 			return
 		}
 
-		// Persist new messages and the assistant response to the session.
-		if req.SessionID != "" && convCtx != nil {
-			convCtx.AddMultiple(req.SessionID, req.Messages)
-			convCtx.Add(req.SessionID, resp.Message)
+		// Persist the full conversation (history + new turn + response).
+		if req.SessionID != "" {
+			if kvCache != nil && kvCache.Available() {
+				allMessages := make([]types.InternalMessage, len(messages), len(messages)+1)
+				copy(allMessages, messages)
+				allMessages = append(allMessages, resp.Message)
+				if err := kvCache.Store(c.Request.Context(), req.SessionID, allMessages); err != nil {
+					log.Printf("kvcache: store session %q: %v", req.SessionID, err)
+				}
+			}
+			// Always keep in-memory context in sync as a fast path.
+			if convCtx != nil {
+				convCtx.AddMultiple(req.SessionID, req.Messages)
+				convCtx.Add(req.SessionID, resp.Message)
+			}
 		}
 
 		c.JSON(http.StatusOK, AgentChatResponse{
@@ -310,5 +340,21 @@ func toolExecuteHandler(agent *Agent) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, ToolExecuteResponse{Result: result})
+	}
+}
+
+// cacheStatsHandler returns a Gin handler for GET /v1/cache/stats.
+func cacheStatsHandler(kvCache brain.KVCacher) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if kvCache == nil || !kvCache.Available() {
+			c.JSON(http.StatusOK, gin.H{"available": false})
+			return
+		}
+		stats, err := kvCache.Stats(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, stats)
 	}
 }
