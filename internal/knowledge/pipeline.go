@@ -16,6 +16,12 @@ type Pipeline struct {
 	chunker           Chunker
 	defaultCollection string
 	defaultTopK       int
+
+	// Hybrid search fields (opt-in via HybridEnabled).
+	hybridRetriever *HybridRetriever
+	bm25Index       *BM25Index
+	hybridEnabled   bool
+	mmrLambda       float64
 }
 
 // PipelineConfig holds the dependencies and defaults for a Pipeline.
@@ -25,6 +31,12 @@ type PipelineConfig struct {
 	Chunker           Chunker
 	DefaultCollection string
 	DefaultTopK       int
+
+	// Hybrid search configuration (opt-in).
+	HybridEnabled  bool
+	SemanticWeight float64
+	KeywordWeight  float64
+	MMRLambda      float64
 }
 
 // NewPipeline returns a Pipeline configured with the provided options.
@@ -33,13 +45,29 @@ func NewPipeline(cfg PipelineConfig) *Pipeline {
 	if topK <= 0 {
 		topK = 5
 	}
-	return &Pipeline{
+
+	p := &Pipeline{
 		embedder:          cfg.Embedder,
 		store:             cfg.Store,
 		chunker:           cfg.Chunker,
 		defaultCollection: cfg.DefaultCollection,
 		defaultTopK:       topK,
+		hybridEnabled:     cfg.HybridEnabled,
+		mmrLambda:         cfg.MMRLambda,
 	}
+
+	if cfg.HybridEnabled {
+		p.bm25Index = NewBM25Index()
+		p.hybridRetriever = NewHybridRetriever(cfg.Embedder, cfg.Store, p.bm25Index)
+		if cfg.SemanticWeight > 0 || cfg.KeywordWeight > 0 {
+			p.hybridRetriever.SetWeights(cfg.SemanticWeight, cfg.KeywordWeight)
+		}
+		if p.mmrLambda <= 0 {
+			p.mmrLambda = 0.7 // default: slightly favor relevance over diversity
+		}
+	}
+
+	return p
 }
 
 // Ingest chunks, embeds, and stores a document from the given request.
@@ -86,6 +114,13 @@ func (p *Pipeline) Ingest(ctx context.Context, req IngestRequest) (*IngestResult
 		return nil, fmt.Errorf("ingest: store upsert: %w", err)
 	}
 
+	// Index chunks in BM25 for hybrid keyword search.
+	if p.hybridEnabled && p.bm25Index != nil {
+		for _, ch := range chunks {
+			p.bm25Index.Add(ch.ID, ch.Content)
+		}
+	}
+
 	return &IngestResult{
 		DocumentID: doc.ID,
 		Chunks:     len(chunks),
@@ -95,6 +130,10 @@ func (p *Pipeline) Ingest(ctx context.Context, req IngestRequest) (*IngestResult
 
 // Query embeds the query string, searches the vector store, and returns the
 // top-K matching chunks together with an assembled context string.
+//
+// When hybrid search is enabled, the query is expanded with code synonyms,
+// searched via both semantic and keyword retrieval, and the results are
+// re-ranked with MMR for diversity.
 //
 // Validation rules:
 //   - Query must be non-empty.
@@ -107,19 +146,55 @@ func (p *Pipeline) Query(ctx context.Context, req QueryRequest) (*QueryResult, e
 		return nil, fmt.Errorf("query: collection must not be empty")
 	}
 
-	vec, err := p.embedder.Embed(req.Query)
-	if err != nil {
-		return nil, fmt.Errorf("query: embed query: %w", err)
-	}
-
 	topK := req.TopK
 	if topK <= 0 {
 		topK = p.defaultTopK
 	}
 
-	scored, err := p.store.Search(req.Collection, vec, topK)
-	if err != nil {
-		return nil, fmt.Errorf("query: search store: %w", err)
+	var scored []ScoredChunk
+
+	if p.hybridEnabled && p.hybridRetriever != nil {
+		// 1. Expand query with code synonyms.
+		expandedQueries := ExpandQuery(req.Query)
+
+		// 2. Run hybrid search for each expanded query.
+		seen := make(map[string]ScoredChunk)
+		for _, q := range expandedQueries {
+			results, err := p.hybridRetriever.Search(ctx, req.Collection, q, topK)
+			if err != nil {
+				return nil, fmt.Errorf("query: hybrid search: %w", err)
+			}
+			for _, sc := range results {
+				if existing, ok := seen[sc.ID]; ok {
+					// Keep the higher score.
+					if sc.Score > existing.Score {
+						seen[sc.ID] = sc
+					}
+				} else {
+					seen[sc.ID] = sc
+				}
+			}
+		}
+
+		// 3. Collect deduplicated results.
+		candidates := make([]ScoredChunk, 0, len(seen))
+		for _, sc := range seen {
+			candidates = append(candidates, sc)
+		}
+
+		// 4. Apply MMR for diversity.
+		scored = MMRRerank(candidates, p.mmrLambda, topK)
+	} else {
+		// Original vector-only path.
+		vec, err := p.embedder.Embed(req.Query)
+		if err != nil {
+			return nil, fmt.Errorf("query: embed query: %w", err)
+		}
+
+		scored, err = p.store.Search(req.Collection, vec, topK)
+		if err != nil {
+			return nil, fmt.Errorf("query: search store: %w", err)
+		}
 	}
 
 	if req.MinScore > 0 {
