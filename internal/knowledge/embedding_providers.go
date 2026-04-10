@@ -72,6 +72,7 @@ func (o *OpenAIEmbedder) EmbedBatch(texts []string) ([][]float64, error) {
 //
 // Supported providers:
 //   - "openai"        → OpenAIEmbedder (requires apiKey)
+//   - "llama"         → LlamaEmbedder (local llama-server; apiKey carries baseURL)
 //   - "hash", "local" → HashEmbedder (deterministic, no external API)
 //
 // Any unrecognised provider name falls back to HashEmbedder.
@@ -79,6 +80,8 @@ func NewEmbedder(provider, apiKey, model string, dimension int) (Embedder, error
 	switch provider {
 	case "openai":
 		return NewOpenAIEmbedder(apiKey, model)
+	case "llama":
+		return NewLlamaEmbedder(apiKey, model, dimension), nil
 	case "hash", "local", "":
 		return NewHashEmbedder(dimension), nil
 	default:
