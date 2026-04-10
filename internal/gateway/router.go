@@ -2,9 +2,11 @@ package gateway
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	gwmw "github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 )
 
 // RouterOptions configures the gateway middleware applied to all /v1 routes.
@@ -30,6 +32,13 @@ type RouterOptions struct {
 // RegisterRoutes attaches all gateway endpoint handlers and middleware to r
 // under the /v1 prefix.
 func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
+	// Prometheus metrics endpoint — outside /v1 auth so scrapers can
+	// reach it without an API key.
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Global metrics middleware tracks every request.
+	r.Use(metrics.GinMiddleware())
+
 	v1 := r.Group("/v1")
 	v1.Use(gwmw.APIKeyAuth(opts.APIKeys))
 	v1.Use(gwmw.RateLimit(opts.RateLimit))
