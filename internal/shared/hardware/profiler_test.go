@@ -106,6 +106,7 @@ func TestInferenceThreads(t *testing.T) {
 		{cores: 16, want: 14},
 		{cores: 2, want: 2},
 		{cores: 1, want: 2},
+		{cores: 3, want: 2}, // clamped to minInferenceThreads
 		{cores: 4, want: 2},
 		{cores: 8, want: 6},
 	}
@@ -128,8 +129,7 @@ func TestHardwareProfile_InferenceAndBatchThreads(t *testing.T) {
 // TestDetect_ReturnsProfile verifies that Detect() returns a non-nil profile
 // and a valid preset string without crashing (regardless of actual hardware).
 func TestDetect_ReturnsProfile(t *testing.T) {
-	profile, err := Detect()
-	require.NoError(t, err)
+	profile := Detect()
 	require.NotNil(t, profile)
 	validPresets := map[string]bool{
 		"cpu_only":     true,

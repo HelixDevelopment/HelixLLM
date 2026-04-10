@@ -4,6 +4,7 @@ package hardware
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -55,8 +56,8 @@ func (p *HardwareProfile) BatchThreads() int {
 	return p.CPU.Cores
 }
 
-// Detect probes the local hardware and returns a fully populated HardwareProfile.
-func Detect() (*HardwareProfile, error) {
+// Detect probes GPU/CPU/RAM. Returns a valid profile even when detection partially fails (graceful degradation).
+func Detect() *HardwareProfile {
 	gpu := detectGPU()
 	cpu := detectCPU()
 	ram := detectRAM()
@@ -66,7 +67,7 @@ func Detect() (*HardwareProfile, error) {
 		CPU:           cpu,
 		RAM:           ram,
 		PresetProfile: preset,
-	}, nil
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,7 @@ func Detect() (*HardwareProfile, error) {
 // ---------------------------------------------------------------------------
 
 // detectGPU runs nvidia-smi and delegates to parseNvidiaSMI.
+// NOTE: only the first GPU is used in multi-GPU systems
 func detectGPU() GPUProfile {
 	out, err := exec.Command(
 		"nvidia-smi",
@@ -93,7 +95,7 @@ func detectGPU() GPUProfile {
 // detectCPU reads /proc/cpuinfo and delegates to parseProcCPUInfo.
 // Falls back to runtime.NumCPU() when /proc/cpuinfo is unavailable.
 func detectCPU() CPUProfile {
-	out, err := exec.Command("cat", "/proc/cpuinfo").Output()
+	data, err := os.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		// Fallback: minimal profile from Go runtime
 		n := runtime.NumCPU()
@@ -102,7 +104,7 @@ func detectCPU() CPUProfile {
 			Threads: n,
 		}
 	}
-	profile, err := parseProcCPUInfo(string(out))
+	profile, err := parseProcCPUInfo(string(data))
 	if err != nil {
 		n := runtime.NumCPU()
 		return CPUProfile{
@@ -115,12 +117,12 @@ func detectCPU() CPUProfile {
 
 // detectRAM reads /proc/meminfo and returns total/available RAM in bytes.
 func detectRAM() RAMProfile {
-	out, err := exec.Command("cat", "/proc/meminfo").Output()
+	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return RAMProfile{}
 	}
 	var total, available int64
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(line, "MemTotal:"):
@@ -232,6 +234,7 @@ func parseProcCPUInfo(output string) (CPUProfile, error) {
 			if !gotFlags {
 				flags := " " + val + " "
 				profile.AVX2 = strings.Contains(flags, " avx2 ")
+				// Detects any AVX-512 variant (avx512f, avx512bw, etc.)
 				profile.AVX512 = strings.Contains(flags, " avx512")
 				gotFlags = true
 			}
@@ -276,12 +279,17 @@ func selectPresetProfile(vramBytes int64) string {
 	}
 }
 
-// inferenceThreads returns max(2, cores-2) so at least 2 OS threads remain
-// free for background work.
+const (
+	reservedOSThreads   = 2
+	minInferenceThreads = 2
+)
+
+// inferenceThreads returns max(minInferenceThreads, cores-reservedOSThreads) so
+// at least reservedOSThreads OS threads remain free for background work.
 func inferenceThreads(cores int) int {
-	n := cores - 2
-	if n < 2 {
-		return 2
+	n := cores - reservedOSThreads
+	if n < minInferenceThreads {
+		return minInferenceThreads
 	}
 	return n
 }
