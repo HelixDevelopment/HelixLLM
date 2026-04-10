@@ -69,6 +69,23 @@ func LoadManifest(path string) (*ModelManifest, error) {
 	return &m, nil
 }
 
+// progressReader wraps an io.Reader and reports progress via a callback.
+type progressReader struct {
+	reader     io.Reader
+	total      int64
+	current    int64
+	onProgress func(current, total int64)
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.reader.Read(p)
+	pr.current += int64(n)
+	if pr.onProgress != nil {
+		pr.onProgress(pr.current, pr.total)
+	}
+	return n, err
+}
+
 // Downloader handles downloading GGUF model files from HuggingFace (or any
 // HTTP source) into a local models directory.
 type Downloader struct {
@@ -158,7 +175,28 @@ func (d *Downloader) Download(ctx context.Context, req DownloadRequest) error {
 		}
 	}()
 
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	// Wrap resp.Body with progress reporting, logging every 10%.
+	var lastReportedPct int = -1
+	reader := &progressReader{
+		reader: resp.Body,
+		total:  resp.ContentLength,
+		onProgress: func(current, total int64) {
+			if total > 0 {
+				pct := int(current * 100 / total)
+				// Report at each 10% boundary, avoiding duplicates.
+				rounded := (pct / 10) * 10
+				if rounded > lastReportedPct {
+					lastReportedPct = rounded
+					log.WithFields(log.Fields{
+						"file":     req.Filename,
+						"progress": fmt.Sprintf("%d%%", rounded),
+					}).Info("downloader: downloading")
+				}
+			}
+		},
+	}
+
+	if _, err := io.Copy(tmp, reader); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("downloader: write %s: %w", req.Filename, err)
 	}
