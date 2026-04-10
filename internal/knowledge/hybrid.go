@@ -13,6 +13,7 @@ type HybridRetriever struct {
 	bm25Index      *BM25Index
 	semanticWeight float64
 	keywordWeight  float64
+	reranker       Reranker
 }
 
 // NewHybridRetriever returns a HybridRetriever with default weights of 0.7 for
@@ -31,6 +32,12 @@ func NewHybridRetriever(embedder Embedder, store VectorStore, bm25 *BM25Index) *
 func (h *HybridRetriever) SetWeights(semantic, keyword float64) {
 	h.semanticWeight = semantic
 	h.keywordWeight = keyword
+}
+
+// SetReranker configures an optional Reranker that is applied after score
+// fusion and before returning results. Pass nil to disable re-ranking.
+func (h *HybridRetriever) SetReranker(r Reranker) {
+	h.reranker = r
 }
 
 // Search performs hybrid retrieval by running both vector search and BM25
@@ -95,6 +102,15 @@ func (h *HybridRetriever) Search(ctx context.Context, collection, query string, 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
+
+	// Apply optional re-ranker after score fusion.
+	if h.reranker != nil {
+		reranked, err := h.reranker.Rerank(query, results, topK)
+		if err != nil {
+			return nil, err
+		}
+		return reranked, nil
+	}
 
 	if topK > 0 && topK < len(results) {
 		results = results[:topK]
