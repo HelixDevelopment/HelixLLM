@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -16,9 +17,10 @@ import (
 // LlamaCppProvider implements Provider by calling llama.cpp's OpenAI-compatible
 // API at the configured base URL.
 type LlamaCppProvider struct {
-	baseURL string
-	models  []string
-	client  *http.Client
+	baseURL  string
+	models   []string
+	client   *http.Client
+	registry *models.Registry
 }
 
 // NewLlamaCppProvider creates a new llama.cpp provider pointing at the given
@@ -34,8 +36,14 @@ func NewLlamaCppProvider(baseURL string, models []string) *LlamaCppProvider {
 	}
 }
 
-func (p *LlamaCppProvider) Name() string     { return "llamacpp" }
-func (p *LlamaCppProvider) Models() []string { return p.models }
+func (p *LlamaCppProvider) Name() string { return "llamacpp" }
+
+func (p *LlamaCppProvider) Models() []string {
+	if p.registry != nil {
+		return p.registry.ModelNames()
+	}
+	return p.models
+}
 
 // Available checks whether the llama.cpp server is reachable by hitting /health.
 func (p *LlamaCppProvider) Available() bool {

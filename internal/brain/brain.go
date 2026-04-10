@@ -6,6 +6,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -13,22 +14,26 @@ import (
 // Brain ties providers and the router together, exposing a single surface for
 // the Gateway to call without knowing which backend handles each request.
 type Brain struct {
-	router    *Router
-	providers map[string]Provider
-	sem       *semaphore.Weighted
+	router     *Router
+	providers  map[string]Provider
+	sem        *semaphore.Weighted
+	complexity *ComplexityAnalyzer
+	registry   *models.Registry
 }
 
 // Config holds the provider credentials and URLs needed to build a Brain.
 // Fields are optional: providers are only registered when their key/URL is set.
 type Config struct {
-	LlamaCppURL      string
-	LlamaCppModels   []string
-	OpenAIKey        string
-	OpenAIBaseURL    string
-	AnthropicKey     string
-	AnthropicBaseURL string
-	DefaultProvider  string
-	MaxConcurrent    int // 0 means unlimited
+	LlamaCppURL       string
+	LlamaCppModels    []string
+	OpenAIKey         string
+	OpenAIBaseURL     string
+	AnthropicKey      string
+	AnthropicBaseURL  string
+	DefaultProvider   string
+	MaxConcurrent     int // 0 means unlimited
+	ComplexityEnabled bool
+	Registry          *models.Registry
 }
 
 // New creates a Brain and registers whichever providers are configured.
@@ -67,6 +72,11 @@ func New(cfg Config) *Brain {
 		b.router.Register("anthropic", p)
 	}
 
+	if cfg.ComplexityEnabled {
+		b.complexity = NewComplexityAnalyzer()
+	}
+	b.registry = cfg.Registry
+
 	return b
 }
 
@@ -87,6 +97,16 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 		defer b.sem.Release(1)
 	}
 
+	if b.complexity != nil && b.registry != nil && req.Model == "" {
+		result := b.complexity.Analyze(req)
+		if !result.ModelOverride {
+			if best, ok := b.registry.BestAvailable(result.TargetTier); ok {
+				req.Model = best.Definition.ID
+				b.registry.MarkUsed(best.Definition.ID)
+			}
+		}
+	}
+
 	provider, err := b.router.Route(req)
 	if err != nil {
 		return nil, err
@@ -104,6 +124,16 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 	if b.sem != nil {
 		if err := b.sem.Acquire(ctx, 1); err != nil {
 			return nil, fmt.Errorf("brain: acquire semaphore: %w", err)
+		}
+	}
+
+	if b.complexity != nil && b.registry != nil && req.Model == "" {
+		result := b.complexity.Analyze(req)
+		if !result.ModelOverride {
+			if best, ok := b.registry.BestAvailable(result.TargetTier); ok {
+				req.Model = best.Definition.ID
+				b.registry.MarkUsed(best.Definition.ID)
+			}
 		}
 	}
 
