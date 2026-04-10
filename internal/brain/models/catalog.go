@@ -86,7 +86,7 @@ func DefaultCatalog() *Catalog {
 				HuggingFaceRepo: "meetkai/functionary-small-v3.2-GGUF",
 				Filename:        "functionary-small-v3.2.Q4_0.gguf",
 				Parameters:      8_000_000_000,
-				Quantization:    "Q4_K_M",
+				Quantization:    "Q4_0",
 				VRAMRequired:    5 * 1024 * 1024 * 1024, // ~5 GB
 				ContextLength:   131072,
 				Tier:            TierPowerful,
