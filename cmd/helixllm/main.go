@@ -25,6 +25,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/hardware"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/logging"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/observability"
 )
 
@@ -81,6 +82,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer obs.Shutdown()
+
+	// Register Prometheus metrics collectors.
+	metrics.Register()
 
 	// Build the Control Plane — needed by both the server and the monitor.
 	cpOpts := control.ControlPlaneOptions{
