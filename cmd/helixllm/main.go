@@ -278,6 +278,39 @@ func main() {
 	toolReg.Register(&tools.TimeTool{})
 	toolReg.Register(tools.NewKnowledgeQueryTool(pipeline, "default"))
 
+	// Security sandbox for file/exec/git/analysis tools.
+	workDir, _ := os.Getwd()
+	sandbox := tools.NewSandbox(tools.SandboxConfig{
+		AllowedPaths: []string{"/tmp", workDir},
+	})
+
+	// File system tools (5).
+	toolReg.Register(tools.NewReadFileTool(sandbox))
+	toolReg.Register(tools.NewWriteFileTool(sandbox))
+	toolReg.Register(tools.NewListDirectoryTool(sandbox))
+	toolReg.Register(tools.NewSearchFilesTool(sandbox))
+	toolReg.Register(tools.NewFileInfoTool(sandbox))
+
+	// Code execution tools (2).
+	toolReg.Register(tools.NewExecutePythonTool(sandbox))
+	toolReg.Register(tools.NewExecuteShellTool(sandbox))
+
+	// Git tools (4).
+	toolReg.Register(tools.NewGitStatusTool(sandbox))
+	toolReg.Register(tools.NewGitDiffTool(sandbox))
+	toolReg.Register(tools.NewGitLogTool(sandbox))
+	toolReg.Register(tools.NewGitBranchTool(sandbox))
+
+	// Analysis tools (4).
+	toolReg.Register(tools.NewAnalyzeCodeTool(sandbox))
+	toolReg.Register(tools.NewRunTestsTool(sandbox))
+	toolReg.Register(tools.NewGetDependenciesTool(sandbox))
+	toolReg.Register(tools.NewCalculateComplexityTool(sandbox))
+
+	// Web tools (2).
+	toolReg.Register(tools.NewWebSearchTool())
+	toolReg.Register(tools.NewFetchURLTool())
+
 	// Create agent with Brain, tools, and RAG hook.
 	agentSvc := agents.NewAgent(agents.AgentConfig{
 		Brain:    brainSvc,
