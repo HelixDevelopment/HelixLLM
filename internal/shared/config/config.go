@@ -44,13 +44,20 @@ type ServerConfig struct {
 
 // LLMConfig holds large-language-model provider settings.
 type LLMConfig struct {
-	LocalModel      string `env:"HELIX_LLM_LOCAL_MODEL" default:"Llama-3.1-70B-Instruct-Q4_K_M"`
-	LocalRPCHost    string `env:"HELIX_LLM_LOCAL_RPC_HOST" default:"localhost"`
-	LocalRPCPort    int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
-	OpenAIKey       string `env:"HELIX_LLM_OPENAI_KEY"`
-	OpenAIBaseURL   string `env:"HELIX_LLM_OPENAI_BASE_URL"`
-	AnthropicKey    string `env:"HELIX_LLM_ANTHROPIC_KEY"`
-	DefaultProvider string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
+	LocalModel         string `env:"HELIX_LLM_LOCAL_MODEL" default:"Llama-3.1-70B-Instruct-Q4_K_M"`
+	LocalRPCHost       string `env:"HELIX_LLM_LOCAL_RPC_HOST" default:"localhost"`
+	LocalRPCPort       int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
+	OpenAIKey          string `env:"HELIX_LLM_OPENAI_KEY"`
+	OpenAIBaseURL      string `env:"HELIX_LLM_OPENAI_BASE_URL"`
+	AnthropicKey       string `env:"HELIX_LLM_ANTHROPIC_KEY"`
+	DefaultProvider    string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
+	ModelsDir          string `env:"HELIX_MODELS_DIR" default:"/models"`
+	ModelsAutoDownload bool   `env:"HELIX_MODELS_AUTO_DOWNLOAD" default:"true"`
+	ModelsMax          int    `env:"HELIX_MODELS_MAX" default:"3"`
+	ComplexityEnabled  bool   `env:"HELIX_COMPLEXITY_ENABLED" default:"true"`
+	ComplexityDefault  string `env:"HELIX_COMPLEXITY_DEFAULT_TIER" default:"fast"`
+	LlamaServerPort    int    `env:"HELIX_LLAMA_SERVER_PORT" default:"8080"`
+	LlamaServerEmbed   bool   `env:"HELIX_LLAMA_SERVER_EMBEDDED" default:"true"`
 }
 
 // KnowledgeConfig holds RAG / vector-store settings.
