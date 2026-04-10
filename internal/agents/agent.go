@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
@@ -103,7 +105,9 @@ func (a *Agent) Run(ctx context.Context, messages []types.InternalMessage) (*typ
 		if a.tools == nil {
 			toolResult = fmt.Sprintf("error: no tools are registered (requested tool: %q)", tc.Name)
 		} else {
+			toolStart := time.Now()
 			result, execErr := a.tools.Execute(ctx, tc.Name, tc.Arguments)
+			metrics.TrackToolExecution(tc.Name, time.Since(toolStart), execErr == nil)
 			if execErr != nil {
 				toolResult = fmt.Sprintf("error: %s", execErr.Error())
 			} else {

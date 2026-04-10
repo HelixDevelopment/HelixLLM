@@ -3,10 +3,12 @@ package brain
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"golang.org/x/sync/semaphore"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -124,7 +126,14 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 	// NOTE: Tool calling is handled locally by llama.cpp (--jinja flag).
 	// No cloud provider fallback needed — local Qwen 2.5 7B supports tools natively.
 
-	return provider.Complete(ctx, req)
+	inferStart := time.Now()
+	resp, err := provider.Complete(ctx, req)
+	if err == nil && resp != nil {
+		metrics.TrackInference(
+			resp.Model, time.Since(inferStart), resp.Usage.CompletionTokens,
+		)
+	}
+	return resp, err
 }
 
 // CompleteStream selects the best provider for the request and returns a
@@ -156,6 +165,7 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 
 	// NOTE: Tool calling handled locally by llama.cpp (--jinja). No cloud fallback.
 
+	inferStart := time.Now()
 	ch, err := provider.CompleteStream(ctx, req)
 	if err != nil {
 		if b.sem != nil {
@@ -164,7 +174,8 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 		return nil, err
 	}
 
-	// Wrap the channel to release the semaphore when the stream completes.
+	// Wrap the channel to release the semaphore when the stream completes
+	// and track inference metrics once all chunks have been consumed.
 	out := make(chan types.StreamChunk)
 	go func() {
 		defer close(out)
@@ -176,6 +187,8 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 		for chunk := range ch {
 			out <- chunk
 		}
+		// Token count is unavailable for streaming; record duration only.
+		metrics.TrackInference(req.Model, time.Since(inferStart), 0)
 	}()
 	return out, nil
 }

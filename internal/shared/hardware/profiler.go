@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 )
 
 // GPUProfile describes the detected GPU (if any).
@@ -68,6 +70,16 @@ func Detect() *HardwareProfile {
 		RAM:           ram,
 		PresetProfile: preset,
 	}
+}
+
+// UpdateSystemMetrics sets the VRAM and RAM Prometheus gauges from a detected
+// hardware profile. Call once at boot (or periodically) to keep the gauges
+// current.
+func UpdateSystemMetrics(p *HardwareProfile) {
+	if p.GPU.Available {
+		metrics.VRAMUsageBytes.Set(float64(p.GPU.VRAMTotal - p.GPU.VRAMFree))
+	}
+	metrics.RAMUsageBytes.Set(float64(p.RAM.Total - p.RAM.Available))
 }
 
 // ---------------------------------------------------------------------------
