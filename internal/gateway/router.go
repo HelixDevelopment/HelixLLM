@@ -21,6 +21,10 @@ type RouterOptions struct {
 	// TOONEnabled controls whether the TOON content negotiation middleware
 	// is applied. When false, ContentNegotiation() is skipped entirely.
 	TOONEnabled bool
+	// HardwareProfile is the detected hardware profile exposed via the
+	// /v1/hardware endpoint. Typed as interface{} to avoid coupling the
+	// gateway package to the hardware package.
+	HardwareProfile interface{} // *hardware.HardwareProfile
 }
 
 // RegisterRoutes attaches all gateway endpoint handlers and middleware to r
@@ -40,6 +44,11 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1.GET("/models", HandleListModels(opts.Brain))
 	v1.GET("/models/:id", HandleGetModel(opts.Brain))
 	v1.POST("/embeddings", HandleEmbeddings(opts.Brain))
+
+	// Hardware profile endpoint
+	v1.GET("/hardware", func(c *gin.Context) {
+		c.JSON(200, opts.HardwareProfile)
+	})
 
 	// Anthropic-compatible endpoints
 	v1.POST("/messages", HandleMessages(opts.Brain))
