@@ -224,7 +224,19 @@ Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' &
 			}
 
 			internalReq := openAIToInternal(&req)
-			if req.Stream {
+
+			// CRITICAL: Force non-streaming when tools are present.
+			// Ollama returns tool calls as plain text in streaming chunks,
+			// which CLI agents can't execute. The Brain's non-streaming
+			// path has an XML/JSON→tool_calls bridge that converts them
+			// to the proper OpenAI format. After getting the full response,
+			// we emit it as a single SSE chunk if the client requested streaming.
+			forceNonStream := req.Stream && len(req.Tools) > 0
+			if forceNonStream {
+				log.Printf("[HelixLLM] Forcing non-stream for tool-capable request")
+			}
+
+			if req.Stream && !forceNonStream {
 				ch, err := b.CompleteStream(c.Request.Context(), internalReq)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, api.ErrorResponse{
@@ -279,6 +291,44 @@ Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' &
 				})
 				return
 			}
+
+			// If we forced non-stream for tool bridging but the client
+			// wanted streaming, emit the full response as SSE chunks.
+			if forceNonStream {
+				openAIResp := internalToOpenAI(resp, model)
+				id := "chatcmpl-helix-" + randomID()
+				created := time.Now().Unix()
+				w := NewSSEWriter(c)
+				w.WriteHeader()
+
+				// If the response has tool_calls, emit them as a chunk
+				if len(openAIResp.Choices) > 0 && len(openAIResp.Choices[0].Message.ToolCalls) > 0 {
+					toolDelta := api.ChatMessageDelta{
+						Role:      "assistant",
+						ToolCalls: openAIResp.Choices[0].Message.ToolCalls,
+					}
+					fr := "tool_calls"
+					w.WriteEvent(api.ChatCompletionChunk{
+						ID: id, Object: "chat.completion.chunk", Created: created, Model: model,
+						Choices: []api.ChatCompletionChunkChoice{{Index: 0, Delta: toolDelta, FinishReason: &fr}},
+					})
+				} else {
+					// Regular content — emit as single chunk
+					content := ""
+					if s, ok := openAIResp.Choices[0].Message.Content.(string); ok {
+						content = s
+					}
+					delta := api.ChatMessageDelta{Role: "assistant", Content: content}
+					fr := "stop"
+					w.WriteEvent(api.ChatCompletionChunk{
+						ID: id, Object: "chat.completion.chunk", Created: created, Model: model,
+						Choices: []api.ChatCompletionChunkChoice{{Index: 0, Delta: delta, FinishReason: &fr}},
+					})
+				}
+				w.WriteDone()
+				return
+			}
+
 			c.JSON(http.StatusOK, internalToOpenAI(resp, model))
 			return
 		}
