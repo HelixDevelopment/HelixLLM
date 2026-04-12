@@ -506,6 +506,11 @@ func parseJSONToolCall(content string) *types.InternalToolCall {
 		return nil
 	}
 
+	// Sanitize arguments: CLI agents (OpenCode) require specific fields
+	// with specific types. The model often omits optional fields or
+	// sends null/undefined values that fail schema validation.
+	sanitizeToolArgs(tc.Name, tc.Arguments)
+
 	argsJSON, _ := json.Marshal(tc.Arguments)
 	return &types.InternalToolCall{
 		ID:   "call_" + tc.Name,
@@ -514,5 +519,48 @@ func parseJSONToolCall(content string) *types.InternalToolCall {
 			Name      string `json:"name"`
 			Arguments string `json:"arguments"`
 		}{Name: tc.Name, Arguments: string(argsJSON)},
+	}
+}
+
+// sanitizeToolArgs ensures tool arguments match CLI agent schemas.
+// OpenCode requires specific fields (description, timeout) that the
+// model often omits. This adds sensible defaults for missing fields.
+func sanitizeToolArgs(toolName string, args map[string]interface{}) {
+	if args == nil {
+		return
+	}
+
+	// bash/shell tool: requires "command" (string), "description" (string), "timeout" (number)
+	if toolName == "bash" || toolName == "shell" || toolName == "execute_shell" {
+		if _, ok := args["description"]; !ok {
+			if cmd, ok := args["command"].(string); ok {
+				args["description"] = "Running: " + cmd
+			} else {
+				args["description"] = "Executing command"
+			}
+		}
+		if _, ok := args["timeout"]; !ok {
+			args["timeout"] = 30000 // 30 seconds default
+		}
+		// Ensure timeout is a number, not null
+		if args["timeout"] == nil {
+			args["timeout"] = 30000
+		}
+	}
+
+	// read_file tool: ensure "filePath" exists
+	if toolName == "read" || toolName == "read_file" {
+		if _, ok := args["filePath"]; !ok {
+			if p, ok := args["path"].(string); ok {
+				args["filePath"] = p
+			}
+		}
+	}
+
+	// Remove null values entirely — schema validators reject them
+	for k, v := range args {
+		if v == nil {
+			delete(args, k)
+		}
 	}
 }
