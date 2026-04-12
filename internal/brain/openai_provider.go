@@ -511,6 +511,14 @@ func parseJSONToolCall(content string) *types.InternalToolCall {
 	// sends null/undefined values that fail schema validation.
 	sanitizeToolArgs(tc.Name, tc.Arguments)
 
+	// Validate: if after sanitization the args are still invalid
+	// (empty or missing critical fields), DON'T convert to tool_call.
+	// Let the original content pass through as text — the model's
+	// natural language fallback is better than a schema error.
+	if !isValidToolCall(tc.Name, tc.Arguments) {
+		return nil
+	}
+
 	argsJSON, _ := json.Marshal(tc.Arguments)
 	return &types.InternalToolCall{
 		ID:   "call_" + tc.Name,
@@ -614,4 +622,30 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 			args["path"] = "."
 		}
 	}
+}
+
+// isValidToolCall checks if tool arguments have the minimum required
+// fields after sanitization. Returns false if the call would cause
+// schema validation errors in the CLI agent.
+func isValidToolCall(toolName string, args map[string]interface{}) bool {
+	switch toolName {
+	case "bash", "shell", "execute_shell":
+		cmd, ok := args["command"].(string)
+		return ok && cmd != ""
+	case "read", "read_file", "write", "write_file", "edit":
+		fp, ok := args["filePath"].(string)
+		return ok && fp != ""
+	case "question", "ask":
+		questions, ok := args["questions"].([]map[string]interface{})
+		if !ok || len(questions) == 0 {
+			return false
+		}
+		q, ok := questions[0]["question"].(string)
+		return ok && q != ""
+	case "glob", "search", "grep":
+		pattern, ok := args["pattern"].(string)
+		return ok && pattern != ""
+	}
+	// Unknown tools: allow if args are non-empty
+	return len(args) > 0
 }
