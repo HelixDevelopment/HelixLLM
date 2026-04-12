@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -204,7 +205,11 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *types.InternalChatRe
 		return nil, fmt.Errorf("openai: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if p.apiKey != "" {
+		if p.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+	}
 
 	httpResp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -213,7 +218,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *types.InternalChatRe
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai: unexpected status %d", httpResp.StatusCode)
+		respBody, _ := io.ReadAll(httpResp.Body)
+		return nil, fmt.Errorf("openai: unexpected status %d: %s", httpResp.StatusCode, string(respBody)[:min(len(respBody), 200)])
 	}
 
 	var apiResp api.ChatCompletionResponse
@@ -222,6 +228,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req *types.InternalChatRe
 	}
 
 	return p.fromAPIResponse(&apiResp), nil
+
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // CompleteStream sends a streaming chat completion to OpenAI and returns a
@@ -241,7 +255,9 @@ func (p *OpenAIProvider) CompleteStream(ctx context.Context, req *types.Internal
 		return nil, fmt.Errorf("openai: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if p.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
 	httpReq.Header.Set("Accept", "text/event-stream")
 
 	httpResp, err := p.httpClient.Do(httpReq)

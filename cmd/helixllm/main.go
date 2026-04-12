@@ -271,9 +271,17 @@ func main() {
 	})
 
 	// Create knowledge pipeline using configured backends.
+	// For the "llama" embedding provider, the second argument is the
+	// base URL of the llama/Ollama server (NOT the API key). Use the
+	// OpenAI base URL which points at Ollama. For "openai" provider,
+	// it's the actual API key.
+	embeddingAPIKeyOrURL := cfg.LLM.OpenAIKey
+	if cfg.Knowledge.EmbeddingProvider == "llama" && cfg.LLM.OpenAIBaseURL != "" {
+		embeddingAPIKeyOrURL = cfg.LLM.OpenAIBaseURL
+	}
 	embedder, err := knowledge.NewEmbedder(
 		cfg.Knowledge.EmbeddingProvider,
-		cfg.LLM.OpenAIKey,
+		embeddingAPIKeyOrURL,
 		cfg.Knowledge.EmbeddingModel,
 		768,
 	)

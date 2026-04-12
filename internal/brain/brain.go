@@ -3,6 +3,7 @@ package brain
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -92,6 +93,17 @@ func New(cfg Config) *Brain {
 	return b
 }
 
+// isNonChatModel returns true for model names that are NOT suitable for
+// text chat (embedding models, vision-only models, etc.).
+func isNonChatModel(lower string) bool {
+	return strings.Contains(lower, "embed") ||
+		strings.Contains(lower, "nomic") ||
+		strings.Contains(lower, "llava") ||
+		strings.Contains(lower, "minicpm-v") ||
+		strings.Contains(lower, "bakllava") ||
+		strings.Contains(lower, "mmproj")
+}
+
 // KVCache returns the optional context-persistence cache, or nil if none was
 // configured. Callers must nil-check before use.
 func (b *Brain) KVCache() KVCacher {
@@ -121,6 +133,33 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 			if best, ok := b.registry.BestAvailable(result.TargetTier); ok {
 				req.Model = best.Definition.ID
 				b.registry.MarkUsed(best.Definition.ID)
+			}
+		}
+	}
+
+	// When no model was selected (no registry, no complexity routing),
+	// pick a chat-capable text model. Skip embedding and vision models.
+	if req.Model == "" {
+		if dp, ok := b.providers[b.router.fallback]; ok && dp.Available() {
+			// First pass: prefer models with "coder" or "instruct" in name
+			for _, m := range dp.Models() {
+				lower := strings.ToLower(m)
+				if isNonChatModel(lower) {
+					continue
+				}
+				if strings.Contains(lower, "coder") || strings.Contains(lower, "instruct") {
+					req.Model = m
+					break
+				}
+			}
+			// Second pass: any non-vision, non-embedding model
+			if req.Model == "" {
+				for _, m := range dp.Models() {
+					if !isNonChatModel(strings.ToLower(m)) {
+						req.Model = m
+						break
+					}
+				}
 			}
 		}
 	}

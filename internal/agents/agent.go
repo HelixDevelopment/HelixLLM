@@ -169,8 +169,34 @@ type toolCallRequest struct {
 
 // extractToolCall attempts to parse a tool-call JSON object from the LLM
 // content. Returns the parsed request and true if successful.
+// Handles both raw JSON and markdown-fenced JSON (```json ... ```).
 func extractToolCall(content string) (*toolCallRequest, bool) {
 	content = strings.TrimSpace(content)
+
+	// Strip markdown code fences if present — LLMs often wrap JSON
+	// tool calls in ```json ... ``` blocks.
+	if idx := strings.Index(content, "```"); idx >= 0 {
+		// Find the opening fence
+		start := idx + 3
+		// Skip optional language tag (e.g., "json")
+		if nl := strings.IndexByte(content[start:], '\n'); nl >= 0 {
+			start += nl + 1
+		}
+		// Find closing fence
+		if end := strings.Index(content[start:], "```"); end >= 0 {
+			content = strings.TrimSpace(content[start : start+end])
+		}
+	}
+
+	// Also try extracting JSON from surrounding prose: find first { to last }
+	if !strings.HasPrefix(content, "{") {
+		if braceStart := strings.Index(content, "{"); braceStart >= 0 {
+			if braceEnd := strings.LastIndex(content, "}"); braceEnd > braceStart {
+				content = content[braceStart : braceEnd+1]
+			}
+		}
+	}
+
 	var tc struct {
 		ToolCall *struct {
 			Name      string                 `json:"name"`
