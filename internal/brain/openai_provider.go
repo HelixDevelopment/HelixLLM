@@ -389,7 +389,7 @@ func (p *OpenAIProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *type
 			Role:    types.Role(choice.Message.Role),
 			Content: content,
 		}
-		// Pass tool calls from upstream response
+		// Pass tool calls from upstream response (OpenAI native format)
 		for _, tc := range choice.Message.ToolCalls {
 			msg.ToolCalls = append(msg.ToolCalls, types.InternalToolCall{
 				ID:   tc.ID,
@@ -403,8 +403,32 @@ func (p *OpenAIProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *type
 				},
 			})
 		}
+
+		// If no native tool_calls but content contains XML <function> tags
+		// (Qwen2.5/llama.cpp format), parse them and convert to tool_calls.
+		// This bridges the gap between llama.cpp's output format and the
+		// OpenAI tool_calls array that CLI agents (OpenCode, etc.) expect.
+		if len(msg.ToolCalls) == 0 && strings.Contains(content, "<function>") {
+			if tc := parseXMLToolCall(content); tc != nil {
+				msg.ToolCalls = append(msg.ToolCalls, *tc)
+				msg.Content = "" // Clear content since it was a tool call
+				result.FinishReason = "tool_calls"
+			}
+		}
+
+		// Also handle JSON-in-content format ({"name": "...", "arguments": {...}})
+		if len(msg.ToolCalls) == 0 && strings.Contains(content, `"name"`) && strings.Contains(content, `"arguments"`) {
+			if tc := parseJSONToolCall(content); tc != nil {
+				msg.ToolCalls = append(msg.ToolCalls, *tc)
+				msg.Content = ""
+				result.FinishReason = "tool_calls"
+			}
+		}
+
 		result.Message = msg
-		result.FinishReason = choice.FinishReason
+		if result.FinishReason == "" {
+			result.FinishReason = choice.FinishReason
+		}
 	}
 	if resp.Usage != nil {
 		result.Usage = types.InternalUsage{
@@ -414,4 +438,81 @@ func (p *OpenAIProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *type
 		}
 	}
 	return result
+}
+
+// parseXMLToolCall extracts a tool call from Qwen-style XML format:
+// <function><name>tool_name</name><arguments>{"key":"value"}</arguments></function>
+func parseXMLToolCall(content string) *types.InternalToolCall {
+	fnStart := strings.Index(content, "<function>")
+	fnEnd := strings.Index(content, "</function>")
+	if fnStart < 0 || fnEnd < 0 {
+		return nil
+	}
+	inner := content[fnStart+len("<function>") : fnEnd]
+
+	nameStart := strings.Index(inner, "<name>")
+	nameEnd := strings.Index(inner, "</name>")
+	if nameStart < 0 || nameEnd < 0 {
+		return nil
+	}
+	name := strings.TrimSpace(inner[nameStart+len("<name>") : nameEnd])
+
+	argsStart := strings.Index(inner, "<arguments>")
+	argsEnd := strings.Index(inner, "</arguments>")
+	args := "{}"
+	if argsStart >= 0 && argsEnd > argsStart {
+		args = strings.TrimSpace(inner[argsStart+len("<arguments>") : argsEnd])
+	}
+
+	return &types.InternalToolCall{
+		ID:   "call_" + name,
+		Type: "function",
+		Function: struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: name, Arguments: args},
+	}
+}
+
+// parseJSONToolCall extracts a tool call from JSON-in-content format:
+// {"name": "tool_name", "arguments": {"key": "value"}}
+// May be wrapped in markdown code fences.
+func parseJSONToolCall(content string) *types.InternalToolCall {
+	// Strip markdown fences
+	cleaned := content
+	if idx := strings.Index(cleaned, "```"); idx >= 0 {
+		start := idx + 3
+		if nl := strings.IndexByte(cleaned[start:], '\n'); nl >= 0 {
+			start += nl + 1
+		}
+		if end := strings.Index(cleaned[start:], "```"); end >= 0 {
+			cleaned = strings.TrimSpace(cleaned[start : start+end])
+		}
+	}
+	// Find JSON object
+	if !strings.HasPrefix(cleaned, "{") {
+		if brace := strings.Index(cleaned, "{"); brace >= 0 {
+			if end := strings.LastIndex(cleaned, "}"); end > brace {
+				cleaned = cleaned[brace : end+1]
+			}
+		}
+	}
+
+	var tc struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments"`
+	}
+	if err := json.Unmarshal([]byte(cleaned), &tc); err != nil || tc.Name == "" {
+		return nil
+	}
+
+	argsJSON, _ := json.Marshal(tc.Arguments)
+	return &types.InternalToolCall{
+		ID:   "call_" + tc.Name,
+		Type: "function",
+		Function: struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: tc.Name, Arguments: string(argsJSON)},
+	}
 }
