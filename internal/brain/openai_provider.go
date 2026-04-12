@@ -530,8 +530,16 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 		return
 	}
 
-	// bash/shell tool: requires "command" (string), "description" (string), "timeout" (number)
-	if toolName == "bash" || toolName == "shell" || toolName == "execute_shell" {
+	// Remove null/nil values first — schema validators reject them
+	for k, v := range args {
+		if v == nil {
+			delete(args, k)
+		}
+	}
+
+	switch toolName {
+	case "bash", "shell", "execute_shell":
+		// Requires: command (string), description (string), timeout (number)
 		if _, ok := args["description"]; !ok {
 			if cmd, ok := args["command"].(string); ok {
 				args["description"] = "Running: " + cmd
@@ -540,27 +548,70 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 			}
 		}
 		if _, ok := args["timeout"]; !ok {
-			args["timeout"] = 30000 // 30 seconds default
-		}
-		// Ensure timeout is a number, not null
-		if args["timeout"] == nil {
 			args["timeout"] = 30000
 		}
-	}
 
-	// read_file tool: ensure "filePath" exists
-	if toolName == "read" || toolName == "read_file" {
+	case "read", "read_file":
+		// Normalize path → filePath
 		if _, ok := args["filePath"]; !ok {
 			if p, ok := args["path"].(string); ok {
 				args["filePath"] = p
+				delete(args, "path")
 			}
 		}
-	}
 
-	// Remove null values entirely — schema validators reject them
-	for k, v := range args {
-		if v == nil {
-			delete(args, k)
+	case "write", "write_file":
+		if _, ok := args["filePath"]; !ok {
+			if p, ok := args["path"].(string); ok {
+				args["filePath"] = p
+				delete(args, "path")
+			}
+		}
+
+	case "edit":
+		// Requires: filePath (string), old (string), new (string)
+		if _, ok := args["filePath"]; !ok {
+			if p, ok := args["path"].(string); ok {
+				args["filePath"] = p
+				delete(args, "path")
+			}
+		}
+
+	case "question", "ask":
+		// Requires: questions (array of {question: string})
+		// Model often sends flat question string instead of array
+		if _, ok := args["questions"]; !ok {
+			if q, ok := args["question"].(string); ok {
+				args["questions"] = []map[string]interface{}{
+					{"question": q},
+				}
+				delete(args, "question")
+			} else if q, ok := args["text"].(string); ok {
+				args["questions"] = []map[string]interface{}{
+					{"question": q},
+				}
+				delete(args, "text")
+			}
+		}
+		// Ensure questions is an array, not a string
+		if q, ok := args["questions"].(string); ok {
+			args["questions"] = []map[string]interface{}{
+				{"question": q},
+			}
+		}
+
+	case "glob", "search", "grep":
+		// Normalize common field names
+		if _, ok := args["pattern"]; !ok {
+			if p, ok := args["query"].(string); ok {
+				args["pattern"] = p
+				delete(args, "query")
+			}
+		}
+
+	case "list_directory", "ls":
+		if _, ok := args["path"]; !ok {
+			args["path"] = "."
 		}
 	}
 }

@@ -191,34 +191,10 @@ Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' &
 			// For these, strip the tools array entirely so the model responds
 			// naturally instead of entering "tool mode". The few-shot examples
 			// in our system prompt handle these cases.
-			// Only strip tools for pure greetings — nothing else.
-			// The model needs tool awareness to answer capability
-			// questions ("can you read files?" → "yes, with my tools").
-			if len(nonSystemMsgs) > 0 {
-				lastUserMsg := ""
-				for i := len(nonSystemMsgs) - 1; i >= 0; i-- {
-					if nonSystemMsgs[i].Role == "user" {
-						if s, ok := nonSystemMsgs[i].Content.(string); ok {
-							lastUserMsg = s
-						}
-						break
-					}
-				}
-				cleaned := strings.ToLower(strings.Trim(strings.TrimSpace(lastUserMsg), "\"'`\n"))
-				isGreeting := false
-				greetings := []string{"hello", "hi", "hey", "good morning", "good evening", "good afternoon", "thanks", "thank you", "bye", "goodbye"}
-				for _, g := range greetings {
-					if cleaned == g || cleaned == g+"!" || cleaned == g+"." {
-						isGreeting = true
-						break
-					}
-				}
-				if isGreeting {
-					req.Tools = nil
-					req.ToolChoice = nil
-					log.Printf("[HelixLLM] Greeting detected (%q) — tools stripped", lastUserMsg)
-				}
-			}
+			// No hardcoded intent detection — the system prompt's few-shot
+			// examples guide the model on when to use tools vs respond
+			// naturally. Tool stripping is removed per the requirement
+			// to use the Intent engine(s) instead of hardcoded logic.
 
 			log.Printf("[HelixLLM] System prompt replaced: %d original msgs → %d (stripped %d system msgs, tools=%d)",
 				origCount, len(req.Messages), origCount-len(nonSystemMsgs), len(req.Tools))
