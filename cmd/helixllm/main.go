@@ -309,6 +309,17 @@ func main() {
 	})
 	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline)
 
+	// Auto-ingest codebase if configured.
+	if cfg.Knowledge.IngestDir != "" {
+		ingestDir := cfg.Knowledge.IngestDir
+		go func() {
+			log.WithField("dir", ingestDir).Info("starting codebase auto-ingest")
+			if err := knowledge.AutoIngest(pipeline, ingestDir, "codebase"); err != nil {
+				log.WithError(err).Error("codebase auto-ingest failed")
+			}
+		}()
+	}
+
 	// Create tool registry with built-in tools.
 	toolReg := agents.NewToolRegistry()
 	toolReg.Register(&tools.EchoTool{})
@@ -332,11 +343,15 @@ func main() {
 	toolReg.Register(tools.NewExecutePythonTool(sandbox))
 	toolReg.Register(tools.NewExecuteShellTool(sandbox))
 
-	// Git tools (4).
+	// Git tools (8).
 	toolReg.Register(tools.NewGitStatusTool(sandbox))
 	toolReg.Register(tools.NewGitDiffTool(sandbox))
 	toolReg.Register(tools.NewGitLogTool(sandbox))
 	toolReg.Register(tools.NewGitBranchTool(sandbox))
+	toolReg.Register(tools.NewGitCommitTool(sandbox))
+	toolReg.Register(tools.NewGitPushTool(sandbox))
+	toolReg.Register(tools.NewGitPullTool(sandbox))
+	toolReg.Register(tools.NewGitCreateBranchTool(sandbox))
 
 	// Analysis tools (4).
 	toolReg.Register(tools.NewAnalyzeCodeTool(sandbox))

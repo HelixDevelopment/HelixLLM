@@ -198,16 +198,38 @@ func (s *Sandbox) WrapWithCPULimit(shellCmd string) string {
 	return fmt.Sprintf("ulimit -t %d; %s", s.config.MaxCPUSeconds, shellCmd)
 }
 
-// ExecuteShell runs a shell command string through /bin/sh with CPU-time
-// limiting via ulimit. The command is validated against blocked patterns
-// before execution. Process group isolation is applied so the entire process
-// tree can be cleaned up on timeout.
+// WrapWithResourceLimits prepends ulimit guards for CPU time, virtual memory,
+// and max user processes to a shell command string. Limits with zero or
+// negative values are omitted. The 2>/dev/null suffix on the ulimit line
+// suppresses "operation not permitted" warnings on systems that disallow
+// lowering hard limits.
+func (s *Sandbox) WrapWithResourceLimits(shellCmd string) string {
+	var parts []string
+	if s.config.MaxCPUSeconds > 0 {
+		parts = append(parts, fmt.Sprintf("-t %d", s.config.MaxCPUSeconds))
+	}
+	if s.config.MaxMemoryMB > 0 {
+		parts = append(parts, fmt.Sprintf("-v %d", s.config.MaxMemoryMB*1024))
+	}
+	if s.config.MaxProcesses > 0 {
+		parts = append(parts, fmt.Sprintf("-u %d", s.config.MaxProcesses))
+	}
+	if len(parts) == 0 {
+		return shellCmd
+	}
+	return fmt.Sprintf("ulimit %s 2>/dev/null; %s", strings.Join(parts, " "), shellCmd)
+}
+
+// ExecuteShell runs a shell command string through /bin/sh with resource
+// limiting via ulimit (CPU, memory, processes). The command is validated
+// against blocked patterns before execution. Process group isolation is
+// applied so the entire process tree can be cleaned up on timeout.
 func (s *Sandbox) ExecuteShell(ctx context.Context, shellCmd string) (string, error) {
 	if err := s.ValidateCommand(shellCmd); err != nil {
 		return "", err
 	}
 
-	wrapped := s.WrapWithCPULimit(shellCmd)
+	wrapped := s.WrapWithResourceLimits(shellCmd)
 	return s.Execute(ctx, "/bin/sh", "-c", wrapped)
 }
 

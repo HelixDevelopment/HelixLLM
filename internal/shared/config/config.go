@@ -69,6 +69,7 @@ type KnowledgeConfig struct {
 	RAGChunkSize      int    `env:"HELIX_RAG_CHUNK_SIZE" default:"1000"`
 	RAGChunkOverlap   int    `env:"HELIX_RAG_CHUNK_OVERLAP" default:"200"`
 	RAGTopK           int    `env:"HELIX_RAG_TOP_K" default:"5"`
+	IngestDir         string `env:"HELIX_INGEST_DIR"`
 }
 
 // DatabaseConfig holds PostgreSQL settings.

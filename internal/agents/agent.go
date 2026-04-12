@@ -28,16 +28,21 @@ type AgentConfig struct {
 
 	// MaxTurns caps the ReAct loop iterations. Defaults to 10 when zero.
 	MaxTurns int
+
+	// AuditLogger, when set, logs tool calls and LLM completions for audit
+	// purposes. May be nil to disable audit logging.
+	AuditLogger *AuditLogger
 }
 
 // Agent implements a ReAct (Reason-Act-Observe) loop: it sends messages to the
 // Brain, checks for tool-call responses, executes tools, appends observations,
 // and loops until the LLM returns a final answer or MaxTurns is exceeded.
 type Agent struct {
-	brain    *brain.Brain
-	tools    *ToolRegistry
-	ragHook  func(*types.InternalChatRequest) *types.InternalChatRequest
-	maxTurns int
+	brain       *brain.Brain
+	tools       *ToolRegistry
+	ragHook     func(*types.InternalChatRequest) *types.InternalChatRequest
+	maxTurns    int
+	auditLogger *AuditLogger
 }
 
 // NewAgent creates an Agent from the provided config.
@@ -47,10 +52,11 @@ func NewAgent(cfg AgentConfig) *Agent {
 		maxTurns = defaultMaxTurns
 	}
 	return &Agent{
-		brain:    cfg.Brain,
-		tools:    cfg.Tools,
-		ragHook:  cfg.RAGHook,
-		maxTurns: maxTurns,
+		brain:       cfg.Brain,
+		tools:       cfg.Tools,
+		ragHook:     cfg.RAGHook,
+		maxTurns:    maxTurns,
+		auditLogger: cfg.AuditLogger,
 	}
 }
 
@@ -85,7 +91,22 @@ func (a *Agent) Run(ctx context.Context, messages []types.InternalMessage) (*typ
 	var lastResp *types.InternalChatResponse
 
 	for turn := 0; turn < a.maxTurns; turn++ {
+		llmStart := time.Now()
 		resp, err := a.brain.Complete(ctx, req)
+		llmDuration := time.Since(llmStart)
+
+		if a.auditLogger != nil {
+			entry := AuditEntry{
+				Timestamp: llmStart,
+				EventType: "llm_completion",
+				Duration:  llmDuration,
+			}
+			if err != nil {
+				entry.Error = err.Error()
+			}
+			a.auditLogger.LogCompletion(entry)
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf("agent: brain.Complete (turn %d): %w", turn+1, err)
 		}
@@ -100,6 +121,17 @@ func (a *Agent) Run(ctx context.Context, messages []types.InternalMessage) (*typ
 			return resp, nil
 		}
 
+		// Audit: log the tool call before execution.
+		if a.auditLogger != nil {
+			argsJSON, _ := json.Marshal(tc.Arguments)
+			a.auditLogger.LogToolCall(AuditEntry{
+				Timestamp: time.Now(),
+				EventType: "tool_call",
+				ToolName:  tc.Name,
+				Arguments: string(argsJSON),
+			})
+		}
+
 		// Execute the requested tool.
 		var toolResult string
 		if a.tools == nil {
@@ -107,7 +139,26 @@ func (a *Agent) Run(ctx context.Context, messages []types.InternalMessage) (*typ
 		} else {
 			toolStart := time.Now()
 			result, execErr := a.tools.Execute(ctx, tc.Name, tc.Arguments)
-			metrics.TrackToolExecution(tc.Name, time.Since(toolStart), execErr == nil)
+			toolDuration := time.Since(toolStart)
+			metrics.TrackToolExecution(tc.Name, toolDuration, execErr == nil)
+
+			// Audit: log the tool result after execution.
+			if a.auditLogger != nil {
+				entry := AuditEntry{
+					Timestamp: toolStart,
+					EventType: "tool_result",
+					ToolName:  tc.Name,
+					Duration:  toolDuration,
+				}
+				if execErr != nil {
+					entry.Error = execErr.Error()
+					entry.Result = ""
+				} else {
+					entry.Result = result
+				}
+				a.auditLogger.LogToolCall(entry)
+			}
+
 			if execErr != nil {
 				toolResult = fmt.Sprintf("error: %s", execErr.Error())
 			} else {

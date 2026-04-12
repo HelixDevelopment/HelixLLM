@@ -283,6 +283,74 @@ func TestSandbox_WrapWithCPULimit(t *testing.T) {
 	_ = s2 // used above for documentation purposes
 }
 
+func TestSandbox_WrapWithResourceLimits(t *testing.T) {
+	s := DefaultSandbox() // MaxCPUSeconds=30, MaxMemoryMB=512, MaxProcesses=10
+
+	wrapped := s.WrapWithResourceLimits("ls -la")
+	expected := "ulimit -t 30 -v 524288 -u 10 2>/dev/null; ls -la"
+	if wrapped != expected {
+		t.Errorf("expected %q, got %q", expected, wrapped)
+	}
+}
+
+func TestSandbox_WrapWithResourceLimits_CustomValues(t *testing.T) {
+	s := NewSandbox(SandboxConfig{
+		MaxCPUSeconds: 60,
+		MaxMemoryMB:   1024,
+		MaxProcesses:  20,
+	})
+
+	wrapped := s.WrapWithResourceLimits("make build")
+	expected := "ulimit -t 60 -v 1048576 -u 20 2>/dev/null; make build"
+	if wrapped != expected {
+		t.Errorf("expected %q, got %q", expected, wrapped)
+	}
+}
+
+func TestSandbox_WrapWithResourceLimits_NoLimits(t *testing.T) {
+	// All limits zero — should return original command unchanged.
+	s := &Sandbox{config: SandboxConfig{
+		MaxCPUSeconds: 0,
+		MaxMemoryMB:   0,
+		MaxProcesses:  0,
+	}}
+
+	wrapped := s.WrapWithResourceLimits("echo hello")
+	if wrapped != "echo hello" {
+		t.Errorf("expected no wrapping, got %q", wrapped)
+	}
+}
+
+func TestSandbox_WrapWithResourceLimits_PartialLimits(t *testing.T) {
+	// Only CPU limit set.
+	s := &Sandbox{config: SandboxConfig{
+		MaxCPUSeconds: 10,
+		MaxMemoryMB:   0,
+		MaxProcesses:  0,
+	}}
+
+	wrapped := s.WrapWithResourceLimits("echo test")
+	expected := "ulimit -t 10 2>/dev/null; echo test"
+	if wrapped != expected {
+		t.Errorf("expected %q, got %q", expected, wrapped)
+	}
+}
+
+func TestSandbox_ExecuteShell_AppliesResourceLimits(t *testing.T) {
+	s := DefaultSandbox()
+	ctx := context.Background()
+
+	// Verify ExecuteShell still works — the ulimit commands should not
+	// break normal command execution.
+	out, err := s.ExecuteShell(ctx, "echo resource-limited")
+	if err != nil {
+		t.Fatalf("ExecuteShell with resource limits failed: %v", err)
+	}
+	if out != "resource-limited\n" {
+		t.Errorf("expected %q, got %q", "resource-limited\n", out)
+	}
+}
+
 func TestSandbox_ExecuteShell(t *testing.T) {
 	s := DefaultSandbox()
 	ctx := context.Background()

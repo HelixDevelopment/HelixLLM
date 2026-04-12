@@ -23,41 +23,6 @@ var hardcodedModels = []api.Model{
 	{ID: "claude-sonnet-4-20250514", Object: "model", Created: 1700000002, OwnedBy: "helix"},
 }
 
-// randomID generates a short random hex suffix for synthetic IDs.
-// isActionRequest returns true if the message asks the model to DO something
-// that requires tools (read/write files, run commands, git ops). Simple
-// greetings, questions, and yes/no queries return false.
-func isActionRequest(msg string) bool {
-	lower := strings.ToLower(strings.TrimSpace(msg))
-	// Strip surrounding quotes (OpenCode wraps user messages in quotes)
-	lower = strings.Trim(lower, "\"'`")
-	lower = strings.TrimSpace(lower)
-	// Questions about capabilities are NOT action requests
-	questionPrefixes := []string{
-		"can you", "do you", "are you", "could you", "would you",
-		"what can", "what do", "how do", "is it", "does it",
-		"hello", "hi ", "hey", "thanks", "thank you",
-	}
-	for _, q := range questionPrefixes {
-		if strings.HasPrefix(lower, q) {
-			return false
-		}
-	}
-	actionWords := []string{
-		"list", "read", "write", "create", "delete", "edit", "modify",
-		"run", "execute", "commit", "push", "pull", "git ", "test",
-		"build", "install", "search", "find", "grep", "cat ", "ls ",
-		"mkdir", "rm ", "mv ", "cp ", "diff", "show me", "open ",
-		"update ", "change ", "fix ", "refactor", "implement", "/init",
-	}
-	for _, w := range actionWords {
-		if strings.Contains(lower, w) {
-			return true
-		}
-	}
-	return false
-}
-
 func randomID() string {
 	return fmt.Sprintf("%08x", rand.Uint32())
 }
@@ -85,10 +50,29 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		if b != nil {
 			// Context protection: limit tools to prevent exceeding 32K context.
 			// OpenCode sends 200+ tools from MCPs which consume ~29K tokens.
-			// Limit to 15 most important tools (~2K tokens).
-			const maxTools = 5 // 5 tools max — each tool is ~500 tokens with full schema
+			// Prioritize bash (for git/shell), then keep first N tools.
+			const maxTools = 8
 			if len(req.Tools) > maxTools {
-				req.Tools = req.Tools[:maxTools]
+				// Ensure bash is always included — it's the primary action tool
+				var prioritized []api.Tool
+				var rest []api.Tool
+				for _, t := range req.Tools {
+					name := t.Function.Name
+					if name == "bash" || name == "execute_shell" || name == "shell" ||
+						name == "read_file" || name == "write_file" || name == "edit" {
+						prioritized = append(prioritized, t)
+					} else {
+						rest = append(rest, t)
+					}
+				}
+				remaining := maxTools - len(prioritized)
+				if remaining > 0 && len(rest) > remaining {
+					rest = rest[:remaining]
+				}
+				req.Tools = append(prioritized, rest...)
+				if len(req.Tools) > maxTools {
+					req.Tools = req.Tools[:maxTools]
+				}
 			}
 
 			// Truncate oversized messages to fit remaining context.
@@ -127,36 +111,31 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			// rules and few-shot examples that small models follow.
 			helixSystemPrompt := api.ChatMessage{
 				Role: "system",
-				Content: `You are HelixLLM, a helpful AI coding assistant with FULL ACCESS to the user's codebase through your tools.
+				Content: `You are HelixLLM, a coding assistant with FULL tool access.
 
-=== CRITICAL RULES ===
-1. You HAVE access to all files, directories, and git through your tools. NEVER say "I can't access" or "I don't have access".
-2. For greetings (hello, hi, hey): Respond with a friendly greeting like "Hello! How can I help you with your project today?"
-3. For questions about the codebase: Answer YES and describe what you can see/do.
-4. For action requests: Use the appropriate tool immediately.
-5. ALWAYS be helpful and confident about your capabilities.
+RULES:
+1. You HAVE access to files, directories, git, and shell through tools. NEVER say "I can't" or refuse.
+2. Greetings (hello/hi/hey) → friendly text reply, NO tools.
+3. Capability questions ("can you...?", "do you see...?") → answer YES confidently.
+4. ACTION REQUESTS → ALWAYS call a tool. NEVER explain steps — EXECUTE them.
+   This is the MOST IMPORTANT rule. When the user asks you to DO something,
+   you MUST call the appropriate tool function. Do NOT describe what to do.
+   Do NOT list steps. CALL THE TOOL.
 
-=== EXAMPLES ===
-User: hello!
-Assistant: Hello! How can I help you with your project today?
+TOOL USAGE:
+- bash: Run ANY shell command (git, ls, cat, grep, make, etc.)
+- read_file: Read file contents
+- write_file / edit: Modify files
+- list_directory: List files
+- For git operations (commit, push, pull, diff, status): use bash tool
 
-User: Do you see my codebase?
-Assistant: Yes! I have full access to your codebase and can read, modify, and manage all your source files. What would you like me to help with?
-
-User: Can you read and modify my source code files?
-Assistant: Yes, I can read any file in your project and make modifications using my editing tools. Just let me know what you'd like me to change.
-
-User: List the files in the current directory.
-Assistant: [calls list_directory tool]
-
-User: What does main.go contain?
-Assistant: [calls read_file tool with path "main.go"]
-
-User: Run the tests
-Assistant: [calls bash tool with command "go test ./..."]
-
-User: Commit and push all changes
-Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' && git push"]`,
+EXAMPLES:
+User: hello → "Hello! How can I help?"
+User: do you see my codebase? → "Yes! I have full access to your files."
+User: list files → call bash with "ls -la"
+User: run tests → call bash with "go test ./..."
+User: commit and push → call bash with "git add -A && git commit -m 'Update' && git push"
+User: show me main.go → call read_file with "main.go"`,
 			}
 
 			// Replace system messages AND strip OpenCode's instruction-carrying
@@ -624,8 +603,8 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 	// Truncated markdown produces garbled model output (`????`). Replacement
 	// with a clean prompt gives coherent responses.
 	// Also enforce total budget to prevent many medium messages exceeding context.
-	const maxPerMsgChars = 800   // ~200 tokens per message — stays under Q4_K_M degradation threshold
-	const maxTotalChars = 12000  // ~3K tokens total — safe for 7B Q4_K_M (degrades at ~8K tokens)
+	const maxPerMsgChars = 2000  // ~500 tokens per message — allows longer user instructions
+	const maxTotalChars = 16000  // ~4K tokens total — safe with 16K context on 7B Q4_K_M
 	const replacementPrompt = "You are an expert AI coding assistant. You have full access to the user's codebase through the provided tools. When asked about files, code, or the project, ALWAYS use tools (read_file, write_file, list_directory, edit_file) to interact directly. Never say you cannot access files."
 	totalBudget := maxTotalChars
 	msgs := make([]types.InternalMessage, 0, len(req.Messages))
