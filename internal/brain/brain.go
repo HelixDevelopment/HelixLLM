@@ -117,6 +117,16 @@ func (b *Brain) RegisterProvider(name string, p Provider) {
 	b.router.Register(name, p)
 }
 
+// behaviorGuide is prepended to every request to ensure the model
+// responds naturally to simple messages instead of aggressively
+// calling tools for greetings/questions. Without this, small models
+// (7B) see OpenCode's massive tool-definition system prompt and
+// respond to the INSTRUCTIONS rather than the USER's message.
+const behaviorGuide = `IMPORTANT: Respond naturally to the user's actual message. ` +
+	`For greetings like "hello", respond with a friendly greeting. ` +
+	`For questions, answer directly. Only call tools when the user ` +
+	`explicitly asks you to perform an action (run a command, read a file, etc.).`
+
 // Complete selects the best provider for the request and returns a full
 // (non-streaming) completion response.
 func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error) {
@@ -125,6 +135,18 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 			return nil, fmt.Errorf("brain: acquire semaphore: %w", err)
 		}
 		defer b.sem.Release(1)
+	}
+
+	// Prepend behavior guide to the first system message (or add one)
+	// so small models don't get overwhelmed by tool definitions.
+	if len(req.Messages) > 0 {
+		if req.Messages[0].Role == types.RoleSystem {
+			req.Messages[0].Content = behaviorGuide + "\n\n" + req.Messages[0].Content
+		} else {
+			req.Messages = append([]types.InternalMessage{
+				{Role: types.RoleSystem, Content: behaviorGuide},
+			}, req.Messages...)
+		}
 	}
 
 	if b.complexity != nil && b.registry != nil && req.Model == "" {
