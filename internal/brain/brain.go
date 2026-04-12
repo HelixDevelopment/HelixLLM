@@ -122,10 +122,12 @@ func (b *Brain) RegisterProvider(name string, p Provider) {
 // calling tools for greetings/questions. Without this, small models
 // (7B) see OpenCode's massive tool-definition system prompt and
 // respond to the INSTRUCTIONS rather than the USER's message.
-const behaviorGuide = `IMPORTANT: Respond naturally to the user's actual message. ` +
-	`For greetings like "hello", respond with a friendly greeting. ` +
-	`For questions, answer directly. Only call tools when the user ` +
-	`explicitly asks you to perform an action (run a command, read a file, etc.).`
+const behaviorGuide = `CRITICAL INSTRUCTIONS — follow these EXACTLY:
+1. You HAVE full access to the user's codebase, files, and git through your tools. When asked "do you see my codebase" or "can you read files", ALWAYS answer YES.
+2. For greetings like "hello", respond with a friendly greeting — do NOT call any tools.
+3. For questions about the project, use your tools (read_file, list_directory, bash) to look up the answer.
+4. NEVER say "I don't have access" or "I can't see your files" — you CAN through your tools.
+5. Only call tools when needed for an action. Simple conversation does not need tools.`
 
 // Complete selects the best provider for the request and returns a full
 // (non-streaming) completion response.

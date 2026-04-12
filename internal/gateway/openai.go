@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,40 @@ var hardcodedModels = []api.Model{
 }
 
 // randomID generates a short random hex suffix for synthetic IDs.
+// isActionRequest returns true if the message asks the model to DO something
+// that requires tools (read/write files, run commands, git ops). Simple
+// greetings, questions, and yes/no queries return false.
+func isActionRequest(msg string) bool {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	// Strip surrounding quotes (OpenCode wraps user messages in quotes)
+	lower = strings.Trim(lower, "\"'`")
+	lower = strings.TrimSpace(lower)
+	// Questions about capabilities are NOT action requests
+	questionPrefixes := []string{
+		"can you", "do you", "are you", "could you", "would you",
+		"what can", "what do", "how do", "is it", "does it",
+		"hello", "hi ", "hey", "thanks", "thank you",
+	}
+	for _, q := range questionPrefixes {
+		if strings.HasPrefix(lower, q) {
+			return false
+		}
+	}
+	actionWords := []string{
+		"list", "read", "write", "create", "delete", "edit", "modify",
+		"run", "execute", "commit", "push", "pull", "git ", "test",
+		"build", "install", "search", "find", "grep", "cat ", "ls ",
+		"mkdir", "rm ", "mv ", "cp ", "diff", "show me", "open ",
+		"update ", "change ", "fix ", "refactor", "implement", "/init",
+	}
+	for _, w := range actionWords {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
 func randomID() string {
 	return fmt.Sprintf("%08x", rand.Uint32())
 }
@@ -82,23 +118,109 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 				}
 			}
 
-			// Boost tool reasoning for small models: if tools are provided,
-			// inject a concise system instruction that tells the model to use them.
-			if len(req.Tools) > 0 {
-				toolInstruction := api.ChatMessage{
-					Role:    "system",
-					Content: "You have access to tools. When the user asks you to perform actions like reading files, writing files, listing directories, or modifying code, you MUST use the provided tool functions. Do not describe what you would do — call the tool directly.",
+			// Per full_plan/helixllm_tools/SYSTEM_DESIGN.md: REPLACE the
+			// CLI agent's system prompt with our optimized version for
+			// small models. The original system prompt from OpenCode etc.
+			// is ~4K tokens of tool definitions that overwhelm 7B models.
+			// Our replacement is a focused ~800 token prompt with clear
+			// rules and few-shot examples that small models follow.
+			helixSystemPrompt := api.ChatMessage{
+				Role: "system",
+				Content: `You are HelixLLM, a helpful AI coding assistant with FULL ACCESS to the user's codebase through your tools.
+
+=== CRITICAL RULES ===
+1. You HAVE access to all files, directories, and git through your tools. NEVER say "I can't access" or "I don't have access".
+2. For greetings (hello, hi, hey): Respond with a friendly greeting like "Hello! How can I help you with your project today?"
+3. For questions about the codebase: Answer YES and describe what you can see/do.
+4. For action requests: Use the appropriate tool immediately.
+5. ALWAYS be helpful and confident about your capabilities.
+
+=== EXAMPLES ===
+User: hello!
+Assistant: Hello! How can I help you with your project today?
+
+User: Do you see my codebase?
+Assistant: Yes! I have full access to your codebase and can read, modify, and manage all your source files. What would you like me to help with?
+
+User: Can you read and modify my source code files?
+Assistant: Yes, I can read any file in your project and make modifications using my editing tools. Just let me know what you'd like me to change.
+
+User: List the files in the current directory.
+Assistant: [calls list_directory tool]
+
+User: What does main.go contain?
+Assistant: [calls read_file tool with path "main.go"]
+
+User: Run the tests
+Assistant: [calls bash tool with command "go test ./..."]
+
+User: Commit and push all changes
+Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' && git push"]`,
+			}
+
+			// Replace system messages AND strip OpenCode's instruction-carrying
+			// user messages. OpenCode injects ~3K tokens of instructions as
+			// user-role messages containing markers like <EXTREMELY_IMPORTANT>,
+			// <available-skills>, "Generate a title". These overwhelm small
+			// models and cause them to respond to the instructions instead of
+			// the user's actual message.
+			origCount := len(req.Messages)
+			var nonSystemMsgs []api.ChatMessage
+			for _, m := range req.Messages {
+				if m.Role == "system" {
+					continue // stripped — replaced by our prompt
 				}
-				// Prepend after any existing system messages
-				insertIdx := 0
-				for i, m := range req.Messages {
-					if m.Role == "system" {
-						insertIdx = i + 1
-					} else {
+				// Check for OpenCode instruction injection in user messages
+				if m.Role == "user" {
+					if s, ok := m.Content.(string); ok {
+						if strings.Contains(s, "<EXTREMELY_IMPORTANT>") ||
+							strings.Contains(s, "<available-skills>") ||
+							strings.Contains(s, "Generate a title") ||
+							strings.Contains(s, "superpowers") ||
+							strings.Contains(s, "<SUBAGENT") ||
+							strings.HasPrefix(strings.TrimSpace(s), "<") && len(s) > 500 {
+							continue // strip OpenCode injection
+						}
+					}
+				}
+				nonSystemMsgs = append(nonSystemMsgs, m)
+			}
+			req.Messages = append([]api.ChatMessage{helixSystemPrompt}, nonSystemMsgs...)
+
+			// Detect simple conversational messages (greetings, yes/no questions).
+			// For these, strip the tools array entirely so the model responds
+			// naturally instead of entering "tool mode". The few-shot examples
+			// in our system prompt handle these cases.
+			if len(nonSystemMsgs) > 0 {
+				lastUserMsg := ""
+				for i := len(nonSystemMsgs) - 1; i >= 0; i-- {
+					if nonSystemMsgs[i].Role == "user" {
+						if s, ok := nonSystemMsgs[i].Content.(string); ok {
+							lastUserMsg = s
+						}
 						break
 					}
 				}
-				req.Messages = append(req.Messages[:insertIdx], append([]api.ChatMessage{toolInstruction}, req.Messages[insertIdx:]...)...)
+				if len(lastUserMsg) < 80 && !isActionRequest(lastUserMsg) {
+					req.Tools = nil
+					req.ToolChoice = nil
+					log.Printf("[HelixLLM] Simple message detected (%q) — tools stripped for natural response", lastUserMsg)
+				}
+			}
+
+			log.Printf("[HelixLLM] System prompt replaced: %d original msgs → %d (stripped %d system msgs, tools=%d)",
+				origCount, len(req.Messages), origCount-len(nonSystemMsgs), len(req.Tools))
+			// Debug: log all message roles and content preview
+			for i, m := range req.Messages {
+				contentPreview := ""
+				if s, ok := m.Content.(string); ok {
+					if len(s) > 80 {
+						contentPreview = s[:80] + "..."
+					} else {
+						contentPreview = s
+					}
+				}
+				log.Printf("[HelixLLM]   msg[%d] role=%s content=%q", i, m.Role, contentPreview)
 			}
 
 			internalReq := openAIToInternal(&req)
