@@ -550,3 +550,366 @@ func TestLlamaCppProvider_CompleteStream_NetworkError(t *testing.T) {
 		t.Fatal("expected error for connection reset in CompleteStream, got nil")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Tool-call bridge tests for fromAPIResponse
+// ---------------------------------------------------------------------------
+
+// helperLlamaCppServer creates an httptest.Server that returns the given
+// ChatCompletionResponse as JSON for any POST to /v1/chat/completions.
+func helperLlamaCppServer(t *testing.T, resp api.ChatCompletionResponse) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+}
+
+func TestLlamaCppProvider_Complete_JSONToolCallBridge(t *testing.T) {
+	// Server returns a JSON tool call embedded in content (no tool_calls array).
+	content := `{"name": "bash", "arguments": {"command": "ls -la"}}`
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-json-tc",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index:        0,
+				Message:      api.ChatMessage{Role: "assistant", Content: content},
+				FinishReason: "stop",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "list files"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	// Content must be cleared when the bridge fires.
+	if resp.Message.Content != "" {
+		t.Errorf("Content = %q, want empty (bridge should clear it)", resp.Message.Content)
+	}
+	// Must have exactly one tool call.
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls length = %d, want 1", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.Function.Name != "bash" {
+		t.Errorf("ToolCall name = %q, want %q", tc.Function.Name, "bash")
+	}
+	if tc.Type != "function" {
+		t.Errorf("ToolCall type = %q, want %q", tc.Type, "function")
+	}
+	// Verify args contain the command.
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		t.Fatalf("failed to unmarshal tool call arguments: %v", err)
+	}
+	if cmd, _ := args["command"].(string); cmd != "ls -la" {
+		t.Errorf("args[command] = %q, want %q", cmd, "ls -la")
+	}
+	// FinishReason must be overridden to "tool_calls".
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("FinishReason = %q, want %q", resp.FinishReason, "tool_calls")
+	}
+}
+
+func TestLlamaCppProvider_Complete_XMLToolCallBridge(t *testing.T) {
+	// Server returns an XML-style tool call in content.
+	content := `<function><name>bash</name><arguments>{"command":"whoami"}</arguments></function>`
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-xml-tc",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index:        0,
+				Message:      api.ChatMessage{Role: "assistant", Content: content},
+				FinishReason: "stop",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "who am i"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if resp.Message.Content != "" {
+		t.Errorf("Content = %q, want empty (XML bridge should clear it)", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls length = %d, want 1", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.Function.Name != "bash" {
+		t.Errorf("ToolCall name = %q, want %q", tc.Function.Name, "bash")
+	}
+	if tc.Type != "function" {
+		t.Errorf("ToolCall type = %q, want %q", tc.Type, "function")
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		t.Fatalf("failed to unmarshal tool call arguments: %v", err)
+	}
+	if cmd, _ := args["command"].(string); cmd != "whoami" {
+		t.Errorf("args[command] = %q, want %q", cmd, "whoami")
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("FinishReason = %q, want %q", resp.FinishReason, "tool_calls")
+	}
+}
+
+func TestLlamaCppProvider_Complete_NativeToolCalls(t *testing.T) {
+	// Server returns proper tool_calls in the message (not in content).
+	// The bridge must NOT alter them.
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-native-tc",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index: 0,
+				Message: api.ChatMessage{
+					Role:    "assistant",
+					Content: nil,
+					ToolCalls: []api.ToolCall{
+						{
+							ID:   "call_abc123",
+							Type: "function",
+							Function: api.ToolCallFunction{
+								Name:      "read_file",
+								Arguments: `{"filePath":"/etc/hosts"}`,
+							},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "read hosts"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	// Native tool calls should pass through unchanged.
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls length = %d, want 1", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.ID != "call_abc123" {
+		t.Errorf("ToolCall ID = %q, want %q", tc.ID, "call_abc123")
+	}
+	if tc.Function.Name != "read_file" {
+		t.Errorf("ToolCall name = %q, want %q", tc.Function.Name, "read_file")
+	}
+	if tc.Function.Arguments != `{"filePath":"/etc/hosts"}` {
+		t.Errorf("ToolCall args = %q, want %q", tc.Function.Arguments, `{"filePath":"/etc/hosts"}`)
+	}
+	// FinishReason should remain "tool_calls" from the server.
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("FinishReason = %q, want %q", resp.FinishReason, "tool_calls")
+	}
+}
+
+func TestLlamaCppProvider_Complete_GreetingNoToolCall(t *testing.T) {
+	// Plain text with no tool-call indicators — content must pass through.
+	greeting := "Hello! How can I help?"
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-greeting",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index:        0,
+				Message:      api.ChatMessage{Role: "assistant", Content: greeting},
+				FinishReason: "stop",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if resp.Message.Content != greeting {
+		t.Errorf("Content = %q, want %q", resp.Message.Content, greeting)
+	}
+	if len(resp.Message.ToolCalls) != 0 {
+		t.Errorf("ToolCalls length = %d, want 0", len(resp.Message.ToolCalls))
+	}
+	if resp.FinishReason != "stop" {
+		t.Errorf("FinishReason = %q, want %q", resp.FinishReason, "stop")
+	}
+}
+
+func TestLlamaCppProvider_Complete_InvalidToolCallPassesAsText(t *testing.T) {
+	// JSON with empty command — isValidToolCall rejects "bash" without command.
+	content := `{"name": "bash", "arguments": {"command": ""}}`
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-invalid-tc",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index:        0,
+				Message:      api.ChatMessage{Role: "assistant", Content: content},
+				FinishReason: "stop",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "do nothing"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	// Invalid tool call: content should be preserved as-is.
+	if resp.Message.Content != content {
+		t.Errorf("Content = %q, want original content preserved", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 0 {
+		t.Errorf("ToolCalls length = %d, want 0 (invalid tool call rejected)", len(resp.Message.ToolCalls))
+	}
+	if resp.FinishReason != "stop" {
+		t.Errorf("FinishReason = %q, want %q", resp.FinishReason, "stop")
+	}
+}
+
+func TestLlamaCppProvider_Complete_MarkdownFencedJSON(t *testing.T) {
+	// JSON tool call wrapped in ```json ... ``` fences.
+	content := "```json\n{\"name\": \"bash\", \"arguments\": {\"command\": \"pwd\"}}\n```"
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-fenced",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index:        0,
+				Message:      api.ChatMessage{Role: "assistant", Content: content},
+				FinishReason: "stop",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "where am i"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if resp.Message.Content != "" {
+		t.Errorf("Content = %q, want empty (fenced JSON bridge should clear it)", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls length = %d, want 1", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.Function.Name != "bash" {
+		t.Errorf("ToolCall name = %q, want %q", tc.Function.Name, "bash")
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		t.Fatalf("failed to unmarshal tool call arguments: %v", err)
+	}
+	if cmd, _ := args["command"].(string); cmd != "pwd" {
+		t.Errorf("args[command] = %q, want %q", cmd, "pwd")
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("FinishReason = %q, want %q", resp.FinishReason, "tool_calls")
+	}
+}
+
+func TestLlamaCppProvider_Complete_SanitizeBashArgs(t *testing.T) {
+	// JSON tool call for "bash" that omits description and timeout.
+	// sanitizeToolArgs should inject defaults.
+	content := `{"name": "bash", "arguments": {"command": "echo hello"}}`
+	srv := helperLlamaCppServer(t, api.ChatCompletionResponse{
+		ID:    "chatcmpl-sanitize",
+		Model: "llama-3.1-70b",
+		Choices: []api.ChatCompletionChoice{
+			{
+				Index:        0,
+				Message:      api.ChatMessage{Role: "assistant", Content: content},
+				FinishReason: "stop",
+			},
+		},
+	})
+	defer srv.Close()
+
+	p := brain.NewLlamaCppProvider(srv.URL, []string{"llama-3.1-70b"})
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "llama-3.1-70b",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "say hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls length = %d, want 1", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.Function.Name != "bash" {
+		t.Errorf("ToolCall name = %q, want %q", tc.Function.Name, "bash")
+	}
+
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		t.Fatalf("failed to unmarshal tool call arguments: %v", err)
+	}
+
+	// sanitizeToolArgs should have added "description" default.
+	desc, ok := args["description"].(string)
+	if !ok || desc == "" {
+		t.Errorf("args[description] = %q, want non-empty default", desc)
+	}
+	if desc != "Running: echo hello" {
+		t.Errorf("args[description] = %q, want %q", desc, "Running: echo hello")
+	}
+
+	// sanitizeToolArgs should have added "timeout" default (30000).
+	timeout, ok := args["timeout"].(float64)
+	if !ok {
+		t.Fatalf("args[timeout] missing or not a number")
+	}
+	if timeout != 30000 {
+		t.Errorf("args[timeout] = %v, want 30000", timeout)
+	}
+
+	// Original command must still be intact.
+	if cmd, _ := args["command"].(string); cmd != "echo hello" {
+		t.Errorf("args[command] = %q, want %q", cmd, "echo hello")
+	}
+}

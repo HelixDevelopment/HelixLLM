@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,22 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 	"github.com/gin-gonic/gin"
 )
+
+// ---------------------------------------------------------------------------
+// Mock embedder for HandleEmbeddings tests
+// ---------------------------------------------------------------------------
+
+type mockEmbedder struct {
+	dim int
+	vec []float64
+	err error
+}
+
+func (m *mockEmbedder) Embed(_ string) ([]float64, error) { return m.vec, m.err }
+func (m *mockEmbedder) EmbedBatch(_ []string) ([][]float64, error) {
+	return nil, m.err
+}
+func (m *mockEmbedder) Dimension() int { return m.dim }
 
 // setupOpenAIRouter builds a Gin engine with nil Brain (stub mode).
 func setupOpenAIRouter() *gin.Engine {
@@ -674,5 +691,202 @@ func TestHandleCompletions_EmptyModel(t *testing.T) {
 	}
 	if resp.Model != "llama-3.1-70b" {
 		t.Errorf("model = %q, want llama-3.1-70b (default)", resp.Model)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HandleEmbeddings — embedder integration tests
+// ---------------------------------------------------------------------------
+
+func TestEmbeddings_NilEmbedder_ZeroVector(t *testing.T) {
+	// nil embedder → 1536-dim zero vector (existing fallback behavior).
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil, nil))
+
+	body, _ := json.Marshal(api.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: "hello",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var resp api.EmbeddingResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
+	}
+	vec := resp.Data[0].Embedding
+	if len(vec) != 1536 {
+		t.Fatalf("dimension = %d, want 1536", len(vec))
+	}
+	for i, v := range vec {
+		if v != 0 {
+			t.Fatalf("vec[%d] = %f, want 0 (zero vector)", i, v)
+		}
+	}
+}
+
+func TestEmbeddings_RealEmbedder_ReturnsVectors(t *testing.T) {
+	// Mock embedder returns [0.1, 0.2, 0.3]; verify response has those values.
+	emb := &mockEmbedder{
+		dim: 3,
+		vec: []float64{0.1, 0.2, 0.3},
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil, emb))
+
+	body, _ := json.Marshal(api.EmbeddingRequest{
+		Model: "nomic-embed-text",
+		Input: "hello world",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var resp api.EmbeddingResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
+	}
+	vec := resp.Data[0].Embedding
+	if len(vec) != 3 {
+		t.Fatalf("dimension = %d, want 3", len(vec))
+	}
+	want := []float64{0.1, 0.2, 0.3}
+	for i, v := range vec {
+		if v != want[i] {
+			t.Errorf("vec[%d] = %f, want %f", i, v, want[i])
+		}
+	}
+}
+
+func TestEmbeddings_StringInput(t *testing.T) {
+	// Input is a plain string "hello" — verify it reaches the embedder and
+	// produces a valid response.
+	emb := &mockEmbedder{
+		dim: 2,
+		vec: []float64{0.5, -0.5},
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil, emb))
+
+	body, _ := json.Marshal(api.EmbeddingRequest{
+		Model: "nomic-embed-text",
+		Input: "hello",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var resp api.EmbeddingResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Object != "list" {
+		t.Errorf("object = %q, want list", resp.Object)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
+	}
+	if resp.Data[0].Embedding[0] != 0.5 {
+		t.Errorf("vec[0] = %f, want 0.5", resp.Data[0].Embedding[0])
+	}
+}
+
+func TestEmbeddings_ArrayInput(t *testing.T) {
+	// Input is ["hello", "world"]; the handler uses the first element.
+	emb := &mockEmbedder{
+		dim: 2,
+		vec: []float64{0.9, 0.1},
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil, emb))
+
+	// Build raw JSON with array input since EmbeddingRequest.Input is interface{}.
+	rawBody := `{"model":"nomic-embed-text","input":["hello","world"]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", strings.NewReader(rawBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var resp api.EmbeddingResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
+	}
+	vec := resp.Data[0].Embedding
+	if len(vec) != 2 {
+		t.Fatalf("dimension = %d, want 2", len(vec))
+	}
+	if vec[0] != 0.9 || vec[1] != 0.1 {
+		t.Errorf("vec = %v, want [0.9, 0.1]", vec)
+	}
+}
+
+func TestEmbeddings_EmbedderError_FallsBackToZero(t *testing.T) {
+	// Embedder returns error → handler falls back to zero-vector.
+	emb := &mockEmbedder{
+		dim: 4,
+		vec: nil,
+		err: errors.New("embedding service unavailable"),
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil, emb))
+
+	body, _ := json.Marshal(api.EmbeddingRequest{
+		Model: "nomic-embed-text",
+		Input: "test",
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/embeddings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var resp api.EmbeddingResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
+	}
+	vec := resp.Data[0].Embedding
+	// Dimension comes from embedder.Dimension() = 4.
+	if len(vec) != 4 {
+		t.Fatalf("dimension = %d, want 4", len(vec))
+	}
+	for i, v := range vec {
+		if v != 0 {
+			t.Fatalf("vec[%d] = %f, want 0 (zero vector fallback)", i, v)
+		}
 	}
 }

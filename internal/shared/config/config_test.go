@@ -159,3 +159,31 @@ func TestLoad_EnvParseError(t *testing.T) {
 		t.Fatal("Load() should return error when HELIX_PORT is not a valid integer")
 	}
 }
+
+func TestConfig_EmbeddingBaseURL(t *testing.T) {
+	os.Setenv("HELIX_EMBEDDING_BASE_URL", "http://test:11434")
+	defer os.Unsetenv("HELIX_EMBEDDING_BASE_URL")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Knowledge.EmbeddingBaseURL != "http://test:11434" {
+		t.Errorf("EmbeddingBaseURL = %q, want %q",
+			cfg.Knowledge.EmbeddingBaseURL, "http://test:11434")
+	}
+}
+
+func TestConfig_EmbeddingBaseURL_Empty(t *testing.T) {
+	// Ensure HELIX_EMBEDDING_BASE_URL is not set.
+	os.Unsetenv("HELIX_EMBEDDING_BASE_URL")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Knowledge.EmbeddingBaseURL != "" {
+		t.Errorf("EmbeddingBaseURL = %q, want empty string",
+			cfg.Knowledge.EmbeddingBaseURL)
+	}
+}

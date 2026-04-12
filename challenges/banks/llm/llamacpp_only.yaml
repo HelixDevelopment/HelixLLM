@@ -1,0 +1,233 @@
+# SPDX-FileCopyrightText: 2026 HelixDevelopment
+# SPDX-License-Identifier: Apache-2.0
+#
+# Challenge Bank: llama.cpp-only Mode
+# Validates that HelixLLM operates exclusively with local llama.cpp — no cloud
+# providers, no Ollama chat models. Embeddings may use a separate provider.
+
+name: llamacpp-only
+version: 1.0.0
+description: |
+  Verifies that HelixLLM serves ONLY the local llama.cpp model for chat
+  completions, that tool calls are properly bridged from content to the
+  tool_calls array, that real embeddings are returned, and that streaming
+  works correctly with and without tools.
+
+platforms:
+  - linux
+
+timeout: 10m
+
+steps:
+  # CH-LCPP-001: Only llamacpp models listed
+  - name: only-llamacpp-models
+    type: http_request
+    params:
+      method: GET
+      path: /v1/models
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.data
+      - type: all_match
+        field: body.data[*].owned_by
+        value: llamacpp
+    on_failure: |
+      /v1/models should ONLY return models owned by "llamacpp" when running
+      in llama.cpp-only mode. Found non-llamacpp models.
+
+  # CH-LCPP-002: No Ollama models present
+  - name: no-ollama-models
+    type: http_request
+    params:
+      method: GET
+      path: /v1/models
+    assertions:
+      - type: http_status_ok
+      - type: none_match
+        field: body.data[*].owned_by
+        value: openai
+    on_failure: |
+      Found models owned by "openai" (Ollama) — they should NOT appear in
+      llama.cpp-only mode.
+
+  # CH-LCPP-003: Basic chat completion works
+  - name: basic-chat
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "messages": [{"role": "user", "content": "Hello!"}],
+          "stream": false
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+      - type: equals
+        field: body.choices[0].finish_reason
+        value: stop
+    on_failure: |
+      Basic chat completion should return a non-empty response with "stop".
+
+  # CH-LCPP-004: Greeting does NOT trigger tool calls
+  - name: greeting-no-tools
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "messages": [{"role": "user", "content": "Hello!"}],
+          "tools": [{"type":"function","function":{"name":"bash","description":"Run bash","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}],
+          "stream": false
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.content
+      - type: empty_or_absent
+        field: body.choices[0].message.tool_calls
+    on_failure: |
+      Greetings should NOT trigger tool calls.
+
+  # CH-LCPP-005: Tool-requiring request produces tool_calls
+  - name: tool-call-bridge
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "messages": [
+            {"role": "system", "content": "You have tools. Use them for actions."},
+            {"role": "user", "content": "List all files in the current directory"}
+          ],
+          "tools": [{"type":"function","function":{"name":"bash","description":"Run a bash command","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}],
+          "stream": false
+        }
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.choices[0].message.tool_calls
+      - type: equals
+        field: body.choices[0].finish_reason
+        value: tool_calls
+    on_failure: |
+      Tool-requiring request should produce tool_calls array with
+      finish_reason "tool_calls". The JSON/XML tool bridge may not be working.
+
+  # CH-LCPP-006: Streaming without tools works
+  - name: streaming-no-tools
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "messages": [{"role": "user", "content": "Say hi in one word"}],
+          "stream": true
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body
+        value: "data: "
+      - type: contains
+        field: body
+        value: "[DONE]"
+    on_failure: |
+      Streaming chat should return SSE data lines ending with [DONE].
+
+  # CH-LCPP-007: Streaming WITH tools uses force-nonstream bridge
+  - name: streaming-with-tools
+    type: http_request
+    params:
+      method: POST
+      path: /v1/chat/completions
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "messages": [
+            {"role": "system", "content": "Use tools for actions."},
+            {"role": "user", "content": "List files in directory"}
+          ],
+          "tools": [{"type":"function","function":{"name":"bash","description":"Run bash","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}],
+          "stream": true
+        }
+    assertions:
+      - type: http_status_ok
+      - type: contains
+        field: body
+        value: "tool_calls"
+      - type: contains
+        field: body
+        value: "[DONE]"
+    on_failure: |
+      Streaming with tools should force-nonstream, bridge tool calls, and
+      emit them as SSE chunks with tool_calls in delta.
+
+  # CH-LCPP-008: Real embeddings (not zero vectors)
+  - name: real-embeddings
+    type: http_request
+    params:
+      method: POST
+      path: /v1/embeddings
+      headers:
+        Content-Type: application/json
+      body: |
+        {"model": "nomic-embed-text", "input": "test embedding text"}
+    assertions:
+      - type: http_status_ok
+      - type: not_empty
+        field: body.data
+      - type: not_all_zero
+        field: body.data[0].embedding
+    on_failure: |
+      Embeddings should return real non-zero vectors from the configured
+      embedding provider.
+
+  # CH-LCPP-009: Embeddings bad JSON returns 400
+  - name: embeddings-bad-json
+    type: http_request
+    params:
+      method: POST
+      path: /v1/embeddings
+      headers:
+        Content-Type: application/json
+      body: "not valid json"
+    assertions:
+      - type: http_status
+        value: 400
+    on_failure: |
+      Malformed JSON to /v1/embeddings should return 400.
+
+  # CH-LCPP-010: Anthropic /v1/messages endpoint works
+  - name: anthropic-messages
+    type: http_request
+    params:
+      method: POST
+      path: /v1/messages
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "model": "mock-model",
+          "max_tokens": 100,
+          "messages": [{"role": "user", "content": "Hello"}]
+        }
+    assertions:
+      - type: http_status_ok
+    on_failure: |
+      Anthropic-compatible /v1/messages endpoint should still work.

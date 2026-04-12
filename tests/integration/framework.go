@@ -54,9 +54,13 @@ func NewTestServer() *TestServer {
 	b := brain.New(brain.Config{DefaultProvider: "mock"})
 	b.RegisterProvider("mock", &mockIntegrationProvider{})
 
+	// Knowledge embedder for gateway /v1/embeddings.
+	embedderGW := knowledge.NewHashEmbedder(768)
+
 	// Gateway routes (OpenAI + Anthropic).
 	gateway.RegisterRoutes(engine, gateway.RouterOptions{
-		Brain: b,
+		Brain:    b,
+		Embedder: embedderGW,
 	})
 
 	// Knowledge pipeline with in-memory components.
