@@ -62,9 +62,16 @@ func New(cfg Config) *Brain {
 		b.router.Register("llamacpp", p)
 	}
 
-	// Register OpenAI if an API key is provided.
-	if cfg.OpenAIKey != "" {
-		p := NewOpenAI(cfg.OpenAIKey, cfg.OpenAIBaseURL)
+	// Register OpenAI if an API key OR base URL is provided. When a
+	// base URL points at Ollama or another open-access endpoint, no
+	// API key is required — pass an empty key so the provider skips
+	// the Authorization header entirely (Ollama hangs on Bearer).
+	openAIKey := cfg.OpenAIKey
+	if openAIKey == "none" || openAIKey == "no-auth" {
+		openAIKey = "" // sentinel → skip Authorization header
+	}
+	if openAIKey != "" || cfg.OpenAIBaseURL != "" {
+		p := NewOpenAI(openAIKey, cfg.OpenAIBaseURL)
 		b.providers["openai"] = p
 		b.router.Register("openai", p)
 	}

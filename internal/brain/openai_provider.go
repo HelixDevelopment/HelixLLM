@@ -181,7 +181,10 @@ func (p *OpenAIProvider) discoverModels() {
 // remote service so we do not make a network call; we just verify that a key
 // has been set.
 func (p *OpenAIProvider) Available() bool {
-	return p.apiKey != ""
+	// A non-default base URL (e.g. Ollama at thinker.local:11434) means the
+	// provider is intentionally configured even without an API key — Ollama
+	// and other open-access endpoints don't require authentication.
+	return p.apiKey != "" || (p.baseURL != "" && p.baseURL != "https://api.openai.com")
 }
 
 // Complete sends a non-streaming chat completion to OpenAI and returns the
