@@ -191,6 +191,9 @@ Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' &
 			// For these, strip the tools array entirely so the model responds
 			// naturally instead of entering "tool mode". The few-shot examples
 			// in our system prompt handle these cases.
+			// Only strip tools for pure greetings — nothing else.
+			// The model needs tool awareness to answer capability
+			// questions ("can you read files?" → "yes, with my tools").
 			if len(nonSystemMsgs) > 0 {
 				lastUserMsg := ""
 				for i := len(nonSystemMsgs) - 1; i >= 0; i-- {
@@ -201,10 +204,19 @@ Assistant: [calls bash tool with command "git add -A && git commit -m 'Update' &
 						break
 					}
 				}
-				if len(lastUserMsg) < 80 && !isActionRequest(lastUserMsg) {
+				cleaned := strings.ToLower(strings.Trim(strings.TrimSpace(lastUserMsg), "\"'`\n"))
+				isGreeting := false
+				greetings := []string{"hello", "hi", "hey", "good morning", "good evening", "good afternoon", "thanks", "thank you", "bye", "goodbye"}
+				for _, g := range greetings {
+					if cleaned == g || cleaned == g+"!" || cleaned == g+"." {
+						isGreeting = true
+						break
+					}
+				}
+				if isGreeting {
 					req.Tools = nil
 					req.ToolChoice = nil
-					log.Printf("[HelixLLM] Simple message detected (%q) — tools stripped for natural response", lastUserMsg)
+					log.Printf("[HelixLLM] Greeting detected (%q) — tools stripped", lastUserMsg)
 				}
 			}
 
