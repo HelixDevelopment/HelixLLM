@@ -6,6 +6,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	gwmw "github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware"
+	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 )
 
@@ -23,6 +24,9 @@ type RouterOptions struct {
 	// TOONEnabled controls whether the TOON content negotiation middleware
 	// is applied. When false, ContentNegotiation() is skipped entirely.
 	TOONEnabled bool
+	// Embedder is the knowledge layer's embedding provider. When non-nil,
+	// /v1/embeddings delegates to it instead of returning zero vectors.
+	Embedder knowledge.Embedder
 	// HardwareProfile is the detected hardware profile exposed via the
 	// /v1/hardware endpoint. Typed as interface{} to avoid coupling the
 	// gateway package to the hardware package.
@@ -52,7 +56,7 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1.POST("/completions", HandleCompletions(opts.Brain))
 	v1.GET("/models", HandleListModels(opts.Brain))
 	v1.GET("/models/:id", HandleGetModel(opts.Brain))
-	v1.POST("/embeddings", HandleEmbeddings(opts.Brain))
+	v1.POST("/embeddings", HandleEmbeddings(opts.Brain, opts.Embedder))
 
 	// Hardware profile endpoint
 	v1.GET("/hardware", func(c *gin.Context) {

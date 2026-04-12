@@ -261,23 +261,18 @@ func main() {
 		KVCache:           kvCache,
 	})
 
-	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
-	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
-		APIKeys:         cfg.Auth.APIKeys,
-		RateLimit:       cfg.Server.RatePerMinute,
-		Brain:           brainSvc,
-		TOONEnabled:     cfg.Features.TOON,
-		HardwareProfile: hwProfile,
-	})
-
-	// Create knowledge pipeline using configured backends.
+	// Create embedder early so the gateway can use it for /v1/embeddings.
 	// For the "llama" embedding provider, the second argument is the
-	// base URL of the llama/Ollama server (NOT the API key). Use the
-	// OpenAI base URL which points at Ollama. For "openai" provider,
-	// it's the actual API key.
+	// base URL of the embedding server. Use the dedicated
+	// HELIX_EMBEDDING_BASE_URL when set; fall back to OpenAIBaseURL
+	// for backward compatibility. For "openai" provider, it's the API key.
 	embeddingAPIKeyOrURL := cfg.LLM.OpenAIKey
-	if cfg.Knowledge.EmbeddingProvider == "llama" && cfg.LLM.OpenAIBaseURL != "" {
-		embeddingAPIKeyOrURL = cfg.LLM.OpenAIBaseURL
+	if cfg.Knowledge.EmbeddingProvider == "llama" {
+		if cfg.Knowledge.EmbeddingBaseURL != "" {
+			embeddingAPIKeyOrURL = cfg.Knowledge.EmbeddingBaseURL
+		} else if cfg.LLM.OpenAIBaseURL != "" {
+			embeddingAPIKeyOrURL = cfg.LLM.OpenAIBaseURL
+		}
 	}
 	embedder, err := knowledge.NewEmbedder(
 		cfg.Knowledge.EmbeddingProvider,
@@ -289,6 +284,16 @@ func main() {
 		log.WithError(err).Error("failed to create embedder, falling back to hash embedder")
 		embedder = knowledge.NewHashEmbedder(768)
 	}
+
+	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
+	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
+		APIKeys:         cfg.Auth.APIKeys,
+		RateLimit:       cfg.Server.RatePerMinute,
+		Brain:           brainSvc,
+		Embedder:        embedder,
+		TOONEnabled:     cfg.Features.TOON,
+		HardwareProfile: hwProfile,
+	})
 	store, err := knowledge.NewVectorStore(cfg.Knowledge.VectorDB, "localhost", 6333)
 	if err != nil {
 		log.WithError(err).Error("failed to connect to vector store, falling back to memory store")

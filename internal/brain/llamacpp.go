@@ -248,7 +248,7 @@ func (p *LlamaCppProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *ty
 			Role:    types.Role(choice.Message.Role),
 			Content: content,
 		}
-		// Pass tool calls from llama.cpp response
+		// Pass tool calls from llama.cpp response (native format)
 		for _, tc := range choice.Message.ToolCalls {
 			msg.ToolCalls = append(msg.ToolCalls, types.InternalToolCall{
 				ID:   tc.ID,
@@ -262,8 +262,29 @@ func (p *LlamaCppProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *ty
 				},
 			})
 		}
+
+		// Bridge: llama.cpp with Qwen models often returns tool calls
+		// as XML or JSON in content instead of the tool_calls array.
+		// Parse these and convert to proper tool_calls format.
+		if len(msg.ToolCalls) == 0 && strings.Contains(content, "<function>") {
+			if tc := parseXMLToolCall(content); tc != nil {
+				msg.ToolCalls = append(msg.ToolCalls, *tc)
+				msg.Content = ""
+				result.FinishReason = "tool_calls"
+			}
+		}
+		if len(msg.ToolCalls) == 0 && strings.Contains(content, `"name"`) && strings.Contains(content, `"arguments"`) {
+			if tc := parseJSONToolCall(content); tc != nil {
+				msg.ToolCalls = append(msg.ToolCalls, *tc)
+				msg.Content = ""
+				result.FinishReason = "tool_calls"
+			}
+		}
+
 		result.Message = msg
-		result.FinishReason = choice.FinishReason
+		if result.FinishReason == "" {
+			result.FinishReason = choice.FinishReason
+		}
 	}
 	if resp.Usage != nil {
 		result.Usage = types.InternalUsage{

@@ -24,7 +24,7 @@ func setupOpenAIRouter() *gin.Engine {
 	r.POST("/v1/completions", gateway.HandleCompletions(nil))
 	r.GET("/v1/models", gateway.HandleListModels(nil))
 	r.GET("/v1/models/:id", gateway.HandleGetModel(nil))
-	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil))
+	r.POST("/v1/embeddings", gateway.HandleEmbeddings(nil, nil))
 	return r
 }
 

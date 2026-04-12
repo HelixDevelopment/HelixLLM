@@ -65,6 +65,7 @@ type KnowledgeConfig struct {
 	VectorDB          string `env:"HELIX_VECTOR_DB" default:"qdrant"`
 	EmbeddingProvider string `env:"HELIX_EMBEDDING_PROVIDER" default:"local"`
 	EmbeddingModel    string `env:"HELIX_EMBEDDING_MODEL" default:"all-mpnet-base-v2"`
+	EmbeddingBaseURL  string `env:"HELIX_EMBEDDING_BASE_URL"`
 	RAGChunkSize      int    `env:"HELIX_RAG_CHUNK_SIZE" default:"1000"`
 	RAGChunkOverlap   int    `env:"HELIX_RAG_CHUNK_OVERLAP" default:"200"`
 	RAGTopK           int    `env:"HELIX_RAG_TOP_K" default:"5"`
