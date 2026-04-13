@@ -77,44 +77,49 @@ func TestToolManager_FiveTools(t *testing.T) {
 }
 
 func TestToolManager_TenTools(t *testing.T) {
-	tm := gateway.DefaultToolManager()
+	tm := gateway.NewToolManager(gateway.ToolManagerConfig{MaxTools: 10})
 	tools := makeTools(10)
 	result := tm.CompressAndSelect(tools)
 	assert.Len(t, result, 10)
 }
 
 func TestToolManager_TwentyTools(t *testing.T) {
-	tm := gateway.DefaultToolManager()
+	tm := gateway.NewToolManager(gateway.ToolManagerConfig{MaxTools: 20})
 	tools := makeTools(20)
 	result := tm.CompressAndSelect(tools)
 	assert.Len(t, result, 20)
 }
 
 func TestToolManager_FiftyTools(t *testing.T) {
-	tm := gateway.DefaultToolManager()
+	tm := gateway.NewToolManager(gateway.ToolManagerConfig{MaxTools: 50})
 	tools := makeTools(50)
 	result := tm.CompressAndSelect(tools)
-	// Default budget 6000/120 = 50, so all fit
 	assert.Equal(t, 50, len(result))
 }
 
 func TestToolManager_HundredTools(t *testing.T) {
-	tm := gateway.DefaultToolManager()
+	tm := gateway.DefaultToolManager() // MaxTools=5
 	tools := makeTools(100)
 	result := tm.CompressAndSelect(tools)
-	// 6000/120 = 50 max, so 100 tools get capped at 50
-	assert.LessOrEqual(t, len(result), 50)
-	assert.Greater(t, len(result), 0)
+	assert.Equal(t, 5, len(result)) // hard capped at 5
 }
 
 func TestToolManager_HundredTools_LargeBudget(t *testing.T) {
 	tm := gateway.NewToolManager(gateway.ToolManagerConfig{
-		MaxTokenBudget: 12000, // enough for ~100 compressed tools
+		MaxTools:       100,
+		MaxTokenBudget: 12000,
 		TokensPerTool:  120,
 	})
 	tools := makeTools(100)
 	result := tm.CompressAndSelect(tools)
 	assert.Equal(t, 100, len(result))
+}
+
+func TestToolManager_DefaultCapsAtFive(t *testing.T) {
+	tm := gateway.DefaultToolManager()
+	tools := makeTools(51) // OpenCode sends ~51 tools
+	result := tm.CompressAndSelect(tools)
+	assert.Equal(t, 5, len(result), "default should cap at 5 for 7B model")
 }
 
 func TestToolManager_PreservesOrder(t *testing.T) {
@@ -179,16 +184,16 @@ func TestToolManager_PreservesName(t *testing.T) {
 }
 
 func TestToolManager_Stats(t *testing.T) {
-	tm := gateway.DefaultToolManager()
+	tm := gateway.DefaultToolManager() // MaxTools=5
 
-	tm.CompressAndSelect(makeTools(10))
-	tm.CompressAndSelect(makeTools(20))
+	tm.CompressAndSelect(makeTools(10)) // 10 received, 5 included
+	tm.CompressAndSelect(makeTools(20)) // 20 received, 5 included
 
 	stats := tm.Stats()
 	assert.Equal(t, int64(2), stats.TotalRequests)
 	assert.Equal(t, int64(30), stats.ToolsReceived)
-	assert.Equal(t, int64(30), stats.ToolsIncluded)
-	assert.Equal(t, int64(30), stats.ToolsCompressed)
+	assert.Equal(t, int64(10), stats.ToolsIncluded)  // 5+5
+	assert.Equal(t, int64(10), stats.ToolsCompressed) // 5+5
 }
 
 func TestToolManager_StatsOverBudget(t *testing.T) {

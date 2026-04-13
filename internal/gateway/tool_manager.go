@@ -21,8 +21,10 @@ import (
 //   - A semaphore controls concurrent tool-using requests
 //   - The respond tool is always included (appended last)
 type ToolManager struct {
+	// maxTools is the hard cap on tool count for model cognitive load.
+	maxTools int
+
 	// maxTokenBudget is the maximum tokens available for tool definitions.
-	// Calculated as: context_size - system_prompt - conversation - generation.
 	maxTokenBudget int
 
 	// tokensPerTool estimates tokens per compressed tool definition.
@@ -42,6 +44,10 @@ type ToolManager struct {
 
 // ToolManagerConfig configures the ToolManager.
 type ToolManagerConfig struct {
+	// MaxTools is a hard cap on the number of tools sent to the model.
+	// Small models (7B) degrade in decision quality with more than 5-6 tools
+	// regardless of token budget. Default: 5.
+	MaxTools int
 	// MaxTokenBudget for tool definitions (default: 6000 ~= 30 compressed tools).
 	MaxTokenBudget int
 	// TokensPerTool estimate for budget calculation (default: 120).
@@ -52,16 +58,20 @@ type ToolManagerConfig struct {
 
 // NewToolManager creates a ToolManager with the given config.
 func NewToolManager(cfg ToolManagerConfig) *ToolManager {
+	if cfg.MaxTools <= 0 {
+		cfg.MaxTools = 5 // 7B models degrade with >5 tools
+	}
 	if cfg.MaxTokenBudget <= 0 {
-		cfg.MaxTokenBudget = 6000 // ~30 compressed tools
+		cfg.MaxTokenBudget = 6000
 	}
 	if cfg.TokensPerTool <= 0 {
-		cfg.TokensPerTool = 120 // compressed schema ~120 tokens
+		cfg.TokensPerTool = 120
 	}
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 10
 	}
 	return &ToolManager{
+		maxTools:       cfg.MaxTools,
 		maxTokenBudget: cfg.MaxTokenBudget,
 		tokensPerTool:  cfg.TokensPerTool,
 		sem:            semaphore.NewWeighted(int64(cfg.MaxConcurrent)),
@@ -81,10 +91,14 @@ func (tm *ToolManager) CompressAndSelect(tools []api.Tool) []api.Tool {
 	tm.totalRequests.Add(1)
 	tm.toolsReceived.Add(int64(len(tools)))
 
-	// Calculate how many tools fit in the budget
-	maxTools := tm.maxTokenBudget / tm.tokensPerTool
+	// Use the smaller of: hard cap (cognitive load) or token budget
+	budgetMax := tm.maxTokenBudget / tm.tokensPerTool
+	maxTools := tm.maxTools
+	if budgetMax < maxTools {
+		maxTools = budgetMax
+	}
 	if maxTools < 3 {
-		maxTools = 3 // minimum: at least a few tools
+		maxTools = 3
 	}
 
 	// Compress each tool's schema to minimal form
@@ -213,9 +227,13 @@ func RespondTool() api.Tool {
 	}
 }
 
-// MaxToolsForBudget returns how many tools fit in the configured budget.
+// MaxToolsForBudget returns the effective max tools (min of hard cap and budget).
 func (tm *ToolManager) MaxToolsForBudget() int {
-	return tm.maxTokenBudget / tm.tokensPerTool
+	budgetMax := tm.maxTokenBudget / tm.tokensPerTool
+	if tm.maxTools < budgetMax {
+		return tm.maxTools
+	}
+	return budgetMax
 }
 
 // String returns a human-readable summary.
