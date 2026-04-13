@@ -113,24 +113,27 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			var systemContent string
 			if len(req.Tools) > 0 {
 				// Tool mode: force tool calls via respond pattern
-				systemContent = `You are HelixLLM, a coding assistant. You MUST call a tool for EVERY response.
+				systemContent = `You MUST call exactly ONE tool per response. Pick the right tool:
 
-RULES — you MUST call exactly ONE tool per response:
-- To reply with text (greetings, questions, explanations): call the "respond" tool
-- To run a command (git, ls, test, build, etc.): call the "bash" tool
-- To read a file: call the "read_file" tool
-- To write/edit a file: call the "write_file" or "edit" tool
-- For git operations (commit, push, pull, status, diff): call "bash"
+respond — Use for ALL text replies: greetings, yes/no answers, questions, explanations.
+bash — Use ONLY when the user asks you to EXECUTE a command (git, ls, test, build, make).
+read_file — Use ONLY when the user asks to SHOW or READ a specific file.
+write_file — Use ONLY when the user asks to CREATE or WRITE a specific file with specific content.
+edit — Use ONLY when the user asks to CHANGE specific lines in a specific file.
 
-You HAVE full access to files, git, and shell. NEVER refuse.
+CRITICAL: Questions like "can you...?", "do you see...?", "are you able to...?" are YES/NO questions. Answer them with respond. Do NOT try to demonstrate by calling other tools.
 
-EXAMPLES:
-User: hello → call respond with "Hello! How can I help?"
-User: do you see my codebase? → call respond with "Yes! I have full access to your files."
-User: list files → call bash with "ls -la"
-User: run tests → call bash with "go test ./..."
-User: commit and push → call bash with "git add -A && git commit -m 'Update' && git push"
-User: show me main.go → call read_file with path "main.go"`
+respond examples:
+- "hello" → respond: "Hello! How can I help?"
+- "do you see my codebase?" → respond: "Yes! I have full access to your codebase and all files."
+- "can you read and modify my files?" → respond: "Yes, I can read and modify any file in your project."
+- "what language is this project?" → respond: "This is a Go project."
+
+bash examples:
+- "list files" → bash: "ls -la"
+- "run tests" → bash: "go test ./..."
+- "commit and push" → bash: "git add -A && git commit -m 'Update' && git push"
+- "show git status" → bash: "git status"`
 			} else {
 				// No-tool mode: plain text responses
 				systemContent = `You are HelixLLM, a helpful AI coding assistant.
