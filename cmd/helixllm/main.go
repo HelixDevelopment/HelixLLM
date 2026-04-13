@@ -286,11 +286,13 @@ func main() {
 	}
 
 	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
+	toolMgr := gateway.DefaultToolManager()
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
 		APIKeys:         cfg.Auth.APIKeys,
 		RateLimit:       cfg.Server.RatePerMinute,
 		Brain:           brainSvc,
 		Embedder:        embedder,
+		ToolManager:     toolMgr,
 		TOONEnabled:     cfg.Features.TOON,
 		HardwareProfile: hwProfile,
 	})

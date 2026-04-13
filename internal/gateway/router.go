@@ -27,6 +27,9 @@ type RouterOptions struct {
 	// Embedder is the knowledge layer's embedding provider. When non-nil,
 	// /v1/embeddings delegates to it instead of returning zero vectors.
 	Embedder knowledge.Embedder
+	// ToolManager handles tool schema compression and budget-aware selection.
+	// When non-nil, tools are compressed before being sent to the model.
+	ToolManager *ToolManager
 	// HardwareProfile is the detected hardware profile exposed via the
 	// /v1/hardware endpoint. Typed as interface{} to avoid coupling the
 	// gateway package to the hardware package.
@@ -52,7 +55,7 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	}
 
 	// OpenAI-compatible endpoints
-	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain))
+	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain, opts.ToolManager))
 	v1.POST("/completions", HandleCompletions(opts.Brain))
 	v1.GET("/models", HandleListModels(opts.Brain))
 	v1.GET("/models/:id", HandleGetModel(opts.Brain))

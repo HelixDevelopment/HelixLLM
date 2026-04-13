@@ -31,7 +31,7 @@ func randomID() string {
 
 // HandleChatCompletions handles POST /v1/chat/completions.
 // When b is non-nil it delegates to the Brain; otherwise it returns a development fallback (no Brain configured).
-func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
+func HandleChatCompletions(b *brain.Brain, toolMgr *ToolManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.ChatCompletionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -50,14 +50,13 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		}
 
 		if b != nil {
-			// Context protection: limit tools for the 7B model. Diagnostic
-			// testing shows the model makes better tool choices with fewer
-			// options — 9 tools causes confusion (Glob for questions, Read
-			// with hallucinated paths). 5 tools keeps the core set (Bash,
-			// Read, Write, Edit + respond) and reduces noise.
-			const maxTools = 5
-			if len(req.Tools) > maxTools {
-				req.Tools = req.Tools[:maxTools]
+			// Compress and select tools via ToolManager. This allows
+			// unlimited tools from CLI agents while fitting them into the
+			// model's context window. Tools are compressed (shorter
+			// descriptions, stripped param descriptions) and selected
+			// based on a token budget. No hardcoded tool limits.
+			if toolMgr != nil && len(req.Tools) > 0 {
+				req.Tools = toolMgr.CompressAndSelect(req.Tools)
 			}
 
 			// Truncate oversized messages to fit remaining context.
