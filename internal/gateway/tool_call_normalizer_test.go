@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
@@ -384,6 +385,101 @@ func TestNormalizeToolCalls_ThinkOnlyStripped(t *testing.T) {
 	}
 	if resp.Message.Content != "Here is my answer." {
 		t.Errorf("content = %q, want %q", resp.Message.Content, "Here is my answer.")
+	}
+}
+
+func TestNormalizeToolCalls_NativeToolCallsWithXMLInContent(t *testing.T) {
+	// Qwen3 sometimes returns BOTH native tool_calls in JSON AND <tool_call>
+	// XML duplicated in the content field. The normalizer must strip the XML
+	// from content while preserving the native tool_calls.
+	resp := &types.InternalChatResponse{
+		Message: types.InternalMessage{
+			Role:    types.RoleAssistant,
+			Content: "<tool_call>\n{\"name\": \"edit\", \"arguments\": {\"filePath\": \"/tmp/test.txt\"}}\n</tool_call>",
+			ToolCalls: []types.InternalToolCall{
+				{
+					ID:   "call_123",
+					Type: "function",
+					Function: struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					}{Name: "edit", Arguments: `{"filePath":"/tmp/test.txt"}`},
+				},
+			},
+		},
+		FinishReason: "tool_calls",
+	}
+
+	NormalizeToolCalls(resp)
+
+	// Native tool_calls should be preserved
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool_call, got %d", len(resp.Message.ToolCalls))
+	}
+	if resp.Message.ToolCalls[0].Function.Name != "edit" {
+		t.Errorf("tool name = %q, want %q", resp.Message.ToolCalls[0].Function.Name, "edit")
+	}
+	// Content should be stripped of <tool_call> XML
+	if strings.Contains(resp.Message.Content, "<tool_call>") {
+		t.Errorf("content still contains <tool_call>: %q", resp.Message.Content)
+	}
+	if resp.Message.Content != "" {
+		t.Errorf("content = %q, want empty", resp.Message.Content)
+	}
+}
+
+func TestNormalizeToolCalls_ThinkAndToolCallXMLWithNativeToolCalls(t *testing.T) {
+	// Both <think> and <tool_call> in content, plus native tool_calls.
+	resp := &types.InternalChatResponse{
+		Message: types.InternalMessage{
+			Role:    types.RoleAssistant,
+			Content: "<think>\nLet me think...\n</think>\n\n<tool_call>\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"test.go\"}}\n</tool_call>",
+			ToolCalls: []types.InternalToolCall{
+				{
+					ID:   "call_456",
+					Type: "function",
+					Function: struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					}{Name: "read_file", Arguments: `{"path":"test.go"}`},
+				},
+			},
+		},
+		FinishReason: "tool_calls",
+	}
+
+	NormalizeToolCalls(resp)
+
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool_call, got %d", len(resp.Message.ToolCalls))
+	}
+	if strings.Contains(resp.Message.Content, "<think>") {
+		t.Errorf("content still contains <think>: %q", resp.Message.Content)
+	}
+	if strings.Contains(resp.Message.Content, "<tool_call>") {
+		t.Errorf("content still contains <tool_call>: %q", resp.Message.Content)
+	}
+}
+
+func TestStripToolCallTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"no tags", "hello world", "hello world"},
+		{"single tag", "<tool_call>{\"name\":\"x\"}</tool_call>", ""},
+		{"tag with surrounding text", "before <tool_call>json</tool_call> after", "before  after"},
+		{"unclosed tag", "text <tool_call>rest", "text"},
+		{"multiple tags", "<tool_call>a</tool_call> middle <tool_call>b</tool_call>", "middle"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripToolCallTags(tt.input)
+			if got != strings.TrimSpace(tt.want) {
+				t.Errorf("stripToolCallTags(%q) = %q, want %q", tt.input, got, strings.TrimSpace(tt.want))
+			}
+		})
 	}
 }
 

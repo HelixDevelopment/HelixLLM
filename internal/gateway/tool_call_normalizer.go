@@ -25,12 +25,15 @@ func NormalizeToolCalls(resp *types.InternalChatResponse) {
 	content := stripThinkTags(resp.Message.Content)
 	resp.Message.Content = content
 
-	// If already has native tool_calls from the provider, nothing to normalize.
+	// If already has native tool_calls, strip any duplicate <tool_call> XML
+	// from content (Qwen3 sometimes outputs both) and return.
 	if len(resp.Message.ToolCalls) > 0 {
+		resp.Message.Content = stripToolCallTags(content)
 		return
 	}
 
 	// Try Qwen3 <tool_call>{"name":"...","arguments":{...}}</tool_call> format.
+	// Must run BEFORE stripToolCallTags so the parser can extract the JSON.
 	if strings.Contains(content, "<tool_call>") {
 		if tc := parseQwen3ToolCall(content); tc != nil {
 			resp.Message.ToolCalls = append(resp.Message.ToolCalls, *tc)
@@ -90,6 +93,25 @@ func stripThinkTags(content string) string {
 			break
 		}
 		content = content[:start] + content[end+len("</think>"):]
+	}
+	return strings.TrimSpace(content)
+}
+
+// stripToolCallTags removes <tool_call>...</tool_call> blocks from content.
+// This is needed because Qwen3 sometimes duplicates tool calls both in the
+// native JSON tool_calls field AND as XML in the content.
+func stripToolCallTags(content string) string {
+	for {
+		start := strings.Index(content, "<tool_call>")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(content, "</tool_call>")
+		if end < 0 {
+			content = strings.TrimSpace(content[:start])
+			break
+		}
+		content = content[:start] + content[end+len("</tool_call>"):]
 	}
 	return strings.TrimSpace(content)
 }
