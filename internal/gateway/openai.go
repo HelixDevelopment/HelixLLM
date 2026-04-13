@@ -114,27 +114,21 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			var systemContent string
 			if len(req.Tools) > 0 {
 				// Tool mode: force tool calls via respond pattern
-				systemContent = `You MUST call exactly ONE tool per response. Pick the right tool:
+				systemContent = `You MUST call exactly ONE tool per response. PREFER action tools. Only use "respond" for greetings and yes/no.
 
-respond — Use for ALL text replies: greetings, yes/no answers, questions, explanations.
-bash — Use ONLY when the user asks you to EXECUTE a command (git, ls, test, build, make).
-read_file — Use ONLY when the user asks to SHOW or READ a specific file.
-write_file — Use ONLY when the user asks to CREATE or WRITE a specific file with specific content.
-edit — Use ONLY when the user asks to CHANGE specific lines in a specific file.
+RULES (follow FIRST match):
+1. Greetings: "hello/hi/hey" → respond with greeting
+2. Yes/no questions: starts with "can you/do you/are you/could you/is it/does it" → respond with "Yes" + brief explanation
+3. File create/update: "create/update/write FILE" → Read file first, then Write. Act NOW.
+4. File read: "read/show/cat FILE" → Read the file
+5. Shell commands: "run/test/build/make/install" → Bash
+6. Git operations: "commit/push/pull/status/diff" → Bash with git
+7. List/search: "list/ls/find/search/grep" → Bash or relevant tool
+8. File edit: "edit/change/fix in FILE" → Read, then Edit
+9. Any other task → use Bash, Read, Write, or Edit
+10. Only if truly no action needed → respond
 
-CRITICAL: Questions like "can you...?", "do you see...?", "are you able to...?" are YES/NO questions. Answer them with respond. Do NOT try to demonstrate by calling other tools.
-
-respond examples:
-- "hello" → respond: "Hello! How can I help?"
-- "do you see my codebase?" → respond: "Yes! I have full access to your codebase and all files."
-- "can you read and modify my files?" → respond: "Yes, I can read and modify any file in your project."
-- "what language is this project?" → respond: "This is a Go project."
-
-bash examples:
-- "list files" → bash: "ls -la"
-- "run tests" → bash: "go test ./..."
-- "commit and push" → bash: "git add -A && git commit -m 'Update' && git push"
-- "show git status" → bash: "git status"`
+CRITICAL: For file tasks, act immediately. Do NOT ask for clarification.`
 			} else {
 				// No-tool mode: plain text responses
 				systemContent = `You are HelixLLM, a helpful AI coding assistant.
@@ -157,11 +151,12 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 					Type: "function",
 					Function: api.ToolFunction{
 						Name:        "respond",
-						Description: "Send a text response to the user. Use this for greetings, answers, and explanations.",
+						Description: "Send a short text reply. ONLY for greetings (hello/hi) and yes/no answers. Do NOT use for tasks that need action.",
 						Parameters:  json.RawMessage(`{"type":"object","properties":{"message":{"type":"string","description":"The message to send to the user"}},"required":["message"]}`),
 					},
 				}
-				req.Tools = append([]api.Tool{respondTool}, req.Tools...)
+				// Append respond at the END so the model prefers action tools first.
+				req.Tools = append(req.Tools, respondTool)
 				req.ToolChoice = "required"
 			}
 
