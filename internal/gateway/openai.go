@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -164,53 +165,19 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				req.ToolChoice = "required"
 			}
 
-			// Extract working directory from the original system messages
-			// before stripping them. CLI agents (OpenCode, Crush, etc.)
-			// include the cwd in their system prompt. Without this, the
-			// model uses placeholder paths like "/path/to/your/codebase".
-			cwd := ""
-			for _, m := range req.Messages {
-				if m.Role != "system" {
-					continue
-				}
-				if s, ok := m.Content.(string); ok {
-					// OpenCode: "working directory: /path" or "cwd: /path"
-					for _, prefix := range []string{
-						"working directory: ", "Working directory: ",
-						"cwd: ", "CWD: ", "Current directory: ",
-						"Primary working directory: ",
-					} {
-						if idx := strings.Index(s, prefix); idx >= 0 {
-							rest := s[idx+len(prefix):]
-							// Take until end of line
-							if nl := strings.IndexByte(rest, '\n'); nl > 0 {
-								cwd = strings.TrimSpace(rest[:nl])
-							} else {
-								cwd = strings.TrimSpace(rest)
-							}
-							break
-						}
-					}
-					if cwd != "" {
-						break
-					}
-					// Fallback: look for absolute paths after common keywords
-					for _, kw := range []string{"directory ", "dir "} {
-						if idx := strings.Index(strings.ToLower(s), kw); idx >= 0 {
-							rest := s[idx+len(kw):]
-							if len(rest) > 0 && rest[0] == '/' {
-								if nl := strings.IndexAny(rest, " \n\t"); nl > 0 {
-									cwd = rest[:nl]
-								}
-							}
-						}
-					}
+			// Extract working directory from messages. Search ALL messages
+			// (system and user) because CLI agents put the cwd in various
+			// places. Fall back to the server's own working directory.
+			cwd := extractWorkingDirectory(req.Messages)
+			if cwd == "" {
+				// Fallback: server's own cwd (typically the project root)
+				if wd, err := os.Getwd(); err == nil {
+					cwd = wd
 				}
 			}
-
-			// Inject cwd into system prompt if found.
 			if cwd != "" {
-				systemContent += fmt.Sprintf("\n\nWORKING DIRECTORY: %s\nAll file paths are relative to this directory. Use paths like \"AGENTS.md\" or \"internal/main.go\", NOT \"/path/to/...\".", cwd)
+				systemContent += fmt.Sprintf("\n\nWORKING DIRECTORY: %s\nAll file paths are relative to this directory. Use \"AGENTS.md\" not \"/path/to/...\".", cwd)
+				log.Printf("[HelixLLM] Working directory: %s", cwd)
 			}
 
 			// Replace system messages AND strip OpenCode's instruction-carrying
@@ -762,6 +729,70 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 // into resp.Message.Content, clears the tool calls, and sets FinishReason
 // to "stop". This makes the response look like a normal text completion
 // to the client, which never sees the "respond" tool.
+// extractWorkingDirectory searches all messages for the project working
+// directory. CLI agents embed it in various formats across system and user
+// messages. Returns empty string if not found.
+func extractWorkingDirectory(msgs []api.ChatMessage) string {
+	cwdPrefixes := []string{
+		"Primary working directory: ",
+		"Working directory: ",
+		"working directory: ",
+		"Current directory: ",
+		"current directory: ",
+		"cwd: ", "CWD: ",
+		"Primary working directory:\n",
+	}
+	for _, m := range msgs {
+		s, ok := m.Content.(string)
+		if !ok || s == "" {
+			continue
+		}
+		// Try known prefix patterns
+		for _, prefix := range cwdPrefixes {
+			if idx := strings.Index(s, prefix); idx >= 0 {
+				rest := s[idx+len(prefix):]
+				rest = strings.TrimSpace(rest)
+				if nl := strings.IndexAny(rest, "\n\r"); nl > 0 {
+					return strings.TrimSpace(rest[:nl])
+				}
+				// Take until next whitespace if short enough to be a path
+				if sp := strings.IndexByte(rest, ' '); sp > 0 && sp < 200 {
+					return rest[:sp]
+				}
+				if len(rest) < 200 {
+					return rest
+				}
+			}
+		}
+		// Look for "exists at /absolute/path" pattern (OpenCode /init)
+		if idx := strings.Index(s, "exists at /"); idx >= 0 {
+			rest := s[idx+len("exists at "):]
+			if end := strings.IndexAny(rest, "`,\n\r "); end > 0 {
+				return rest[:end]
+			}
+		}
+		// Look for "working directory" followed by a path on the next line
+		if idx := strings.Index(strings.ToLower(s), "working directory"); idx >= 0 {
+			rest := s[idx:]
+			// Skip to the path part
+			for _, ch := range rest {
+				if ch == '/' {
+					pathStart := strings.Index(rest, "/")
+					pathRest := rest[pathStart:]
+					if end := strings.IndexAny(pathRest, " \n\r\t`"); end > 0 {
+						return pathRest[:end]
+					}
+					break
+				}
+				if ch == '\n' {
+					break
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func convertRespondToolCall(resp *types.InternalChatResponse) {
 	if len(resp.Message.ToolCalls) != 1 {
 		return
