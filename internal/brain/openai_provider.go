@@ -546,7 +546,7 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 	}
 
 	switch toolName {
-	case "bash", "shell", "execute_shell":
+	case "bash", "shell", "execute_shell", "Bash":
 		// Requires: command (string), description (string), timeout (number)
 		if _, ok := args["description"]; !ok {
 			if cmd, ok := args["command"].(string); ok {
@@ -559,7 +559,7 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 			args["timeout"] = 30000
 		}
 
-	case "read", "read_file":
+	case "read", "read_file", "Read":
 		// Normalize path → filePath
 		if _, ok := args["filePath"]; !ok {
 			if p, ok := args["path"].(string); ok {
@@ -567,8 +567,12 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 				delete(args, "path")
 			}
 		}
+		// Fix offset: OpenCode requires offset >= 1 (1-based line numbers)
+		if off, ok := args["offset"].(float64); ok && off < 1 {
+			args["offset"] = float64(1)
+		}
 
-	case "write", "write_file":
+	case "write", "write_file", "Write":
 		if _, ok := args["filePath"]; !ok {
 			if p, ok := args["path"].(string); ok {
 				args["filePath"] = p
@@ -629,10 +633,10 @@ func sanitizeToolArgs(toolName string, args map[string]interface{}) {
 // schema validation errors in the CLI agent.
 func isValidToolCall(toolName string, args map[string]interface{}) bool {
 	switch toolName {
-	case "bash", "shell", "execute_shell":
+	case "bash", "shell", "execute_shell", "Bash":
 		cmd, ok := args["command"].(string)
 		return ok && cmd != ""
-	case "read", "read_file", "write", "write_file", "edit":
+	case "read", "read_file", "Read", "write", "write_file", "Write", "edit", "Edit":
 		fp, ok := args["filePath"].(string)
 		return ok && fp != ""
 	case "question", "ask":
