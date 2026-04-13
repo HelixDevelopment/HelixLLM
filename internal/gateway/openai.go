@@ -781,26 +781,56 @@ func extractWorkingDirectory(msgs []api.ChatMessage) string {
 	return ""
 }
 
+// convertRespondToolCall handles two conversions on the response:
+//  1. "respond" tool calls → plain content (transparent to client)
+//  2. Tool calls with hallucinated placeholder paths → respond fallback.
+//     The 7B model sometimes calls Read/Write with "/path/to/file" or
+//     "/path/to/your/codebase" — these are not real files. Convert them
+//     to a text response so the client doesn't get an error.
 func convertRespondToolCall(resp *types.InternalChatResponse) {
 	if len(resp.Message.ToolCalls) != 1 {
 		return
 	}
 	tc := resp.Message.ToolCalls[0]
-	if tc.Function.Name != "respond" {
+
+	// Case 1: explicit respond tool
+	if tc.Function.Name == "respond" {
+		var args struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil && args.Message != "" {
+			resp.Message.Content = args.Message
+		} else {
+			resp.Message.Content = tc.Function.Arguments
+		}
+		resp.Message.ToolCalls = nil
+		resp.FinishReason = "stop"
 		return
 	}
-	// Extract "message" field from the arguments JSON.
-	var args struct {
-		Message string `json:"message"`
+
+	// Case 2: tool call with hallucinated/placeholder path.
+	// The model sometimes calls Read with "/path/to/file" or similar
+	// fake paths when it should have used respond instead.
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
+		for _, key := range []string{"filePath", "path", "file_path"} {
+			if p, ok := args[key].(string); ok {
+				if strings.HasPrefix(p, "/path/to/") ||
+					strings.HasPrefix(p, "/tmp/path") ||
+					p == "/path" || p == "path" ||
+					strings.Contains(p, "/your/codebase") ||
+					strings.Contains(p, "/your/file") ||
+					strings.Contains(p, "/example/") {
+					// Hallucinated path — convert to respond
+					resp.Message.Content = "Yes, I can help with that. What would you like me to do?"
+					resp.Message.ToolCalls = nil
+					resp.FinishReason = "stop"
+					log.Printf("[HelixLLM] Intercepted hallucinated path %q in %s call → converted to respond", p, tc.Function.Name)
+					return
+				}
+			}
+		}
 	}
-	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil && args.Message != "" {
-		resp.Message.Content = args.Message
-	} else {
-		// Fallback: use the raw arguments as content
-		resp.Message.Content = tc.Function.Arguments
-	}
-	resp.Message.ToolCalls = nil
-	resp.FinishReason = "stop"
 }
 
 // internalToOpenAI converts a types.InternalChatResponse to an OpenAI ChatCompletionResponse.
