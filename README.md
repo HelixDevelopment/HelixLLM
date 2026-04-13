@@ -8,7 +8,7 @@ HelixLLM provides fully compatible OpenAI and Anthropic APIs, local LLM inferenc
 
 - **OpenAI and Anthropic compatible APIs** -- any existing SDK client works without modification
 - **Local LLM inference** via llama.cpp with CUDA, Metal, and ROCm support
-- **Cloud provider routing** to OpenAI and Anthropic with intelligent fallback chains
+- **Multi-provider fallback chain** -- auto-discovers free models from 7+ cloud providers (Chutes, OpenRouter, HuggingFace, Nvidia, Cerebras, SambaNova, Together), scores them via LLMsVerifier, routes through the ranked chain with automatic 429/5xx failover, llama.cpp as guaranteed last resort
 - **RAG knowledge pipeline** -- document ingestion, chunking, embedding, vector search
 - **ReAct agent system** with tool calling, conversation sessions, and RAG integration
 - **HTTP/3 (QUIC) server** with automatic HTTP/2 fallback and TLS 1.3
@@ -100,6 +100,30 @@ HelixLLM compiles to a single binary that operates in one of six modes:
 
 In `full` mode all layers communicate via direct Go function calls with zero network overhead. In distributed mode the same binary runs on multiple hosts in different modes, communicating via gRPC, SSE, and Kafka.
 
+## Multi-Provider Fallback Chain
+
+HelixLLM routes requests through a scored chain of free cloud providers with automatic failover:
+
+1. **Auto-discovery** -- discovers available models from all configured providers (Chutes, OpenRouter, HuggingFace, Nvidia, Cerebras, SambaNova, Together)
+2. **Scoring** -- ranks providers using LLMsVerifier scores (refreshed every 5 minutes)
+3. **Fallback** -- on rate limit (429) or server error (5xx), automatically rotates to the next provider
+4. **Local fallback** -- llama.cpp is always the last resort, guaranteed to be available
+5. **Rate limit tracking** -- parses response headers to proactively skip providers approaching limits
+
+Set API keys for any number of providers in `.env`:
+
+```bash
+HELIX_LLM_CHUTES_KEY=your-key
+HELIX_LLM_OPENROUTER_KEY=your-key
+HELIX_LLM_HUGGINGFACE_KEY=your-key
+HELIX_LLM_NVIDIA_KEY=your-key
+HELIX_LLM_CEREBRAS_KEY=your-key
+HELIX_LLM_SAMBANOVA_KEY=your-key
+HELIX_LLM_TOGETHER_KEY=your-key
+```
+
+The chain automatically discovers and ranks available models. No manual model configuration needed. OpenRouter models with the `:free` suffix are automatically filtered.
+
 ## Configuration
 
 Configuration is loaded from environment variables with sensible defaults. Copy `.env.example` to `.env` and customize:
@@ -110,6 +134,8 @@ HELIX_PORT=8443                          # Server port
 HELIX_LLM_DEFAULT_PROVIDER=local         # local | openai | anthropic | auto
 HELIX_LLM_OPENAI_KEY=sk-...             # OpenAI API key (optional)
 HELIX_LLM_ANTHROPIC_KEY=sk-ant-...      # Anthropic API key (optional)
+HELIX_LLM_CHUTES_KEY=...                # Free cloud providers (optional)
+HELIX_LLM_OPENROUTER_KEY=...
 HELIX_HOSTS=nezha.local                  # Comma-separated cluster hosts
 ```
 
