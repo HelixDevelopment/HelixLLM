@@ -633,30 +633,55 @@ func HandleEmbeddings(_ *brain.Brain, embedder knowledge.Embedder) gin.HandlerFu
 
 // openAIToInternal converts an api.ChatCompletionRequest to types.InternalChatRequest.
 func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest {
-	// Context protection: REPLACE oversized messages with a concise instruction.
-	// Truncated markdown produces garbled model output (`????`). Replacement
-	// with a clean prompt gives coherent responses.
-	// Also enforce total budget to prevent many medium messages exceeding context.
-	const maxPerMsgChars = 2000  // ~500 tokens per message — allows longer user instructions
-	const maxTotalChars = 16000  // ~4K tokens total — safe with 16K context on 7B Q4_K_M
-	const replacementPrompt = "You are an expert AI coding assistant. You have full access to the user's codebase through the provided tools. When asked about files, code, or the project, ALWAYS use tools (read_file, write_file, list_directory, edit_file) to interact directly. Never say you cannot access files."
+	// Context protection: compress old messages to fit context budget.
+	// NEVER replace the last user message — that's the actual request.
+	// Only compress older messages (history) to save tokens.
+	const maxOldMsgChars = 500  // older messages get heavily compressed
+	const maxLastMsgChars = 4000 // the actual user request gets more room
+	const maxTotalChars = 16000
 	totalBudget := maxTotalChars
 	msgs := make([]types.InternalMessage, 0, len(req.Messages))
-	for _, m := range req.Messages {
+
+	// Find the last user message index
+	lastUserIdx := -1
+	for i, m := range req.Messages {
+		if m.Role == "user" {
+			lastUserIdx = i
+		}
+	}
+
+	for i, m := range req.Messages {
 		content := ""
 		switch v := m.Content.(type) {
 		case string:
 			content = v
 		}
-		// Replace oversized messages (don't truncate — truncation produces garbage)
-		if len(content) > maxPerMsgChars {
-			content = replacementPrompt
+
+		// Determine max size: last user message gets full budget, older ones get compressed
+		isLastUser := (i == lastUserIdx)
+		maxChars := maxOldMsgChars
+		if isLastUser {
+			maxChars = maxLastMsgChars
 		}
+
+		// Compress oversized messages (truncate with head+tail, not replace)
+		if len(content) > maxChars {
+			if isLastUser {
+				// Keep head and tail of the actual request
+				headSize := maxChars * 2 / 3
+				tailSize := maxChars / 3
+				content = content[:headSize] + "\n...\n" + content[len(content)-tailSize:]
+			} else {
+				// Old messages: keep just the first part
+				content = content[:maxChars]
+			}
+		}
+
 		// Total budget enforcement
 		if totalBudget <= 0 {
 			content = ""
 		} else if len(content) > totalBudget {
-			content = replacementPrompt
+			content = content[:totalBudget]
 			totalBudget = 0
 		} else {
 			totalBudget -= len(content)
