@@ -309,6 +309,11 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				return
 			}
 
+			// Normalize tool calls from providers that return XML or JSON-in-content
+			// instead of native OpenAI tool_calls (e.g. Qwen3-32B-TEE on Chutes).
+			// Also strips <think> tags from Qwen3 extended-thinking responses.
+			NormalizeToolCalls(resp)
+
 			// Convert "respond" tool calls back to plain content.
 			// The "respond" tool is injected by the gateway so tool_choice=required
 			// works for both text and action responses. Strip it before
