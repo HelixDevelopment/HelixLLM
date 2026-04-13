@@ -97,8 +97,8 @@ func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 			continue
 		}
 
-		// Build a per-entry request: copy and override Model if specified.
-		reqCopy := *req
+		// Build a per-entry request: deep copy and override Model if specified.
+		reqCopy := deepCopyRequest(req)
 		if entry.ModelID != "" {
 			reqCopy.Model = entry.ModelID
 		}
@@ -158,7 +158,7 @@ func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 			continue
 		}
 
-		reqCopy := *req
+		reqCopy := deepCopyRequest(req)
 		if entry.ModelID != "" {
 			reqCopy.Model = entry.ModelID
 		}
@@ -276,4 +276,20 @@ func (c *Chain) writeBackSuccess(idx int) {
 	if cb := c.entries[idx].CircuitBreaker; cb != nil {
 		cb.RecordSuccess()
 	}
+}
+
+// deepCopyRequest returns a shallow-struct copy of req with the slice fields
+// (Messages, Tools) duplicated so that providers cannot mutate each other's
+// view of the request when the chain retries on the next entry.
+func deepCopyRequest(req *types.InternalChatRequest) types.InternalChatRequest {
+	cp := *req
+	if len(req.Messages) > 0 {
+		cp.Messages = make([]types.InternalMessage, len(req.Messages))
+		copy(cp.Messages, req.Messages)
+	}
+	if len(req.Tools) > 0 {
+		cp.Tools = make([]types.InternalTool, len(req.Tools))
+		copy(cp.Tools, req.Tools)
+	}
+	return cp
 }

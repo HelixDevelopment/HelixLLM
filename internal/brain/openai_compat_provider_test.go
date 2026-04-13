@@ -8,6 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
@@ -567,4 +571,132 @@ func TestOpenAICompatProvider_ProviderError_Is(t *testing.T) {
 	if pe.StatusCode != 429 {
 		t.Errorf("StatusCode = %d, want 429", pe.StatusCode)
 	}
+}
+
+// TestOpenAICompatProvider_CompleteStream_ContextCancel verifies that cancelling
+// the context causes the stream channel to be closed promptly, even when the
+// server is still sending chunks.
+func TestOpenAICompatProvider_CompleteStream_ContextCancel(t *testing.T) {
+	// Server that sends chunks slowly so we can cancel mid-stream.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		for i := 0; i < 100; i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+			}
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\n\n")
+			flusher.Flush()
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAICompat(brain.OpenAICompatConfig{
+		Name:       "test",
+		BaseURL:    srv.URL,
+		APIKey:     "k",
+		AuthHeader: "Authorization",
+		AuthPrefix: "Bearer ",
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := p.CompleteStream(ctx, &types.InternalChatRequest{
+		Model:    "m",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+	})
+	require.NoError(t, err)
+
+	// Read one chunk to confirm the stream is live.
+	chunk := <-ch
+	assert.Equal(t, "x", chunk.Content)
+
+	// Cancel the context — the goroutine inside CompleteStream should drain.
+	cancel()
+
+	// Channel must close within 2 seconds of cancellation.
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return // channel closed — test passes
+			}
+		case <-timeout:
+			t.Fatal("channel not closed within 2s after context cancel")
+		}
+	}
+}
+
+// TestOpenAICompatProvider_Complete_ToolCallRoundTrip verifies that Tools are
+// forwarded to the upstream API and that ToolCalls in the response are correctly
+// parsed into the InternalChatResponse.
+func TestOpenAICompatProvider_Complete_ToolCallRoundTrip(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the tools array was forwarded.
+		var body map[string]interface{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		tools, ok := body["tools"].([]interface{})
+		require.True(t, ok, "expected tools array in request body")
+		assert.Len(t, tools, 1)
+
+		// Respond with a tool_calls finish.
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+			"id":    "tc1",
+			"model": "m",
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": nil,
+						"tool_calls": []map[string]interface{}{
+							{
+								"id":   "call_1",
+								"type": "function",
+								"function": map[string]string{
+									"name":      "read_file",
+									"arguments": `{"path":"/tmp/test"}`,
+								},
+							},
+						},
+					},
+					"finish_reason": "tool_calls",
+				},
+			},
+			"usage": map[string]int{
+				"prompt_tokens":     10,
+				"completion_tokens": 5,
+				"total_tokens":      15,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAICompat(brain.OpenAICompatConfig{
+		Name:       "test",
+		BaseURL:    srv.URL,
+		APIKey:     "k",
+		AuthHeader: "Authorization",
+		AuthPrefix: "Bearer ",
+	})
+
+	resp, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model:    "m",
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "read /tmp/test"}},
+		Tools: []types.InternalTool{{
+			Type: "function",
+			Function: api.ToolFunction{
+				Name:        "read_file",
+				Description: "Read a file",
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Message.ToolCalls, 1)
+	assert.Equal(t, "read_file", resp.Message.ToolCalls[0].Function.Name)
+	assert.Equal(t, "call_1", resp.Message.ToolCalls[0].ID)
+	assert.Equal(t, "tool_calls", resp.FinishReason)
 }
