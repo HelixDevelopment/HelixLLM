@@ -1,0 +1,46 @@
+sequenceDiagram
+    participant C as Client
+    participant GW as Gateway
+    participant RAG as RAG Hook
+    participant TM as ToolManager
+    participant FC as FallbackChain
+    participant RL as RateLimitTracker
+    participant OR as OpenRouter
+    participant CH as Chutes
+    participant CB as CircuitBreaker
+
+    C->>GW: POST /v1/chat/completions
+    GW->>RAG: augment with codebase context
+    RAG-->>GW: enriched messages
+    GW->>TM: compress tools
+    TM-->>GW: compressed tool list
+    GW->>FC: Complete(req)
+
+    FC->>RL: ShouldSkip("openrouter")?
+    Note over RL: false — no exhaustion recorded
+    RL-->>FC: false, proceed
+    FC->>OR: Complete(req)
+    OR-->>FC: 429 Too Many Requests
+
+    FC->>RL: mark exhausted, ParseRetryAfter(headers)
+    Note over RL: exponential backoff if no Retry-After header
+    RL-->>FC: cooldown duration set
+
+    FC->>RL: ShouldSkip("chutes")?
+    Note over RL: false — quota not exhausted
+    RL-->>FC: false, proceed
+    FC->>CH: Complete(req)
+    CH-->>FC: 200 OK (response)
+
+    FC->>CB: RecordSuccess("chutes")
+    CB-->>FC: circuit remains closed
+    FC->>RL: UpdateFromHeaders("chutes", headers)
+    RL-->>FC: remaining quota stored
+    FC-->>GW: response
+
+    alt Streaming requested
+        GW-->>C: SSE stream (chunked)
+    else Non-streaming
+        GW->>GW: Compress (Brotli/gzip)
+        GW-->>C: 200 OK (JSON response)
+    end

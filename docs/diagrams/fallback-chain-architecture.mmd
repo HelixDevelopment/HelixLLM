@@ -1,0 +1,72 @@
+graph TB
+    subgraph Gateway["Gateway Layer"]
+        GW_OAI["OpenAI Handler\n(HandleChatCompletions)"]
+        GW_ANT["Anthropic Handler\n(HandleMessages)"]
+        GW_WS["WebSocket Handler"]
+        GW_IFACE["Completer interface"]
+    end
+
+    subgraph FallbackChain["FallbackChain Layer (internal/fallback/)"]
+        FC_CHAIN["Chain\n(orchestrator)"]
+        FC_SCORER["ScorerBridge\n(LLMsVerifier scores)"]
+        FC_RL["RateLimitTracker\n(header parsing)"]
+        FC_CB["CircuitBreaker\n(per-provider)"]
+        FC_MEM["MemoryAdapter\n(→ HelixMemory)"]
+    end
+
+    subgraph Brain["Brain Layer (internal/brain/)"]
+        BR_REG["Provider Registry"]
+        BR_CHUTES["Chutes"]
+        BR_OR["OpenRouter"]
+        BR_HF["HuggingFace"]
+        BR_NV["Nvidia"]
+        BR_CE["Cerebras"]
+        BR_SN["SambaNova"]
+        BR_TO["Together"]
+        BR_OAI["OpenAI"]
+        BR_ANT["Anthropic"]
+        BR_LC["LlamaCpp\n(local fallback)"]
+    end
+
+    subgraph External["External Dependencies"]
+        EXT_VER["LLMsVerifier\n(scores API)"]
+        EXT_MEM["HelixMemory\n(persistent sync)"]
+        EXT_CLOUD["Free Cloud APIs"]
+        EXT_LOCAL["Local llama.cpp"]
+    end
+
+    GW_OAI --> GW_IFACE
+    GW_ANT --> GW_IFACE
+    GW_WS --> GW_IFACE
+    GW_IFACE --> FC_CHAIN
+
+    FC_CHAIN --> FC_RL
+    FC_CHAIN --> FC_CB
+    FC_CHAIN --> FC_MEM
+    FC_SCORER --> FC_CHAIN
+
+    FC_SCORER -->|"GET /api/scores"| EXT_VER
+    FC_MEM -->|"POST /v1/memory/entities"| EXT_MEM
+
+    FC_CHAIN --> BR_REG
+    BR_REG --> BR_CHUTES
+    BR_REG --> BR_OR
+    BR_REG --> BR_HF
+    BR_REG --> BR_NV
+    BR_REG --> BR_CE
+    BR_REG --> BR_SN
+    BR_REG --> BR_TO
+    BR_REG --> BR_OAI
+    BR_REG --> BR_ANT
+    BR_REG --> BR_LC
+
+    BR_CHUTES --> EXT_CLOUD
+    BR_OR --> EXT_CLOUD
+    BR_HF --> EXT_CLOUD
+    BR_NV --> EXT_CLOUD
+    BR_CE --> EXT_CLOUD
+    BR_SN --> EXT_CLOUD
+    BR_TO --> EXT_CLOUD
+    BR_OAI --> EXT_CLOUD
+    BR_ANT --> EXT_CLOUD
+    BR_LC --> EXT_LOCAL

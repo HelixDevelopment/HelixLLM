@@ -1,0 +1,33 @@
+flowchart TD
+    A([Startup]) --> B[Brain registers providers]
+    B --> C["For each provider: fetch Models()"]
+    C --> D[ScorerBridge.FetchScores]
+
+    D --> E{LLMsVerifier\nreachable?}
+    E -->|Yes| F["GET {verifierURL}/api/scores\n→ parse JSON scores map"]
+    E -->|No| G["Use StaticFallbackScores\nopenrouter=90, chutes=85,\nhuggingface=80, nvidia=75,\ncerebras=70, sambanova=65,\ntogether=60, llamacpp=10"]
+
+    F --> H[BuildEntries]
+    G --> H
+
+    H --> I["Sort cloud providers\nby score descending\n(ties: alphabetical)"]
+    I --> J["Append llamacpp\nIsLocalFallback=true\nalways last"]
+    J --> K["Each entry gets\nCircuitBreaker(3 failures, 2min window)"]
+    K --> L[Chain.SetEntries]
+    L --> M([Chain ready — serving requests])
+
+    M --> N{Every 5 minutes\nticker fires}
+    N --> O[ScorerBridge.doRefresh]
+    O --> P["GET {verifierURL}/api/scores\n(10s timeout, independent context)"]
+
+    P --> Q{Response OK?}
+    Q -->|Yes| R[Parse live scores]
+    Q -->|No / empty| S[Retain previous entries\nlog warning, skip update]
+
+    R --> T[BuildEntries with fresh scores]
+    T --> U["Merge with RateLimitTracker state\n(exhausted providers keep cooldown)"]
+    U --> V[Chain.SetEntries — atomic swap]
+    V --> W([Entries updated — next request uses new order])
+    W --> N
+
+    S --> N
