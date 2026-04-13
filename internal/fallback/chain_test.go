@@ -261,6 +261,150 @@ func TestChain_Complete_ConcurrentSafety(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test 7: 429 state persists across successive Complete calls (bug fix)
+// ---------------------------------------------------------------------------
+
+// TestChain_Complete_429PersistsAcrossCalls verifies that when a provider
+// returns HTTP 429, its Exhausted / CooldownUntil state is written back into
+// the Chain's internal entry slice and is therefore visible on the next call.
+//
+// The old snapshot-based implementation (c.Entries() returned a copy) silently
+// discarded every mutation, so the rate-limited provider was retried on every
+// subsequent call.
+func TestChain_Complete_429PersistsAcrossCalls(t *testing.T) {
+	pe429 := &brain.ProviderError{
+		Provider:   "limited",
+		StatusCode: 429,
+		Headers:    http.Header{},
+	}
+	limited := &mockProvider{name: "limited", available: true, err: pe429}
+	backup := &mockProvider{
+		name:      "backup",
+		available: true,
+		resp:      &types.InternalChatResponse{Message: types.InternalMessage{Content: "backup"}},
+	}
+
+	providers := map[string]brain.Provider{
+		"limited": limited,
+		"backup":  backup,
+	}
+
+	chain := fallback.NewChain(providers, fallback.NewRateLimitTracker(5, 1000))
+	chain.SetEntries([]fallback.ChainEntry{
+		{
+			ProviderName:   "limited",
+			ModelID:        "m1",
+			Score:          90,
+			Status:         fallback.EntryActive,
+			CircuitBreaker: fallback.NewCircuitBreaker(3, 2*time.Minute),
+		},
+		{
+			ProviderName:   "backup",
+			ModelID:        "m2",
+			Score:          70,
+			Status:         fallback.EntryActive,
+			CircuitBreaker: fallback.NewCircuitBreaker(3, 2*time.Minute),
+		},
+	})
+
+	req := &types.InternalChatRequest{
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+	}
+
+	// First call: "limited" returns 429 → chain falls back to "backup".
+	resp1, err := chain.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("call 1: unexpected error: %v", err)
+	}
+	if resp1.Message.Content != "backup" {
+		t.Errorf("call 1: expected 'backup', got %q", resp1.Message.Content)
+	}
+
+	// Verify the entry was marked Exhausted (state persisted on c.entries).
+	entries := chain.Entries()
+	if entries[0].Status != fallback.EntryExhausted {
+		t.Errorf("after call 1: expected entries[0].Status=Exhausted, got %v", entries[0].Status)
+	}
+
+	// Second call: "limited" must still be Exhausted (not retried).
+	// If the bug were present, "limited" would be retried, hit 429 again, and
+	// still fall through to "backup" — the assertion on call counts catches this.
+	resp2, err := chain.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("call 2: unexpected error: %v", err)
+	}
+	if resp2.Message.Content != "backup" {
+		t.Errorf("call 2: expected 'backup', got %q", resp2.Message.Content)
+	}
+}
+
+// TestChain_CompleteStream_429PersistsAcrossCalls mirrors the Complete test
+// for the streaming path.
+func TestChain_CompleteStream_429PersistsAcrossCalls(t *testing.T) {
+	pe429 := &brain.ProviderError{
+		Provider:   "limited",
+		StatusCode: 429,
+		Headers:    http.Header{},
+	}
+	limited := &mockProvider{name: "limited", available: true, err: pe429}
+	backup := &mockProvider{
+		name:      "backup",
+		available: true,
+		resp:      &types.InternalChatResponse{Message: types.InternalMessage{Content: "backup"}},
+	}
+
+	providers := map[string]brain.Provider{
+		"limited": limited,
+		"backup":  backup,
+	}
+
+	chain := fallback.NewChain(providers, fallback.NewRateLimitTracker(5, 1000))
+	chain.SetEntries([]fallback.ChainEntry{
+		{
+			ProviderName:   "limited",
+			ModelID:        "m1",
+			Score:          90,
+			Status:         fallback.EntryActive,
+			CircuitBreaker: fallback.NewCircuitBreaker(3, 2*time.Minute),
+		},
+		{
+			ProviderName:   "backup",
+			ModelID:        "m2",
+			Score:          70,
+			Status:         fallback.EntryActive,
+			CircuitBreaker: fallback.NewCircuitBreaker(3, 2*time.Minute),
+		},
+	})
+
+	req := &types.InternalChatRequest{
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+	}
+
+	// First stream call: "limited" returns 429 → chain falls back to "backup".
+	ch1, err := chain.CompleteStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("stream call 1: unexpected error: %v", err)
+	}
+	// Drain channel.
+	for range ch1 {
+	}
+
+	// Verify exhausted state persisted.
+	entries := chain.Entries()
+	if entries[0].Status != fallback.EntryExhausted {
+		t.Errorf("after stream call 1: expected entries[0].Status=Exhausted, got %v", entries[0].Status)
+	}
+
+	// Second stream call: "limited" must still be skipped.
+	ch2, err := chain.CompleteStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("stream call 2: unexpected error: %v", err)
+	}
+	for range ch2 {
+	}
+}
+
+// ---------------------------------------------------------------------------
 // helper
 // ---------------------------------------------------------------------------
 

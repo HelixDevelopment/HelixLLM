@@ -59,14 +59,28 @@ func (c *Chain) Entries() []ChainEntry {
 //
 // If every entry is skipped or fails, Complete returns an error that wraps
 // the last provider error and contains the string "all providers exhausted".
+//
+// State mutations (429 cooldowns, circuit-breaker failures) are written back
+// directly into c.entries under a write lock so the changes persist across
+// successive calls.  The old snapshot-based approach (Entries() returning a
+// copy) silently discarded every mutation.
 func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error) {
-	entries := c.Entries()
+	c.mu.RLock()
+	numEntries := len(c.entries)
+	c.mu.RUnlock()
 
 	var lastErr error
-	for i := range entries {
-		entry := &entries[i]
+	for i := 0; i < numEntries; i++ {
+		// Read entry state under a read lock (copy for local use).
+		c.mu.RLock()
+		if i >= len(c.entries) {
+			c.mu.RUnlock()
+			break
+		}
+		entry := c.entries[i] // value copy for reading
+		c.mu.RUnlock()
 
-		if !entry.Available() {
+		if !c.entryAvailable(i) {
 			slog.Debug("fallback: skipping unavailable entry", "provider", entry.ProviderName)
 			continue
 		}
@@ -91,16 +105,14 @@ func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 
 		resp, err := provider.Complete(ctx, &reqCopy)
 		if err == nil {
-			if entry.CircuitBreaker != nil {
-				entry.CircuitBreaker.RecordSuccess()
-			}
+			c.writeBackSuccess(i)
 			c.rateLimiter.ResetBackoff(entry.ProviderName)
 			return resp, nil
 		}
 
 		// Record the failure and decide on the next action.
 		lastErr = err
-		c.handleError(entry, err)
+		c.writeBackError(i, err)
 		slog.Warn("fallback: provider error, trying next",
 			"provider", entry.ProviderName,
 			"error", err)
@@ -115,13 +127,22 @@ func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 // CompleteStream iterates the entry list in order and calls the first
 // available provider for streaming.  The failover logic mirrors Complete.
 func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatRequest) (<-chan types.StreamChunk, error) {
-	entries := c.Entries()
+	c.mu.RLock()
+	numEntries := len(c.entries)
+	c.mu.RUnlock()
 
 	var lastErr error
-	for i := range entries {
-		entry := &entries[i]
+	for i := 0; i < numEntries; i++ {
+		// Read entry state under a read lock (copy for local use).
+		c.mu.RLock()
+		if i >= len(c.entries) {
+			c.mu.RUnlock()
+			break
+		}
+		entry := c.entries[i] // value copy for reading
+		c.mu.RUnlock()
 
-		if !entry.Available() {
+		if !c.entryAvailable(i) {
 			slog.Debug("fallback: skipping unavailable entry (stream)", "provider", entry.ProviderName)
 			continue
 		}
@@ -144,15 +165,13 @@ func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 
 		ch, err := provider.CompleteStream(ctx, &reqCopy)
 		if err == nil {
-			if entry.CircuitBreaker != nil {
-				entry.CircuitBreaker.RecordSuccess()
-			}
+			c.writeBackSuccess(i)
 			c.rateLimiter.ResetBackoff(entry.ProviderName)
 			return ch, nil
 		}
 
 		lastErr = err
-		c.handleError(entry, err)
+		c.writeBackError(i, err)
 		slog.Warn("fallback: provider stream error, trying next",
 			"provider", entry.ProviderName,
 			"error", err)
@@ -164,19 +183,55 @@ func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 	return nil, fmt.Errorf("all providers exhausted: no entries available")
 }
 
-// handleError inspects err and updates the entry's circuit breaker and
-// cooldown state accordingly.
+// entryAvailable checks whether c.entries[idx] can accept a request, also
+// performing the auto-recovery from Exhausted status when the cooldown has
+// elapsed.  Mutations (status reset) are written back under a write lock so
+// they persist across calls.
+func (c *Chain) entryAvailable(idx int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if idx >= len(c.entries) {
+		return false
+	}
+	e := &c.entries[idx]
+
+	// Auto-recover from exhaustion once the cooldown window has elapsed.
+	if e.Status == EntryExhausted {
+		if !e.CooldownUntil.IsZero() && time.Now().After(e.CooldownUntil) {
+			e.Status = EntryActive
+			e.CooldownUntil = time.Time{}
+		} else {
+			return false
+		}
+	}
+
+	// Defer to the circuit breaker if one is attached.
+	if e.CircuitBreaker != nil && !e.CircuitBreaker.Allow() {
+		return false
+	}
+
+	return true
+}
+
+// writeBackError inspects err and mutates c.entries[idx] directly under a
+// write lock so the changes are visible to subsequent calls.
 //
-//   - HTTP 429: mark the entry Exhausted, set CooldownUntil from Retry-After
-//     header (or exponential backoff if no header is present).
+//   - HTTP 429: mark the entry Exhausted with a CooldownUntil derived from the
+//     Retry-After header or the exponential-backoff sequence.
 //   - HTTP 5xx: record a circuit-breaker failure.
-//   - Any other error (network, context, etc.): record a circuit-breaker failure.
-func (c *Chain) handleError(entry *ChainEntry, err error) {
+//   - Any other error: record a circuit-breaker failure.
+func (c *Chain) writeBackError(idx int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if idx >= len(c.entries) {
+		return
+	}
+	entry := &c.entries[idx]
+
 	var pe *brain.ProviderError
 	if brain.AsProviderError(err, &pe) {
 		switch {
 		case pe.StatusCode == 429:
-			// Parse Retry-After from the headers attached to the error.
 			backoff := c.rateLimiter.ParseRetryAfter(pe.Headers)
 			if backoff <= 0 {
 				backoff = c.rateLimiter.NextBackoff(entry.ProviderName)
@@ -207,5 +262,18 @@ func (c *Chain) handleError(entry *ChainEntry, err error) {
 	// Non-ProviderError (network error, context cancelled, etc.).
 	if entry.CircuitBreaker != nil {
 		entry.CircuitBreaker.RecordFailure()
+	}
+}
+
+// writeBackSuccess records a success on the circuit breaker for c.entries[idx]
+// under a write lock.
+func (c *Chain) writeBackSuccess(idx int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if idx >= len(c.entries) {
+		return
+	}
+	if cb := c.entries[idx].CircuitBreaker; cb != nil {
+		cb.RecordSuccess()
 	}
 }
