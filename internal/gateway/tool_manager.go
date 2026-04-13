@@ -59,7 +59,11 @@ type ToolManagerConfig struct {
 // NewToolManager creates a ToolManager with the given config.
 func NewToolManager(cfg ToolManagerConfig) *ToolManager {
 	if cfg.MaxTools <= 0 {
-		cfg.MaxTools = 5 // 7B models degrade with >5 tools
+		// Per SYSTEM_DESIGN.md: max_tools_in_prompt=20 for small models.
+		// But empirical testing shows 7B Qwen2.5 degrades >5 tools.
+		// Qwen3 8B (native tool calling) should handle 20.
+		// Start conservative; increase when model is upgraded.
+		cfg.MaxTools = 5
 	}
 	if cfg.MaxTokenBudget <= 0 {
 		cfg.MaxTokenBudget = 6000
