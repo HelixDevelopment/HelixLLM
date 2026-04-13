@@ -257,6 +257,13 @@ func main() {
 		OpenAIKey:         cfg.LLM.OpenAIKey,
 		OpenAIBaseURL:     cfg.LLM.OpenAIBaseURL,
 		AnthropicKey:      cfg.LLM.AnthropicKey,
+		ChutesKey:         cfg.LLM.ChutesKey,
+		OpenRouterKey:     cfg.LLM.OpenRouterKey,
+		HuggingFaceKey:    cfg.LLM.HuggingFaceKey,
+		NvidiaKey:         cfg.LLM.NvidiaKey,
+		CerebrasKey:       cfg.LLM.CerebrasKey,
+		SambaNovaKey:      cfg.LLM.SambaNovaKey,
+		TogetherKey:       cfg.LLM.TogetherKey,
 		DefaultProvider:   cfg.LLM.DefaultProvider,
 		ComplexityEnabled: cfg.LLM.ComplexityEnabled,
 		Registry:          registry,
@@ -308,6 +315,10 @@ func main() {
 		VerifierURL:     cfg.LLM.VerifierURL,
 		RefreshInterval: parseDuration(cfg.LLM.ScoreRefreshInterval, 5*time.Minute),
 	})
+
+	// Discover models from all registered providers (must happen before
+	// discoverProviderModels, which reads the cached model lists).
+	fetchProviderModels(ctx, brainSvc)
 
 	providerModels := discoverProviderModels(brainSvc)
 	scores, _ := scorerBridge.FetchScores(ctx)
@@ -451,6 +462,36 @@ func main() {
 	if err := srv.ListenAndServe(ctx); err != nil {
 		log.WithError(err).Error("server error")
 		os.Exit(1)
+	}
+}
+
+// fetchProviderModels calls FetchModels on each provider that supports it,
+// populating the cached model list before the fallback chain is built.
+func fetchProviderModels(ctx context.Context, b *brain.Brain) {
+	type modelFetcher interface {
+		FetchModels(ctx context.Context, filterFn func(string) bool) error
+	}
+	type freeModelFetcher interface {
+		DiscoverFreeModels(ctx context.Context) error
+	}
+
+	providers := b.Providers()
+	slog.Info("fetchProviderModels: starting", "provider_count", len(providers))
+	for name, p := range providers {
+		slog.Info("fetchProviderModels: checking provider", "name", name, "type", fmt.Sprintf("%T", p))
+		if f, ok := p.(freeModelFetcher); ok {
+			if err := f.DiscoverFreeModels(ctx); err != nil {
+				slog.Warn("failed to discover free models", "provider", name, "err", err)
+			} else {
+				slog.Info("discovered free models", "provider", name, "models", len(p.Models()))
+			}
+		} else if f, ok := p.(modelFetcher); ok {
+			if err := f.FetchModels(ctx, nil); err != nil {
+				slog.Warn("failed to fetch models", "provider", name, "err", err)
+			} else {
+				slog.Info("discovered models", "provider", name, "models", len(p.Models()))
+			}
+		}
 	}
 }
 
