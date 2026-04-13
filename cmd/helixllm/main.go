@@ -423,6 +423,12 @@ func main() {
 	// Create three-tier memory manager (working + episodic + semantic via RAG).
 	memMgr := agents.NewMemoryManager(convCtx, pipeline)
 
+	// Wire the MemoryAdapter into the MemoryManager so that high-importance
+	// memories (importance >= 0.7) are queued for persistent sync to HelixMemory.
+	if cfg.LLM.MemorySyncEnabled {
+		memMgr.SetPersistentSyncer(memAdapter)
+	}
+
 	// Create multi-agent coordinator (phase-based: investigation → synthesis → implementation → verification).
 	coordinator := agents.NewCoordinator(agents.CoordinatorConfig{
 		Brain:   brainSvc,

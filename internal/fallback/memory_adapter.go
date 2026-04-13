@@ -92,6 +92,16 @@ func (ma *MemoryAdapter) Queue(entry MemoryEntry) {
 	ma.pending = append(ma.pending, entry)
 }
 
+// QueueMemory implements agents.PersistentSyncer.  It wraps the three
+// discrete fields into a MemoryEntry and delegates to Queue.
+func (ma *MemoryAdapter) QueueMemory(content, memType, sessionID string) {
+	ma.Queue(MemoryEntry{
+		Content:   content,
+		Type:      memType,
+		SessionID: sessionID,
+	})
+}
+
 // PendingCount returns the number of entries currently in the buffer.
 // It is safe to call concurrently and is primarily used by tests.
 func (ma *MemoryAdapter) PendingCount() int {

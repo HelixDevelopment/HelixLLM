@@ -153,10 +153,17 @@ func (s *SemanticMemory) recall(ctx context.Context, query string, topK int) ([]
 //   - working   – current session conversation (ConversationContext)
 //   - episodic  – important facts/decisions keyed by sessionID
 //   - semantic  – long-term vector store via RAG pipeline
+//
+// An optional PersistentSyncer may be attached via SetPersistentSyncer; when
+// set, high-importance memories (importance >= highImportanceThreshold) are
+// also forwarded to it for cross-process persistence (e.g. HelixMemory).
 type MemoryManager struct {
 	working  *ConversationContext
 	episodic *EpisodicMemory
 	semantic *SemanticMemory
+
+	syncerMu sync.RWMutex
+	syncer   PersistentSyncer
 }
 
 // NewMemoryManager creates a MemoryManager.
@@ -169,9 +176,20 @@ func NewMemoryManager(working *ConversationContext, pipeline *knowledge.Pipeline
 	}
 }
 
+// SetPersistentSyncer attaches a PersistentSyncer that receives high-importance
+// memories from Remember().  Passing nil disables persistent sync.
+// Safe to call concurrently.
+func (m *MemoryManager) SetPersistentSyncer(syncer PersistentSyncer) {
+	m.syncerMu.Lock()
+	defer m.syncerMu.Unlock()
+	m.syncer = syncer
+}
+
 // Remember stores content as a memory for sessionID. When importance > 0.7 the
 // entry also persists to the global episodic bucket. The content is always
-// ingested into semantic (vector) memory as well.
+// ingested into semantic (vector) memory as well. If a PersistentSyncer has
+// been set and importance >= highImportanceThreshold the memory is additionally
+// forwarded to the syncer for cross-process persistence (e.g. HelixMemory).
 func (m *MemoryManager) Remember(ctx context.Context, sessionID, content string, importance float64) {
 	entry := MemoryEntry{
 		ID:         uuid.NewString(),
@@ -183,6 +201,16 @@ func (m *MemoryManager) Remember(ctx context.Context, sessionID, content string,
 
 	// Best-effort semantic store; ignore errors since we still have episodic.
 	_ = m.semantic.store(ctx, content)
+
+	// Forward high-importance memories to the persistent syncer (if wired).
+	if importance >= highImportanceThreshold {
+		m.syncerMu.RLock()
+		s := m.syncer
+		m.syncerMu.RUnlock()
+		if s != nil {
+			s.QueueMemory(content, "learning", sessionID)
+		}
+	}
 }
 
 // Recall retrieves up to topK memories related to query for sessionID.

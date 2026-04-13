@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,6 +191,109 @@ func TestMemoryManager_GetContext_NoMemories(t *testing.T) {
 	}
 	if len(msgs) != 0 {
 		t.Errorf("expected empty context for session with no history, got %d", len(msgs))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PersistentSyncer wiring tests
+// ---------------------------------------------------------------------------
+
+// mockSyncer records every QueueMemory call for assertion in tests.
+type mockSyncer struct {
+	mu      sync.Mutex
+	entries []struct{ content, memType, sessionID string }
+}
+
+func (ms *mockSyncer) QueueMemory(content, memType, sessionID string) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.entries = append(ms.entries, struct{ content, memType, sessionID string }{content, memType, sessionID})
+}
+
+func (ms *mockSyncer) len() int {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	return len(ms.entries)
+}
+
+func TestMemoryManager_Remember_HighImportance_CallsSyncer(t *testing.T) {
+	convCtx := NewConversationContext(50)
+	mm := NewMemoryManager(convCtx, nil)
+	syncer := &mockSyncer{}
+	mm.SetPersistentSyncer(syncer)
+
+	ctx := context.Background()
+	mm.Remember(ctx, "sess1", "critical architecture decision", 0.9)
+
+	if syncer.len() != 1 {
+		t.Fatalf("expected 1 syncer call for high-importance memory, got %d", syncer.len())
+	}
+	syncer.mu.Lock()
+	e := syncer.entries[0]
+	syncer.mu.Unlock()
+	if e.content != "critical architecture decision" {
+		t.Errorf("unexpected syncer content: %q", e.content)
+	}
+	if e.memType != "learning" {
+		t.Errorf("unexpected syncer memType: %q", e.memType)
+	}
+	if e.sessionID != "sess1" {
+		t.Errorf("unexpected syncer sessionID: %q", e.sessionID)
+	}
+}
+
+func TestMemoryManager_Remember_LowImportance_DoesNotCallSyncer(t *testing.T) {
+	convCtx := NewConversationContext(50)
+	mm := NewMemoryManager(convCtx, nil)
+	syncer := &mockSyncer{}
+	mm.SetPersistentSyncer(syncer)
+
+	ctx := context.Background()
+	mm.Remember(ctx, "sess1", "minor casual note", 0.5)
+
+	if syncer.len() != 0 {
+		t.Errorf("expected 0 syncer calls for low-importance memory, got %d", syncer.len())
+	}
+}
+
+func TestMemoryManager_Remember_ExactThreshold_CallsSyncer(t *testing.T) {
+	convCtx := NewConversationContext(50)
+	mm := NewMemoryManager(convCtx, nil)
+	syncer := &mockSyncer{}
+	mm.SetPersistentSyncer(syncer)
+
+	ctx := context.Background()
+	// Exactly at threshold (0.7) should trigger the syncer.
+	mm.Remember(ctx, "sess1", "threshold memory", 0.7)
+
+	if syncer.len() != 1 {
+		t.Fatalf("expected 1 syncer call at exact threshold 0.7, got %d", syncer.len())
+	}
+}
+
+func TestMemoryManager_Remember_NoSyncer_DoesNotPanic(t *testing.T) {
+	convCtx := NewConversationContext(50)
+	mm := NewMemoryManager(convCtx, nil) // no syncer set
+
+	ctx := context.Background()
+	// Must not panic even with high importance when no syncer is wired.
+	mm.Remember(ctx, "sess1", "important but no syncer", 0.9)
+}
+
+func TestMemoryManager_SetPersistentSyncer_NilDisablesSyncer(t *testing.T) {
+	convCtx := NewConversationContext(50)
+	mm := NewMemoryManager(convCtx, nil)
+	syncer := &mockSyncer{}
+	mm.SetPersistentSyncer(syncer)
+
+	// Disable syncer by passing nil.
+	mm.SetPersistentSyncer(nil)
+
+	ctx := context.Background()
+	mm.Remember(ctx, "sess1", "important after disable", 0.9)
+
+	if syncer.len() != 0 {
+		t.Errorf("expected 0 syncer calls after nil disable, got %d", syncer.len())
 	}
 }
 

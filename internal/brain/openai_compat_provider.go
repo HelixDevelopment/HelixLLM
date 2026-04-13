@@ -268,6 +268,13 @@ func (p *OpenAICompatProvider) CompleteStream(
 
 // --- internal helpers -------------------------------------------------------
 
+// modelsListResponse is the envelope returned by /models (or /v1/models).
+type modelsListResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
 // setAuthHeader applies the configured authentication header to req.
 func (p *OpenAICompatProvider) setAuthHeader(req *http.Request) {
 	if p.cfg.AuthHeader != "" && p.cfg.APIKey != "" {
@@ -419,7 +426,9 @@ func (p *OpenAICompatProvider) fromAPIResponse(resp *api.ChatCompletionResponse)
 	return result
 }
 
-// truncate returns s truncated to at most n bytes (rune-safe approximation).
+// truncate returns s truncated to at most n bytes. This is byte-level
+// truncation and may split multi-byte UTF-8 sequences; it is only used for
+// error body excerpts where exact Unicode boundaries are not required.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
