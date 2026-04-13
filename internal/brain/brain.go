@@ -34,6 +34,13 @@ type Config struct {
 	OpenAIBaseURL     string
 	AnthropicKey      string
 	AnthropicBaseURL  string
+	ChutesKey         string
+	OpenRouterKey     string
+	HuggingFaceKey    string
+	NvidiaKey         string
+	CerebrasKey       string
+	SambaNovaKey      string
+	TogetherKey       string
 	DefaultProvider   string
 	MaxConcurrent     int // 0 means unlimited
 	ComplexityEnabled bool
@@ -82,6 +89,43 @@ func New(cfg Config) *Brain {
 		p := NewAnthropic(cfg.AnthropicKey, cfg.AnthropicBaseURL)
 		b.providers["anthropic"] = p
 		b.router.Register("anthropic", p)
+	}
+
+	// Register free/cheap cloud providers when their keys are provided.
+	if cfg.ChutesKey != "" {
+		p := NewChutesProvider(cfg.ChutesKey, "")
+		b.providers["chutes"] = p
+		b.router.Register("chutes", p)
+	}
+	if cfg.OpenRouterKey != "" {
+		p := NewOpenRouterProvider(cfg.OpenRouterKey, "")
+		b.providers["openrouter"] = p
+		b.router.Register("openrouter", p)
+	}
+	if cfg.HuggingFaceKey != "" {
+		p := NewHuggingFaceProvider(cfg.HuggingFaceKey, "")
+		b.providers["huggingface"] = p
+		b.router.Register("huggingface", p)
+	}
+	if cfg.NvidiaKey != "" {
+		p := NewNvidiaProvider(cfg.NvidiaKey, "")
+		b.providers["nvidia"] = p
+		b.router.Register("nvidia", p)
+	}
+	if cfg.CerebrasKey != "" {
+		p := NewCerebrasProvider(cfg.CerebrasKey, "")
+		b.providers["cerebras"] = p
+		b.router.Register("cerebras", p)
+	}
+	if cfg.SambaNovaKey != "" {
+		p := NewSambaNovaProvider(cfg.SambaNovaKey, "")
+		b.providers["sambanova"] = p
+		b.router.Register("sambanova", p)
+	}
+	if cfg.TogetherKey != "" {
+		p := NewTogetherProvider(cfg.TogetherKey, "")
+		b.providers["together"] = p
+		b.router.Register("together", p)
 	}
 
 	if cfg.ComplexityEnabled {
@@ -260,6 +304,16 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 		metrics.TrackInference(req.Model, time.Since(inferStart), 0)
 	}()
 	return out, nil
+}
+
+// Providers returns a shallow copy of the registered provider map.
+// Callers may inspect which providers are active without mutating Brain state.
+func (b *Brain) Providers() map[string]Provider {
+	out := make(map[string]Provider, len(b.providers))
+	for k, v := range b.providers {
+		out[k] = v
+	}
+	return out
 }
 
 // Models returns the aggregated list of models from all available providers.

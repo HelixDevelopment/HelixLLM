@@ -50,6 +50,18 @@ type LLMConfig struct {
 	OpenAIKey          string `env:"HELIX_LLM_OPENAI_KEY"`
 	OpenAIBaseURL      string `env:"HELIX_LLM_OPENAI_BASE_URL"`
 	AnthropicKey       string `env:"HELIX_LLM_ANTHROPIC_KEY"`
+	ChutesKey          string `env:"HELIX_LLM_CHUTES_KEY"`
+	OpenRouterKey      string `env:"HELIX_LLM_OPENROUTER_KEY"`
+	HuggingFaceKey     string `env:"HELIX_LLM_HUGGINGFACE_KEY"`
+	NvidiaKey          string `env:"HELIX_LLM_NVIDIA_KEY"`
+	CerebrasKey        string `env:"HELIX_LLM_CEREBRAS_KEY"`
+	SambaNovaKey       string `env:"HELIX_LLM_SAMBANOVA_KEY"`
+	TogetherKey        string `env:"HELIX_LLM_TOGETHER_KEY"`
+	// Fallback chain
+	VerifierURL          string `env:"HELIX_LLM_VERIFIER_URL" default:"http://localhost:7061"`
+	ScoreRefreshInterval string `env:"HELIX_LLM_SCORE_REFRESH_INTERVAL" default:"5m"`
+	MemorySyncEnabled    bool   `env:"HELIX_LLM_MEMORY_SYNC_ENABLED" default:"false"`
+	MemoryURL            string `env:"HELIX_LLM_MEMORY_URL" default:"http://localhost:7061"`
 	DefaultProvider    string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
 	ModelsDir          string `env:"HELIX_MODELS_DIR" default:"/models"`
 	ModelsAutoDownload bool   `env:"HELIX_MODELS_AUTO_DOWNLOAD" default:"true"`
