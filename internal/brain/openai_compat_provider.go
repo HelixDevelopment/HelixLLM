@@ -331,9 +331,22 @@ func (p *OpenAICompatProvider) readSSEStream(
 func (p *OpenAICompatProvider) toAPIRequest(req *types.InternalChatRequest) api.ChatCompletionRequest {
 	messages := make([]api.ChatMessage, len(req.Messages))
 	for i, m := range req.Messages {
+		// Set Content: use nil (serialises as JSON null) for assistant messages
+		// that carry tool_calls but have no text content.  Strict providers such
+		// as Nvidia vLLM and OpenRouter reject "content": "" on those messages,
+		// whereas "content": null is valid per the OpenAI spec.
+		var content interface{}
+		if m.Content != "" {
+			content = m.Content
+		} else if len(m.ToolCalls) > 0 {
+			content = nil // explicit null — omitempty is NOT set on Content
+		} else {
+			content = m.Content // preserve "" for non-tool messages (e.g. user/system)
+		}
+
 		msg := api.ChatMessage{
 			Role:       string(m.Role),
-			Content:    m.Content,
+			Content:    content,
 			Name:       m.Name,
 			ToolCallID: m.ToolCallID,
 		}

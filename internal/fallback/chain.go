@@ -97,6 +97,20 @@ func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 			continue
 		}
 
+		// Skip entries whose model is not known to support tool calling when the
+		// request carries tools.  This avoids sending tool-bearing requests to
+		// models such as Gemma or GLM-5.1 that reject the tools field entirely.
+		// The entry is not marked Exhausted — it may still serve tool-free requests.
+		modelID := entry.ModelID
+		if modelID == "" {
+			modelID = req.Model
+		}
+		if len(req.Tools) > 0 && !modelSupportsTools(modelID) {
+			slog.Debug("fallback: skipping non-tool-capable model for tool request",
+				"provider", entry.ProviderName, "model", modelID)
+			continue
+		}
+
 		// Build a per-entry request: deep copy and override Model if specified.
 		reqCopy := deepCopyRequest(req)
 		if entry.ModelID != "" {
@@ -155,6 +169,18 @@ func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 		provider, ok := c.providers[entry.ProviderName]
 		if !ok {
 			slog.Warn("fallback: provider not registered (stream)", "provider", entry.ProviderName)
+			continue
+		}
+
+		// Skip entries whose model is not known to support tool calling when the
+		// request carries tools (mirrors the non-streaming path).
+		streamModelID := entry.ModelID
+		if streamModelID == "" {
+			streamModelID = req.Model
+		}
+		if len(req.Tools) > 0 && !modelSupportsTools(streamModelID) {
+			slog.Debug("fallback: skipping non-tool-capable model for tool request (stream)",
+				"provider", entry.ProviderName, "model", streamModelID)
 			continue
 		}
 

@@ -405,6 +405,183 @@ func TestChain_CompleteStream_429PersistsAcrossCalls(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: modelSupportsTools heuristic
+// ---------------------------------------------------------------------------
+
+func TestModelSupportsTools(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		// Known tool-capable families.
+		{"qwen2.5-coder-3b-instruct", true},
+		{"Qwen2-72B-Instruct", true},
+		{"deepseek-coder-v2", true},
+		{"DeepSeek-R1", true},
+		{"llama-3.1-70b-instruct", true},
+		{"meta-llama-3-8b", true},
+		{"mistral-7b-instruct-v0.3", true},
+		{"Mixtral-8x7B-Instruct-v0.1", true},
+		{"gpt-4o", true},
+		{"gpt-3.5-turbo", true},
+		{"claude-3-5-sonnet", true},
+		{"command-r-plus", true},
+		{"functionary-small-v3.2", true},
+		{"hermes-2-pro-llama-3-8b", true},
+		{"NousHermes-2-Mistral", true},
+		{"openhermes-2.5", true},
+		{"phi-3-mini-128k", true},
+		{"phi3-medium", true},
+		{"nexusraven-v2-13b", true},
+		// Models that do NOT support tools.
+		{"gemma-2-9b-it", false},
+		{"gemma-7b", false},
+		{"glm-4-9b", false},
+		{"falcon-7b-instruct", false},
+		{"starcoder2-15b", false},
+		// Empty model ID — should return true (try rather than skip).
+		{"", true},
+	}
+
+	for _, tc := range cases {
+		got := fallback.ModelSupportsTools(tc.model)
+		if got != tc.want {
+			t.Errorf("modelSupportsTools(%q) = %v, want %v", tc.model, got, tc.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: chain skips non-tool-capable models for tool requests
+// ---------------------------------------------------------------------------
+
+// TestChain_Complete_SkipsNonToolCapableModel verifies that when a request
+// carries Tools, an entry whose ModelID is not in the tool-capable list is
+// skipped and the chain falls through to the next (capable) entry.
+func TestChain_Complete_SkipsNonToolCapableModel(t *testing.T) {
+	// "gemma" is NOT in toolCapableModelPrefixes.
+	gemmaProvider := &mockProvider{name: "gemma-host", available: true, resp: okResp("gemma")}
+	// "qwen" IS tool-capable.
+	qwenProvider := &mockProvider{name: "qwen-host", available: true, resp: okResp("qwen")}
+
+	providers := map[string]brain.Provider{
+		"gemma-host": gemmaProvider,
+		"qwen-host":  qwenProvider,
+	}
+	chain := fallback.NewChain(providers, newRL())
+	chain.SetEntries([]fallback.ChainEntry{
+		{ProviderName: "gemma-host", ModelID: "gemma-2-9b-it", Score: 9.0,
+			Status: fallback.EntryActive, CircuitBreaker: newCB()},
+		{ProviderName: "qwen-host", ModelID: "qwen2.5-coder-3b", Score: 7.0,
+			Status: fallback.EntryActive, CircuitBreaker: newCB()},
+	})
+
+	req := &types.InternalChatRequest{
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "use the tool"}},
+		Tools:    []types.InternalTool{{Type: "function"}}, // non-empty Tools
+	}
+
+	resp, err := chain.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Gemma should have been skipped; response must come from qwen-host.
+	if resp.ID != "qwen" {
+		t.Errorf("expected response from qwen-host (tool-capable), got %q", resp.ID)
+	}
+}
+
+// TestChain_CompleteStream_SkipsNonToolCapableModel mirrors the above for the
+// streaming path.
+func TestChain_CompleteStream_SkipsNonToolCapableModel(t *testing.T) {
+	gemmaProvider := &mockProvider{name: "gemma-host", available: true, resp: okResp("gemma")}
+	qwenProvider := &mockProvider{name: "qwen-host", available: true, resp: okResp("qwen")}
+
+	providers := map[string]brain.Provider{
+		"gemma-host": gemmaProvider,
+		"qwen-host":  qwenProvider,
+	}
+	chain := fallback.NewChain(providers, newRL())
+	chain.SetEntries([]fallback.ChainEntry{
+		{ProviderName: "gemma-host", ModelID: "gemma-7b", Score: 9.0,
+			Status: fallback.EntryActive, CircuitBreaker: newCB()},
+		{ProviderName: "qwen-host", ModelID: "qwen2-72b-instruct", Score: 7.0,
+			Status: fallback.EntryActive, CircuitBreaker: newCB()},
+	})
+
+	req := &types.InternalChatRequest{
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "use the tool"}},
+		Tools:    []types.InternalTool{{Type: "function"}},
+	}
+
+	ch, err := chain.CompleteStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Drain the channel — the mock sends one chunk then closes.
+	var got []types.StreamChunk
+	for c := range ch {
+		got = append(got, c)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one stream chunk from qwen-host")
+	}
+}
+
+// TestChain_Complete_ToolRequestUsesCapableModelDirectly verifies that when the
+// first (and only) entry IS tool-capable, the request is served without
+// skipping — no regressions on the happy path.
+func TestChain_Complete_ToolRequestUsesCapableModelDirectly(t *testing.T) {
+	qwenProvider := &mockProvider{name: "qwen-host", available: true, resp: okResp("direct")}
+
+	providers := map[string]brain.Provider{"qwen-host": qwenProvider}
+	chain := fallback.NewChain(providers, newRL())
+	chain.SetEntries([]fallback.ChainEntry{
+		{ProviderName: "qwen-host", ModelID: "qwen2.5-coder-1.5b", Score: 8.0,
+			Status: fallback.EntryActive, CircuitBreaker: newCB()},
+	})
+
+	req := &types.InternalChatRequest{
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "use the tool"}},
+		Tools:    []types.InternalTool{{Type: "function"}},
+	}
+
+	resp, err := chain.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ID != "direct" {
+		t.Errorf("expected direct response, got %q", resp.ID)
+	}
+}
+
+// TestChain_Complete_NoToolsDoesNotSkipNonCapableModel ensures that when the
+// request has NO tools, non-capable models (e.g. gemma) are NOT skipped.
+func TestChain_Complete_NoToolsDoesNotSkipNonCapableModel(t *testing.T) {
+	gemmaProvider := &mockProvider{name: "gemma-host", available: true, resp: okResp("gemma-resp")}
+
+	providers := map[string]brain.Provider{"gemma-host": gemmaProvider}
+	chain := fallback.NewChain(providers, newRL())
+	chain.SetEntries([]fallback.ChainEntry{
+		{ProviderName: "gemma-host", ModelID: "gemma-2-9b-it", Score: 9.0,
+			Status: fallback.EntryActive, CircuitBreaker: newCB()},
+	})
+
+	// No tools in the request.
+	req := &types.InternalChatRequest{
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hello"}},
+	}
+
+	resp, err := chain.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ID != "gemma-resp" {
+		t.Errorf("expected gemma-resp, got %q", resp.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // helper
 // ---------------------------------------------------------------------------
 

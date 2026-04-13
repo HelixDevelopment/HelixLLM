@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -699,4 +700,145 @@ func TestOpenAICompatProvider_Complete_ToolCallRoundTrip(t *testing.T) {
 	assert.Equal(t, "read_file", resp.Message.ToolCalls[0].Function.Name)
 	assert.Equal(t, "call_1", resp.Message.ToolCalls[0].ID)
 	assert.Equal(t, "tool_calls", resp.FinishReason)
+}
+
+// TestOpenAICompatProvider_toAPIRequest_AssistantToolCallContentNull verifies
+// that an assistant message with tool_calls and no text content serialises with
+// "content": null (not "content": "") in the outgoing JSON.
+//
+// Strict providers such as Nvidia vLLM and OpenRouter reject
+// "content": "" on assistant messages that carry tool_calls.
+func TestOpenAICompatProvider_toAPIRequest_AssistantToolCallContentNull(t *testing.T) {
+	var capturedBody []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		capturedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read error", http.StatusInternalServerError)
+			return
+		}
+		// Return a minimal valid response so Complete() doesn't error out.
+		resp := api.ChatCompletionResponse{
+			ID:    "null-content-test",
+			Model: "m",
+			Choices: []api.ChatCompletionChoice{
+				{Message: api.ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAICompat(brain.OpenAICompatConfig{
+		Name:       "test",
+		BaseURL:    srv.URL,
+		APIKey:     "k",
+		AuthHeader: "Authorization",
+		AuthPrefix: "Bearer ",
+	})
+
+	// Build a request that includes a prior assistant message with a tool_call
+	// but no text content — exactly the pattern that triggers the bug.
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model: "m",
+		Messages: []types.InternalMessage{
+			{Role: types.RoleUser, Content: "call the tool"},
+			{
+				Role:    types.RoleAssistant,
+				Content: "", // empty — should become null in JSON
+				ToolCalls: []types.InternalToolCall{
+					{
+						ID:   "call_abc",
+						Type: "function",
+						Function: struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						}{Name: "my_tool", Arguments: `{}`},
+					},
+				},
+			},
+			{Role: types.RoleTool, Content: `{"result":"done"}`, ToolCallID: "call_abc"},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedBody, "server should have received a request body")
+
+	// Parse as raw JSON so we can inspect the exact wire representation.
+	var rawReq struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(capturedBody, &rawReq))
+	require.Len(t, rawReq.Messages, 3)
+
+	// The second message (index 1) is the assistant tool-call message.
+	var assistantMsg map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawReq.Messages[1], &assistantMsg))
+
+	contentRaw, ok := assistantMsg["content"]
+	require.True(t, ok, "content field must be present in the serialised message")
+
+	// "content": null is the only acceptable wire form — NOT "content": "".
+	assert.Equal(t, "null", string(contentRaw),
+		"assistant message with tool_calls and empty content must serialise as null, not %q",
+		string(contentRaw))
+}
+
+// TestOpenAICompatProvider_toAPIRequest_UserEmptyContentPreserved verifies that
+// a user message with empty content is still serialised with "content": "" (not
+// null), preserving backward-compatible behaviour for non-tool messages.
+func TestOpenAICompatProvider_toAPIRequest_UserEmptyContentPreserved(t *testing.T) {
+	var capturedBody []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		capturedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read error", http.StatusInternalServerError)
+			return
+		}
+		resp := api.ChatCompletionResponse{
+			ID:    "empty-user-test",
+			Model: "m",
+			Choices: []api.ChatCompletionChoice{
+				{Message: api.ChatMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAICompat(brain.OpenAICompatConfig{
+		Name:       "test",
+		BaseURL:    srv.URL,
+		APIKey:     "k",
+		AuthHeader: "Authorization",
+		AuthPrefix: "Bearer ",
+	})
+
+	_, err := p.Complete(context.Background(), &types.InternalChatRequest{
+		Model: "m",
+		Messages: []types.InternalMessage{
+			{Role: types.RoleUser, Content: ""}, // empty but no tool_calls
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedBody)
+
+	var rawReq struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(capturedBody, &rawReq))
+	require.Len(t, rawReq.Messages, 1)
+
+	var userMsg map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rawReq.Messages[0], &userMsg))
+
+	contentRaw := userMsg["content"]
+	// Empty string user message should serialise as "" not null.
+	assert.Equal(t, `""`, string(contentRaw),
+		"user message with empty content should serialise as empty string, got %q",
+		string(contentRaw))
 }
