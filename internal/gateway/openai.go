@@ -666,11 +666,22 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 
 	// Fix empty messages that cause 400 errors from llama.cpp.
 	// Empty tool results and empty assistant messages break the Qwen3
-	// chat template. Replace empty content with "(no output)".
+	// chat template. Replace empty/nil content with "(no output)".
 	for i := range input {
 		if input[i].Role == "tool" {
-			if s, ok := input[i].Content.(string); ok && s == "" {
+			switch v := input[i].Content.(type) {
+			case string:
+				if v == "" {
+					input[i].Content = "(no output)"
+				}
+			case nil:
 				input[i].Content = "(no output)"
+			}
+		}
+		// Also fix empty assistant messages without tool_calls
+		if input[i].Role == "assistant" {
+			if s, ok := input[i].Content.(string); ok && s == "" && len(input[i].ToolCalls) == 0 {
+				input[i].Content = "(acknowledged)"
 			}
 		}
 	}
