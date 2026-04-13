@@ -140,7 +140,7 @@ func (p *OpenAICompatProvider) FetchModels(ctx context.Context, filterFn func(id
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("%s: FetchModels unexpected status %d: %s",
 			p.cfg.Name, resp.StatusCode, truncate(string(body), 200))
 	}
@@ -198,7 +198,7 @@ func (p *OpenAICompatProvider) Complete(
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(httpResp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
 		return nil, &ProviderError{
 			Provider:   p.cfg.Name,
 			StatusCode: httpResp.StatusCode,
@@ -246,8 +246,14 @@ func (p *OpenAICompatProvider) CompleteStream(
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(httpResp.Body, 1024))
 		httpResp.Body.Close()
-		return nil, fmt.Errorf("%s: stream unexpected status %d", p.cfg.Name, httpResp.StatusCode)
+		return nil, &ProviderError{
+			Provider:   p.cfg.Name,
+			StatusCode: httpResp.StatusCode,
+			Body:       truncate(string(respBody), 500),
+			Headers:    httpResp.Header.Clone(),
+		}
 	}
 
 	ch := make(chan types.StreamChunk, 64)
@@ -305,7 +311,11 @@ func (p *OpenAICompatProvider) readSSEStream(
 			if chunk.Choices[0].FinishReason != nil {
 				sc.FinishReason = *chunk.Choices[0].FinishReason
 			}
-			ch <- sc
+			select {
+			case ch <- sc:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }

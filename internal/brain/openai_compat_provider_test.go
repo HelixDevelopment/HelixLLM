@@ -501,6 +501,56 @@ func TestOpenAICompatProvider_CompleteStream_ErrorStatus(t *testing.T) {
 	}
 }
 
+// TestOpenAICompatProvider_CompleteStream_Returns429AsProviderError verifies
+// that a 429 response on the streaming endpoint is surfaced as a *ProviderError
+// so that FallbackChain can use errors.As to detect rate-limit conditions.
+func TestOpenAICompatProvider_CompleteStream_Returns429AsProviderError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		http.Error(w, `{"error":{"message":"rate limit exceeded","type":"rate_limit_error"}}`,
+			http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	p := brain.NewOpenAICompat(brain.OpenAICompatConfig{
+		Name:       "testprovider",
+		BaseURL:    srv.URL,
+		APIKey:     "test-api-key",
+		AuthHeader: "Authorization",
+		AuthPrefix: "Bearer ",
+	})
+
+	_, err := p.CompleteStream(context.Background(), &types.InternalChatRequest{
+		Model:  "test-model",
+		Stream: true,
+		Messages: []types.InternalMessage{{Role: types.RoleUser, Content: "hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for 429 streaming response, got nil")
+	}
+
+	var pe *brain.ProviderError
+	if !brain.AsProviderError(err, &pe) {
+		t.Fatalf("expected *ProviderError, got %T: %v", err, err)
+	}
+	if pe.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("ProviderError.StatusCode = %d, want 429", pe.StatusCode)
+	}
+	if pe.Provider != "testprovider" {
+		t.Errorf("ProviderError.Provider = %q, want testprovider", pe.Provider)
+	}
+	if pe.Headers.Get("Retry-After") != "30" {
+		t.Errorf("ProviderError.Headers[Retry-After] = %q, want 30", pe.Headers.Get("Retry-After"))
+	}
+	if pe.Body == "" {
+		t.Error("ProviderError.Body should not be empty for 429")
+	}
+	if !strings.Contains(pe.Body, "rate limit") {
+		t.Errorf("ProviderError.Body = %q, expected to contain 'rate limit'", pe.Body)
+	}
+}
+
 // TestOpenAICompatProvider_ProviderError_Is verifies the errors.Is chain works
 // as documented (errors.As with *ProviderError).
 func TestOpenAICompatProvider_ProviderError_Is(t *testing.T) {
