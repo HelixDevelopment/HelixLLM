@@ -125,24 +125,37 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				Content: systemContent,
 			}
 
-			// When the client sends tools (CLI agents like OpenCode always do),
-			// inject a "respond" tool and set tool_choice=required. This
-			// forces the model to ALWAYS produce a tool call — either
-			// "respond" for text or "bash"/"read_file"/etc. for actions.
-			// Without this, the 7B model falls into "explain mode" and
-			// never calls tools in multi-turn conversations.
+			// Inject "respond" tool and set tool_choice when tools are present.
+			// tool_choice=required on FIRST turn forces the model into tool
+			// calling mode. But after a tool has been executed (tool role in
+			// messages), switch to tool_choice=auto so the model can finish
+			// with a text response instead of looping tool calls forever.
 			if len(req.Tools) > 0 {
 				respondTool := api.Tool{
 					Type: "function",
 					Function: api.ToolFunction{
 						Name:        "respond",
-						Description: "Send a short text reply. ONLY for greetings (hello/hi) and yes/no answers. Do NOT use for tasks that need action.",
+						Description: "Send a text reply to the user. Use for greetings, yes/no answers, summaries, and explanations.",
 						Parameters:  json.RawMessage(`{"type":"object","properties":{"message":{"type":"string","description":"The message to send to the user"}},"required":["message"]}`),
 					},
 				}
-				// Append respond at the END so the model prefers action tools first.
 				req.Tools = append(req.Tools, respondTool)
-				req.ToolChoice = "required"
+
+				// Check if there's already a tool result in the conversation.
+				// If yes, the model is in a tool loop — use "auto" so it
+				// can choose to respond with text and break the loop.
+				hasToolResult := false
+				for _, m := range req.Messages {
+					if m.Role == "tool" {
+						hasToolResult = true
+						break
+					}
+				}
+				if hasToolResult {
+					req.ToolChoice = "auto"
+				} else {
+					req.ToolChoice = "required"
+				}
 			}
 
 			// Extract working directory from messages. Search ALL messages
