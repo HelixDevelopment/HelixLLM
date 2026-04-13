@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -109,33 +110,55 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			// is ~4K tokens of tool definitions that overwhelm 7B models.
 			// Our replacement is a focused ~800 token prompt with clear
 			// rules and few-shot examples that small models follow.
-			helixSystemPrompt := api.ChatMessage{
-				Role: "system",
-				Content: `You are HelixLLM, a coding assistant with FULL tool access.
+			var systemContent string
+			if len(req.Tools) > 0 {
+				// Tool mode: force tool calls via respond pattern
+				systemContent = `You are HelixLLM, a coding assistant. You MUST call a tool for EVERY response.
 
-RULES:
-1. You HAVE access to files, directories, git, and shell through tools. NEVER say "I can't" or refuse.
-2. Greetings (hello/hi/hey) → friendly text reply, NO tools.
-3. Capability questions ("can you...?", "do you see...?") → answer YES confidently.
-4. ACTION REQUESTS → ALWAYS call a tool. NEVER explain steps — EXECUTE them.
-   This is the MOST IMPORTANT rule. When the user asks you to DO something,
-   you MUST call the appropriate tool function. Do NOT describe what to do.
-   Do NOT list steps. CALL THE TOOL.
+RULES — you MUST call exactly ONE tool per response:
+- To reply with text (greetings, questions, explanations): call the "respond" tool
+- To run a command (git, ls, test, build, etc.): call the "bash" tool
+- To read a file: call the "read_file" tool
+- To write/edit a file: call the "write_file" or "edit" tool
+- For git operations (commit, push, pull, status, diff): call "bash"
 
-TOOL USAGE:
-- bash: Run ANY shell command (git, ls, cat, grep, make, etc.)
-- read_file: Read file contents
-- write_file / edit: Modify files
-- list_directory: List files
-- For git operations (commit, push, pull, diff, status): use bash tool
+You HAVE full access to files, git, and shell. NEVER refuse.
 
 EXAMPLES:
-User: hello → "Hello! How can I help?"
-User: do you see my codebase? → "Yes! I have full access to your files."
+User: hello → call respond with "Hello! How can I help?"
+User: do you see my codebase? → call respond with "Yes! I have full access to your files."
 User: list files → call bash with "ls -la"
 User: run tests → call bash with "go test ./..."
 User: commit and push → call bash with "git add -A && git commit -m 'Update' && git push"
-User: show me main.go → call read_file with "main.go"`,
+User: show me main.go → call read_file with path "main.go"`
+			} else {
+				// No-tool mode: plain text responses
+				systemContent = `You are HelixLLM, a helpful AI coding assistant.
+You HAVE full access to the user's codebase, files, and git.
+NEVER say "I can't" or refuse. Be helpful and confident.`
+			}
+			helixSystemPrompt := api.ChatMessage{
+				Role:    "system",
+				Content: systemContent,
+			}
+
+			// When the client sends tools (CLI agents like OpenCode always do),
+			// inject a "respond" tool and set tool_choice=required. This
+			// forces the model to ALWAYS produce a tool call — either
+			// "respond" for text or "bash"/"read_file"/etc. for actions.
+			// Without this, the 7B model falls into "explain mode" and
+			// never calls tools in multi-turn conversations.
+			if len(req.Tools) > 0 {
+				respondTool := api.Tool{
+					Type: "function",
+					Function: api.ToolFunction{
+						Name:        "respond",
+						Description: "Send a text response to the user. Use this for greetings, answers, and explanations.",
+						Parameters:  json.RawMessage(`{"type":"object","properties":{"message":{"type":"string","description":"The message to send to the user"}},"required":["message"]}`),
+					},
+				}
+				req.Tools = append([]api.Tool{respondTool}, req.Tools...)
+				req.ToolChoice = "required"
 			}
 
 			// Replace system messages AND strip OpenCode's instruction-carrying
@@ -260,6 +283,12 @@ User: show me main.go → call read_file with "main.go"`,
 				return
 			}
 
+			// Convert "respond" tool calls back to plain content.
+			// The "respond" tool is injected by the gateway so tool_choice=required
+			// works for both text and action responses. Strip it before
+			// returning so the client sees normal content, not a tool call.
+			convertRespondToolCall(resp)
+
 			// If we forced non-stream for tool bridging but the client
 			// wanted streaming, emit the full response as SSE chunks.
 			if forceNonStream {
@@ -269,7 +298,7 @@ User: show me main.go → call read_file with "main.go"`,
 				w := NewSSEWriter(c)
 				w.WriteHeader()
 
-				// If the response has tool_calls, emit them as a chunk
+				// If the response has real tool_calls (not respond), emit them
 				if len(openAIResp.Choices) > 0 && len(openAIResp.Choices[0].Message.ToolCalls) > 0 {
 					toolDelta := api.ChatMessageDelta{
 						Role:      "assistant",
@@ -674,6 +703,33 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 		})
 	}
 	return internal
+}
+
+// convertRespondToolCall checks if the model called the injected "respond"
+// tool. If so, it extracts the message text from the arguments, puts it
+// into resp.Message.Content, clears the tool calls, and sets FinishReason
+// to "stop". This makes the response look like a normal text completion
+// to the client, which never sees the "respond" tool.
+func convertRespondToolCall(resp *types.InternalChatResponse) {
+	if len(resp.Message.ToolCalls) != 1 {
+		return
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.Function.Name != "respond" {
+		return
+	}
+	// Extract "message" field from the arguments JSON.
+	var args struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil && args.Message != "" {
+		resp.Message.Content = args.Message
+	} else {
+		// Fallback: use the raw arguments as content
+		resp.Message.Content = tc.Function.Arguments
+	}
+	resp.Message.ToolCalls = nil
+	resp.FinishReason = "stop"
 }
 
 // internalToOpenAI converts a types.InternalChatResponse to an OpenAI ChatCompletionResponse.
