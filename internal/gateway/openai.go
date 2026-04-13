@@ -126,10 +126,6 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 			}
 
 			// Inject "respond" tool and set tool_choice when tools are present.
-			// tool_choice=required on FIRST turn forces the model into tool
-			// calling mode. But after a tool has been executed (tool role in
-			// messages), switch to tool_choice=auto so the model can finish
-			// with a text response instead of looping tool calls forever.
 			if len(req.Tools) > 0 {
 				respondTool := api.Tool{
 					Type: "function",
@@ -141,17 +137,17 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				}
 				req.Tools = append(req.Tools, respondTool)
 
-				// Check if there's already a tool result in the conversation.
-				// If yes, the model is in a tool loop — use "auto" so it
-				// can choose to respond with text and break the loop.
-				hasToolResult := false
-				for _, m := range req.Messages {
-					if m.Role == "tool" {
-						hasToolResult = true
-						break
-					}
+				// Determine tool_choice based on the LAST message role:
+				// - If last message is "tool" → the model needs to summarize
+				//   the tool result. Use "auto" so it can respond with text
+				//   and break any tool loop.
+				// - Otherwise (last message is "user" = new request) → use
+				//   "required" to force tool calling for the new intent.
+				lastRole := ""
+				if len(req.Messages) > 0 {
+					lastRole = req.Messages[len(req.Messages)-1].Role
 				}
-				if hasToolResult {
+				if lastRole == "tool" {
 					req.ToolChoice = "auto"
 				} else {
 					req.ToolChoice = "required"
