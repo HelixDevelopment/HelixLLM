@@ -221,12 +221,16 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 
 			internalReq := openAIToInternal(&req)
 
-			// Apply RAG hook: inject retrieved codebase context into the
-			// prompt so the model has relevant code/docs pre-loaded and
-			// doesn't need to explore via repeated tool calls.
+			// Apply RAG hook: inject retrieved codebase context.
 			if ragHook != nil {
 				internalReq = ragHook(internalReq)
 			}
+
+			// Orchestrator: compact tool history and inject action hints
+			// to prevent multi-step tool loops on small models.
+			orch := NewRequestOrchestrator()
+			internalReq = orch.CompactToolHistory(internalReq, 2)
+			internalReq = orch.EnhanceRequest(internalReq)
 
 			// CRITICAL: Force non-streaming when tools are present.
 			// Ollama returns tool calls as plain text in streaming chunks,
