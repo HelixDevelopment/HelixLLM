@@ -164,6 +164,55 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				req.ToolChoice = "required"
 			}
 
+			// Extract working directory from the original system messages
+			// before stripping them. CLI agents (OpenCode, Crush, etc.)
+			// include the cwd in their system prompt. Without this, the
+			// model uses placeholder paths like "/path/to/your/codebase".
+			cwd := ""
+			for _, m := range req.Messages {
+				if m.Role != "system" {
+					continue
+				}
+				if s, ok := m.Content.(string); ok {
+					// OpenCode: "working directory: /path" or "cwd: /path"
+					for _, prefix := range []string{
+						"working directory: ", "Working directory: ",
+						"cwd: ", "CWD: ", "Current directory: ",
+						"Primary working directory: ",
+					} {
+						if idx := strings.Index(s, prefix); idx >= 0 {
+							rest := s[idx+len(prefix):]
+							// Take until end of line
+							if nl := strings.IndexByte(rest, '\n'); nl > 0 {
+								cwd = strings.TrimSpace(rest[:nl])
+							} else {
+								cwd = strings.TrimSpace(rest)
+							}
+							break
+						}
+					}
+					if cwd != "" {
+						break
+					}
+					// Fallback: look for absolute paths after common keywords
+					for _, kw := range []string{"directory ", "dir "} {
+						if idx := strings.Index(strings.ToLower(s), kw); idx >= 0 {
+							rest := s[idx+len(kw):]
+							if len(rest) > 0 && rest[0] == '/' {
+								if nl := strings.IndexAny(rest, " \n\t"); nl > 0 {
+									cwd = rest[:nl]
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Inject cwd into system prompt if found.
+			if cwd != "" {
+				systemContent += fmt.Sprintf("\n\nWORKING DIRECTORY: %s\nAll file paths are relative to this directory. Use paths like \"AGENTS.md\" or \"internal/main.go\", NOT \"/path/to/...\".", cwd)
+			}
+
 			// Replace system messages AND strip OpenCode's instruction-carrying
 			// user messages. OpenCode injects ~3K tokens of instructions as
 			// user-role messages containing markers like <EXTREMELY_IMPORTANT>,
