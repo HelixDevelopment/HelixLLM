@@ -19,9 +19,17 @@ type RouterOptions struct {
 	// RateLimit is the maximum number of requests per minute per IP.
 	// 0 disables rate limiting.
 	RateLimit int
-	// Brain is the LLM coordination service. When non-nil, handlers delegate
-	// to it instead of returning development fallback responses.
-	Brain *brain.Brain
+	// Brain is the primary completion backend used by /v1/chat/completions,
+	// /v1/completions, /v1/messages, and the WebSocket handler.
+	// It accepts either a *brain.Brain or a *fallback.Chain (both satisfy
+	// the Completer interface). When nil, handlers return development
+	// fallback responses.
+	Brain Completer
+	// ModelBrain is used only by /v1/models and /v1/models/:id to list
+	// available models.  It must be the concrete *brain.Brain because those
+	// handlers need Brain.Models().  When nil the endpoints return the
+	// built-in hardcoded model list.
+	ModelBrain *brain.Brain
 	// TOONEnabled controls whether the TOON content negotiation middleware
 	// is applied. When false, ContentNegotiation() is skipped entirely.
 	TOONEnabled bool
@@ -63,9 +71,9 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	// OpenAI-compatible endpoints
 	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain, opts.ToolManager, opts.RAGHook))
 	v1.POST("/completions", HandleCompletions(opts.Brain))
-	v1.GET("/models", HandleListModels(opts.Brain))
-	v1.GET("/models/:id", HandleGetModel(opts.Brain))
-	v1.POST("/embeddings", HandleEmbeddings(opts.Brain, opts.Embedder))
+	v1.GET("/models", HandleListModels(opts.ModelBrain))
+	v1.GET("/models/:id", HandleGetModel(opts.ModelBrain))
+	v1.POST("/embeddings", HandleEmbeddings(opts.ModelBrain, opts.Embedder))
 
 	// Hardware profile endpoint
 	v1.GET("/hardware", func(c *gin.Context) {

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,6 +19,14 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
+// Completer abstracts both brain.Brain and fallback.Chain so that
+// HandleChatCompletions can be wired to either without importing the fallback
+// package from the gateway layer.
+type Completer interface {
+	Complete(ctx context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error)
+	CompleteStream(ctx context.Context, req *types.InternalChatRequest) (<-chan types.StreamChunk, error)
+}
+
 // hardcodedModels is the built-in model list returned by fallback handlers (no Brain configured).
 var hardcodedModels = []api.Model{
 	{ID: "llama-3.1-70b", Object: "model", Created: 1700000000, OwnedBy: "helix"},
@@ -30,8 +39,9 @@ func randomID() string {
 }
 
 // HandleChatCompletions handles POST /v1/chat/completions.
-// When b is non-nil it delegates to the Brain; otherwise it returns a development fallback (no Brain configured).
-func HandleChatCompletions(b *brain.Brain, toolMgr *ToolManager, ragHook func(*types.InternalChatRequest) *types.InternalChatRequest) gin.HandlerFunc {
+// When b is non-nil it delegates to the Completer (Brain or FallbackChain);
+// otherwise it returns a development fallback (no backend configured).
+func HandleChatCompletions(b Completer, toolMgr *ToolManager, ragHook func(*types.InternalChatRequest) *types.InternalChatRequest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.ChatCompletionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -414,8 +424,8 @@ func streamChatCompletions(c *gin.Context, id, model string) {
 }
 
 // HandleCompletions handles POST /v1/completions.
-// When b is non-nil it converts the prompt into a chat request and delegates to Brain.
-func HandleCompletions(b *brain.Brain) gin.HandlerFunc {
+// When b is non-nil it converts the prompt into a chat request and delegates to the Completer.
+func HandleCompletions(b Completer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.CompletionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {

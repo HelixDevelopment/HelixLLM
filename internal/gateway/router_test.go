@@ -104,7 +104,8 @@ func TestGatewayRouterWithBrain(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	gateway.RegisterRoutes(r, gateway.RouterOptions{Brain: b})
+	// Brain is the Completer (chat endpoint); ModelBrain is used by /v1/models.
+	gateway.RegisterRoutes(r, gateway.RouterOptions{Brain: b, ModelBrain: b})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/v1/models", nil)

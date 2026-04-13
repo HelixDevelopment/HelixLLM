@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -47,8 +46,8 @@ func (w *anthropicSSEWriter) writeEvent(eventType string, data interface{}) erro
 }
 
 // HandleMessages handles POST /v1/messages (Anthropic-compatible).
-// When b is non-nil it delegates to the Brain; otherwise returns a development fallback (no Brain configured).
-func HandleMessages(b *brain.Brain) gin.HandlerFunc {
+// When b is non-nil it delegates to the Completer; otherwise returns a development fallback (no backend configured).
+func HandleMessages(b Completer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.MessageRequest
 		if err := c.ShouldBindJSON(&req); err != nil {

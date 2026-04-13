@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
 	"github.com/HelixDevelopment/HelixLLM/internal/control"
+	"github.com/HelixDevelopment/HelixLLM/internal/fallback"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
@@ -300,14 +302,51 @@ func main() {
 		DefaultTopK:       cfg.Knowledge.RAGTopK,
 	})
 
+	// Build the FallbackChain — ordered by LLMsVerifier quality scores with
+	// llamacpp always placed last as the local safety net.
+	scorerBridge := fallback.NewScorerBridge(fallback.ScorerBridgeConfig{
+		VerifierURL:     cfg.LLM.VerifierURL,
+		RefreshInterval: parseDuration(cfg.LLM.ScoreRefreshInterval, 5*time.Minute),
+	})
+
+	providerModels := discoverProviderModels(brainSvc)
+	scores, _ := scorerBridge.FetchScores(ctx)
+	entries := scorerBridge.BuildEntries(scores, providerModels)
+
+	rateLimiter := fallback.NewRateLimitTracker(5, 1000)
+	fallbackChain := fallback.NewChain(brainSvc.Providers(), rateLimiter)
+	fallbackChain.SetEntries(entries)
+
+	scorerBridge.StartRefreshLoop(ctx, fallbackChain, providerModels)
+
+	memAdapter := fallback.NewMemoryAdapter(fallback.MemoryAdapterConfig{
+		HelixMemoryURL: cfg.LLM.MemoryURL,
+		SyncInterval:   30 * time.Second,
+		Enabled:        cfg.LLM.MemorySyncEnabled,
+	})
+	memAdapter.Start(ctx)
+
+	for i, e := range entries {
+		slog.Info("fallback chain entry",
+			"rank", i+1,
+			"provider", e.ProviderName,
+			"model", e.ModelID,
+			"score", e.Score,
+			"local", e.IsLocalFallback,
+		)
+	}
+
 	// Register gateway routes with RAG hook — this injects retrieved codebase
 	// context into every /v1/chat/completions request so small models have
 	// relevant code pre-loaded instead of exploring via repeated tool calls.
+	// The FallbackChain is the primary Completer; brainSvc is kept as
+	// ModelBrain so /v1/models can enumerate available models.
 	toolMgr := gateway.DefaultToolManager()
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
 		APIKeys:         cfg.Auth.APIKeys,
 		RateLimit:       cfg.Server.RatePerMinute,
-		Brain:           brainSvc,
+		Brain:           fallbackChain,
+		ModelBrain:      brainSvc,
 		Embedder:        embedder,
 		ToolManager:     toolMgr,
 		RAGHook:         knowledge.RAGHook(pipeline, "codebase"),
@@ -407,4 +446,31 @@ func main() {
 		log.WithError(err).Error("server error")
 		os.Exit(1)
 	}
+}
+
+// discoverProviderModels returns a map of provider name → first model ID by
+// inspecting each registered provider.  The result is passed to ScorerBridge
+// so chain entries carry a concrete model ID instead of an empty string.
+func discoverProviderModels(b *brain.Brain) map[string]string {
+	models := make(map[string]string)
+	for name, p := range b.Providers() {
+		ml := p.Models()
+		if len(ml) > 0 {
+			models[name] = ml[0]
+		}
+	}
+	return models
+}
+
+// parseDuration parses s as a time.Duration.  If s is empty or unparseable it
+// returns the provided fallback value.
+func parseDuration(s string, fallbackVal time.Duration) time.Duration {
+	if s == "" {
+		return fallbackVal
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fallbackVal
+	}
+	return d
 }

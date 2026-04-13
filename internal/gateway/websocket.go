@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	gorillaws "github.com/gorilla/websocket"
 
-	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
@@ -23,9 +22,9 @@ var wsUpgrader = gorillaws.Upgrader{
 // WebSocket, then loops reading JSON-encoded InternalChatRequest messages from
 // the client and writing back InternalChatResponse (or error) objects.
 //
-// The Brain is optional: when nil the handler returns a fallback response so
+// The Completer is optional: when nil the handler returns a fallback response so
 // that the endpoint remains functional in development / test setups.
-func HandleWebSocket(b *brain.Brain) gin.HandlerFunc {
+func HandleWebSocket(b Completer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
