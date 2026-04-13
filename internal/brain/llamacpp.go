@@ -249,7 +249,17 @@ func (p *LlamaCppProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *ty
 			Content: content,
 		}
 		// Pass tool calls from llama.cpp response (native format)
+		// Apply sanitizeToolArgs to fix common issues (offset=0, missing fields)
 		for _, tc := range choice.Message.ToolCalls {
+			args := tc.Function.Arguments
+			// Sanitize native tool call arguments
+			var argsMap map[string]interface{}
+			if err := json.Unmarshal([]byte(args), &argsMap); err == nil {
+				sanitizeToolArgs(tc.Function.Name, argsMap)
+				if sanitized, err := json.Marshal(argsMap); err == nil {
+					args = string(sanitized)
+				}
+			}
 			msg.ToolCalls = append(msg.ToolCalls, types.InternalToolCall{
 				ID:   tc.ID,
 				Type: tc.Type,
@@ -258,7 +268,7 @@ func (p *LlamaCppProvider) fromAPIResponse(resp *api.ChatCompletionResponse) *ty
 					Arguments string `json:"arguments"`
 				}{
 					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
+					Arguments: args,
 				},
 			})
 		}
