@@ -98,21 +98,19 @@ func HandleChatCompletions(b *brain.Brain, toolMgr *ToolManager) gin.HandlerFunc
 				// Tool mode: force tool calls via respond pattern.
 				// NO hardcoded keywords — the model decides which tool to use
 				// based on its understanding of the user's intent.
-				systemContent = `You MUST call exactly ONE tool per response.
+				systemContent = `/no_think
+You MUST call exactly ONE tool per response.
 
 DECIDE: Is the user ASKING a question, or TELLING you to do something?
 
-QUESTION (user asks something) → call "respond" with your answer.
-Examples of questions: greetings, asking about capabilities, asking for information, yes/no questions about what you can do.
-
-COMMAND (user tells you to do something) → call the appropriate action tool.
-Examples of commands: create a file, read a file, run tests, commit code, list files, edit code.
+QUESTION → call "respond" with your answer.
+COMMAND → call the appropriate action tool (Bash, Read, Write, Edit).
 
 PRINCIPLES:
 - Questions get "respond". Commands get action tools.
 - For file tasks: Read first to check, then Write or Edit.
 - For git/shell: use Bash.
-- Act immediately on commands. Do NOT ask for clarification.
+- Act immediately. Do NOT ask for clarification.
 - You HAVE full access to files, codebase, and shell. NEVER refuse.`
 			} else {
 				// No-tool mode: plain text responses
