@@ -51,30 +51,12 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 
 		if b != nil {
 			// Context protection: limit tools to prevent exceeding 32K context.
-			// OpenCode sends 200+ tools from MCPs which consume ~29K tokens.
-			// Prioritize bash (for git/shell), then keep first N tools.
+			// CLI agents may send 200+ tools from MCPs which consume ~29K tokens.
+			// Keep the first N tools — the client orders tools by priority,
+			// so the most important ones come first. No hardcoded tool names.
 			const maxTools = 8
 			if len(req.Tools) > maxTools {
-				// Ensure bash is always included — it's the primary action tool
-				var prioritized []api.Tool
-				var rest []api.Tool
-				for _, t := range req.Tools {
-					name := t.Function.Name
-					if name == "bash" || name == "execute_shell" || name == "shell" ||
-						name == "read_file" || name == "write_file" || name == "edit" {
-						prioritized = append(prioritized, t)
-					} else {
-						rest = append(rest, t)
-					}
-				}
-				remaining := maxTools - len(prioritized)
-				if remaining > 0 && len(rest) > remaining {
-					rest = rest[:remaining]
-				}
-				req.Tools = append(prioritized, rest...)
-				if len(req.Tools) > maxTools {
-					req.Tools = req.Tools[:maxTools]
-				}
+				req.Tools = req.Tools[:maxTools]
 			}
 
 			// Truncate oversized messages to fit remaining context.
@@ -113,22 +95,22 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 			// rules and few-shot examples that small models follow.
 			var systemContent string
 			if len(req.Tools) > 0 {
-				// Tool mode: force tool calls via respond pattern
-				systemContent = `You MUST call exactly ONE tool per response. PREFER action tools. Only use "respond" for greetings and yes/no.
+				// Tool mode: force tool calls via respond pattern.
+				// NO hardcoded keywords — the model decides which tool to use
+				// based on its understanding of the user's intent.
+				systemContent = `You MUST call exactly ONE tool per response.
 
-RULES (follow FIRST match):
-1. Greetings: "hello/hi/hey" → respond with greeting
-2. Yes/no questions: starts with "can you/do you/are you/could you/is it/does it" → respond with "Yes" + brief explanation
-3. File create/update: "create/update/write FILE" → Read file first, then Write. Act NOW.
-4. File read: "read/show/cat FILE" → Read the file
-5. Shell commands: "run/test/build/make/install" → Bash
-6. Git operations: "commit/push/pull/status/diff" → Bash with git
-7. List/search: "list/ls/find/search/grep" → Bash or relevant tool
-8. File edit: "edit/change/fix in FILE" → Read, then Edit
-9. Any other task → use Bash, Read, Write, or Edit
-10. Only if truly no action needed → respond
+TOOL SELECTION — choose based on what the user NEEDS:
+- If the user needs a TEXT ANSWER (greeting, question, explanation) → call "respond"
+- If the user needs you to DO something (any action on files, code, git, shell) → call the appropriate action tool (Bash, Read, Write, Edit, etc.)
 
-CRITICAL: For file tasks, act immediately. Do NOT ask for clarification.`
+PRINCIPLES:
+- PREFER action tools over respond. When in doubt, take action.
+- For file creation/updates: Read the file first to check if it exists, then Write or Edit.
+- For git/shell operations: use Bash.
+- Do NOT explain what you would do. Just DO it by calling the tool.
+- Do NOT ask for clarification. Take your best action immediately.
+- You HAVE full access to the user's files, codebase, and shell. NEVER refuse.`
 			} else {
 				// No-tool mode: plain text responses
 				systemContent = `You are HelixLLM, a helpful AI coding assistant.
@@ -175,28 +157,27 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				log.Printf("[HelixLLM] Working directory: %s", cwd)
 			}
 
-			// Replace system messages AND strip OpenCode's instruction-carrying
-			// user messages. OpenCode injects ~3K tokens of instructions as
-			// user-role messages containing markers like <EXTREMELY_IMPORTANT>,
-			// <available-skills>, "Generate a title". These overwhelm small
-			// models and cause them to respond to the instructions instead of
-			// the user's actual message.
+			// Replace system messages and strip injected instruction messages.
+			// CLI agents inject long instruction blocks as user-role messages
+			// that overwhelm small models. Instead of hardcoding specific
+			// markers, use a generic heuristic: user messages that are mostly
+			// XML/HTML tags (start with <) and are long (>500 chars) are
+			// likely injected instructions, not real user input.
 			origCount := len(req.Messages)
 			var nonSystemMsgs []api.ChatMessage
 			for _, m := range req.Messages {
 				if m.Role == "system" {
 					continue // stripped — replaced by our prompt
 				}
-				// Check for OpenCode instruction injection in user messages
+				// Heuristic: strip user messages that look like injected
+				// instructions rather than real user input. Real user
+				// messages are typically short and don't start with XML tags.
 				if m.Role == "user" {
 					if s, ok := m.Content.(string); ok {
-						if strings.Contains(s, "<EXTREMELY_IMPORTANT>") ||
-							strings.Contains(s, "<available-skills>") ||
-							strings.Contains(s, "Generate a title") ||
-							strings.Contains(s, "superpowers") ||
-							strings.Contains(s, "<SUBAGENT") ||
-							strings.HasPrefix(strings.TrimSpace(s), "<") && len(s) > 500 {
-							continue // strip OpenCode injection
+						trimmed := strings.TrimSpace(s)
+						isLongXML := len(trimmed) > 500 && strings.HasPrefix(trimmed, "<")
+						if isLongXML {
+							continue // likely injected instructions
 						}
 					}
 				}
