@@ -8,6 +8,7 @@ import (
 	gwmw "github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
+	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
 // RouterOptions configures the gateway middleware applied to all /v1 routes.
@@ -30,6 +31,11 @@ type RouterOptions struct {
 	// ToolManager handles tool schema compression and budget-aware selection.
 	// When non-nil, tools are compressed before being sent to the model.
 	ToolManager *ToolManager
+	// RAGHook augments requests with retrieved codebase context before
+	// sending to the model. This is the KEY to making small models work
+	// for coding tasks — they don't need to explore via tools because
+	// the relevant context is already in the prompt.
+	RAGHook func(*types.InternalChatRequest) *types.InternalChatRequest
 	// HardwareProfile is the detected hardware profile exposed via the
 	// /v1/hardware endpoint. Typed as interface{} to avoid coupling the
 	// gateway package to the hardware package.
@@ -55,7 +61,7 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	}
 
 	// OpenAI-compatible endpoints
-	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain, opts.ToolManager))
+	v1.POST("/chat/completions", HandleChatCompletions(opts.Brain, opts.ToolManager, opts.RAGHook))
 	v1.POST("/completions", HandleCompletions(opts.Brain))
 	v1.GET("/models", HandleListModels(opts.Brain))
 	v1.GET("/models/:id", HandleGetModel(opts.Brain))

@@ -31,7 +31,7 @@ func randomID() string {
 
 // HandleChatCompletions handles POST /v1/chat/completions.
 // When b is non-nil it delegates to the Brain; otherwise it returns a development fallback (no Brain configured).
-func HandleChatCompletions(b *brain.Brain, toolMgr *ToolManager) gin.HandlerFunc {
+func HandleChatCompletions(b *brain.Brain, toolMgr *ToolManager, ragHook func(*types.InternalChatRequest) *types.InternalChatRequest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req api.ChatCompletionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -220,6 +220,13 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 			}
 
 			internalReq := openAIToInternal(&req)
+
+			// Apply RAG hook: inject retrieved codebase context into the
+			// prompt so the model has relevant code/docs pre-loaded and
+			// doesn't need to explore via repeated tool calls.
+			if ragHook != nil {
+				internalReq = ragHook(internalReq)
+			}
 
 			// CRITICAL: Force non-streaming when tools are present.
 			// Ollama returns tool calls as plain text in streaming chunks,

@@ -37,7 +37,7 @@ func (m *mockEmbedder) Dimension() int { return m.dim }
 func setupOpenAIRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(nil, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(nil, nil, nil))
 	r.POST("/v1/completions", gateway.HandleCompletions(nil))
 	r.GET("/v1/models", gateway.HandleListModels(nil))
 	r.GET("/v1/models/:id", gateway.HandleGetModel(nil))
@@ -247,7 +247,7 @@ func TestChatCompletions_WithBrain_NonStreaming(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil, nil))
 
 	body, _ := json.Marshal(api.ChatCompletionRequest{
 		Model:    "gpt-4o",
@@ -287,7 +287,7 @@ func TestChatCompletions_WithBrain_Streaming(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil, nil))
 
 	body, _ := json.Marshal(api.ChatCompletionRequest{
 		Model:    "gpt-4o",
@@ -397,7 +397,7 @@ func TestChatCompletions_WithBrain_Error(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil, nil))
 
 	body, _ := json.Marshal(api.ChatCompletionRequest{
 		Model:    "gpt-4o",
@@ -424,7 +424,7 @@ func TestChatCompletions_WithBrain_StreamError(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil, nil))
 
 	body, _ := json.Marshal(api.ChatCompletionRequest{
 		Model:    "gpt-4o",
@@ -586,7 +586,7 @@ func TestChatCompletions_WithBrain_TemperatureAndMaxTokens(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil, nil))
 
 	temp := float64(0.7)
 	maxTok := 256
@@ -624,7 +624,7 @@ func TestChatCompletions_NonStringContent(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil))
+	r.POST("/v1/chat/completions", gateway.HandleChatCompletions(b, nil, nil))
 
 	// Content as array (non-string) → openAIToInternal falls through to empty string.
 	rawBody := `{"model":"gpt-4o","messages":[{"role":"user","content":[{"type":"text","text":"Hi"}]}]}`

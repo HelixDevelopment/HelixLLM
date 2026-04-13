@@ -285,17 +285,7 @@ func main() {
 		embedder = knowledge.NewHashEmbedder(768)
 	}
 
-	// Register gateway routes (OpenAI + Anthropic compatible endpoints)
-	toolMgr := gateway.DefaultToolManager()
-	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
-		APIKeys:         cfg.Auth.APIKeys,
-		RateLimit:       cfg.Server.RatePerMinute,
-		Brain:           brainSvc,
-		Embedder:        embedder,
-		ToolManager:     toolMgr,
-		TOONEnabled:     cfg.Features.TOON,
-		HardwareProfile: hwProfile,
-	})
+	// Create knowledge pipeline BEFORE gateway so RAG hook is available.
 	store, err := knowledge.NewVectorStore(cfg.Knowledge.VectorDB, "localhost", 6333)
 	if err != nil {
 		log.WithError(err).Error("failed to connect to vector store, falling back to memory store")
@@ -308,6 +298,21 @@ func main() {
 		Chunker:           chunker,
 		DefaultCollection: "default",
 		DefaultTopK:       cfg.Knowledge.RAGTopK,
+	})
+
+	// Register gateway routes with RAG hook — this injects retrieved codebase
+	// context into every /v1/chat/completions request so small models have
+	// relevant code pre-loaded instead of exploring via repeated tool calls.
+	toolMgr := gateway.DefaultToolManager()
+	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
+		APIKeys:         cfg.Auth.APIKeys,
+		RateLimit:       cfg.Server.RatePerMinute,
+		Brain:           brainSvc,
+		Embedder:        embedder,
+		ToolManager:     toolMgr,
+		RAGHook:         knowledge.RAGHook(pipeline, "codebase"),
+		TOONEnabled:     cfg.Features.TOON,
+		HardwareProfile: hwProfile,
 	})
 	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline)
 
