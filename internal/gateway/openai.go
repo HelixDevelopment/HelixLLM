@@ -633,51 +633,65 @@ func HandleEmbeddings(_ *brain.Brain, embedder knowledge.Embedder) gin.HandlerFu
 
 // openAIToInternal converts an api.ChatCompletionRequest to types.InternalChatRequest.
 func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest {
-	// Context protection: compress old messages to fit context budget.
-	// NEVER replace the last user message — that's the actual request.
-	// Only compress older messages (history) to save tokens.
-	const maxOldMsgChars = 500  // older messages get heavily compressed
-	const maxLastMsgChars = 4000 // the actual user request gets more room
-	const maxTotalChars = 16000
-	totalBudget := maxTotalChars
-	msgs := make([]types.InternalMessage, 0, len(req.Messages))
+	// Context management: keep the conversation within the model's context
+	// window by using a sliding window over messages.
+	//
+	// Strategy:
+	//   1. Always keep: first message (system prompt) + last N messages
+	//   2. Drop old tool call/result pairs — they're stale context
+	//   3. Truncate individual messages that are too long
+	//   4. Total budget enforcement as a safety net
+	//
+	// This prevents the infinite tool loop problem where 55+ messages
+	// overflow the 16K context and the model produces garbage.
+	const maxMessages = 12       // keep system + last 11 messages
+	const maxPerMsgChars = 2000  // truncate individual messages
+	const maxLastMsgChars = 4000 // last user message gets more room
+	const maxTotalChars = 14000  // leave room for system prompt + tools
 
-	// Find the last user message index
+	// Sliding window: keep first message (system) + last N messages
+	input := req.Messages
+	if len(input) > maxMessages {
+		first := input[0]              // system prompt
+		tail := input[len(input)-maxMessages+1:] // last N-1 messages
+		input = append([]api.ChatMessage{first}, tail...)
+	}
+
+	// Find last user message index for special handling
 	lastUserIdx := -1
-	for i, m := range req.Messages {
+	for i, m := range input {
 		if m.Role == "user" {
 			lastUserIdx = i
 		}
 	}
 
-	for i, m := range req.Messages {
+	totalBudget := maxTotalChars
+	msgs := make([]types.InternalMessage, 0, len(input))
+
+	for i, m := range input {
 		content := ""
 		switch v := m.Content.(type) {
 		case string:
 			content = v
 		}
 
-		// Determine max size: last user message gets full budget, older ones get compressed
+		// Truncate oversized messages
 		isLastUser := (i == lastUserIdx)
-		maxChars := maxOldMsgChars
+		limit := maxPerMsgChars
 		if isLastUser {
-			maxChars = maxLastMsgChars
+			limit = maxLastMsgChars
 		}
-
-		// Compress oversized messages (truncate with head+tail, not replace)
-		if len(content) > maxChars {
+		if len(content) > limit {
 			if isLastUser {
-				// Keep head and tail of the actual request
-				headSize := maxChars * 2 / 3
-				tailSize := maxChars / 3
+				headSize := limit * 2 / 3
+				tailSize := limit / 3
 				content = content[:headSize] + "\n...\n" + content[len(content)-tailSize:]
 			} else {
-				// Old messages: keep just the first part
-				content = content[:maxChars]
+				content = content[:limit]
 			}
 		}
 
-		// Total budget enforcement
+		// Total budget
 		if totalBudget <= 0 {
 			content = ""
 		} else if len(content) > totalBudget {
