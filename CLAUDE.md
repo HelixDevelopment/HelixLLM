@@ -46,7 +46,11 @@ Single Go binary with a **mode system** -- the `HELIX_MODE` env (or `--mode` fla
 
 ```
 Gateway    → HTTP/3 + HTTP/2 server, OpenAI/Anthropic-compatible API endpoints, auth, streaming
-Brain      → LLM provider routing: llama.cpp (local), OpenAI, Anthropic
+             └─ dispatches via gateway.Completer (never calls Brain directly)
+Fallback   → FallbackChain: ScorerBridge-ordered providers, RateLimitTracker, CircuitBreaker,
+             MemoryAdapter; local llama.cpp always last
+Brain      → LLM provider routing: llama.cpp (local), OpenAI, Anthropic, Chutes, OpenRouter,
+             HuggingFace, Nvidia, Cerebras, SambaNova, Together
 Knowledge  → RAG pipeline: chunking → embedding → vector store → retrieval
 Agents     → ReAct loop, tool calling, conversation sessions, multi-agent coordination
 Control    → SSH-based host probing, container deployment, scheduling strategies
@@ -55,7 +59,9 @@ Shared     → Config (env-based), EventBus, logging (logrus), observability (OT
 
 ### Key Interfaces
 
-- **`brain.Provider`** (`internal/brain/provider.go`) -- All LLM backends implement `Complete`, `CompleteStream`, `Models`, `Name`, `Available`. Implementations: `llamacpp.go`, `openai_provider.go`, `anthropic_provider.go`.
+- **`brain.Provider`** (`internal/brain/provider.go`) -- All LLM backends implement `Complete`, `CompleteStream`, `Models`, `Name`, `Available`. Implementations: `llamacpp.go`, `openai_provider.go`, `anthropic_provider.go`, and all new cloud providers in `internal/brain/`.
+- **`gateway.Completer`** (`internal/gateway/completer.go`) -- Abstracts both a single `brain.Provider` and the `fallback.Chain`. The Gateway always calls through this interface, which means swapping between a direct provider and the full fallback chain requires no changes to gateway code. `FallbackChain` implements `Completer`; individual providers are wrapped by `brain.ProviderCompleter`.
+- **`agents.PersistentSyncer`** (`internal/agents/memory_syncer.go`) -- Memory sync interface used by `MemoryAdapter`. Implementations forward high-importance (>= 0.7) memories to the parent HelixAgent's HelixMemory service. Allows the agents layer to remain decoupled from the specific remote memory backend.
 - **`agents.Tool`** (`internal/agents/tool.go`) -- Tools implement `Name`, `Description`, `Parameters`, `Execute`. Registered via `ToolRegistry`. Built-in tools in `internal/agents/tools/`.
 - **`knowledge.VectorStore`** (`internal/knowledge/store.go`) -- `Upsert`, `Search`, `Delete`, `Collections`, `Stats`. Implementations: Qdrant (`qdrant.go`), in-memory (`MemoryStore`).
 
@@ -100,6 +106,73 @@ HelixLLM uses llama.cpp's native router mode to serve a fleet of lightweight mod
 - `HELIX_LLAMA_SERVER_EMBEDDED` — spawn llama-server as child process (default: `true`)
 
 **CUDA container:** `container/Containerfile.llamacpp-router` — multi-stage build with CUDA 12.6, RPC support, router mode.
+
+## Multi-Provider Fallback Chain
+
+The Gateway never calls a Brain provider directly. Instead, it dispatches every completion request through a `FallbackChain` that implements the same `gateway.Completer` interface, making the chain transparent to callers.
+
+### Chain Overview
+
+```
+Gateway (Completer) → FallbackChain → [Provider 1, Provider 2, …, llamacpp]
+                                           ↑
+                                     ScorerBridge (LLMsVerifier scores)
+```
+
+- **ScorerBridge** (`internal/fallback/scorer_bridge.go`) — polls LLMsVerifier every 5 minutes and re-sorts the provider list by composite score (ResponseSpeed 25%, CostEffectiveness 25%, ModelEfficiency 20%, Capability 20%, Recency 10%). Local llama.cpp is pinned at the end of the chain and is never reordered — it is the guaranteed last resort.
+- **Chain ordering** — cloud providers with the highest verification scores are tried first. Ties are broken by response speed. The order is refreshed in the background; in-flight requests use the order that was current at dispatch time.
+
+### Rate Limit Handling
+
+Two complementary mechanisms prevent repeated hammering of throttled providers:
+
+1. **Reactive failover** — a `429 Too Many Requests` response from any provider immediately marks it as temporarily unavailable and moves to the next provider in the chain. The backoff window is `min(2^attempt × base_backoff, max_backoff)`.
+2. **Proactive header parsing** — `RateLimitTracker` (`internal/fallback/rate_limit_tracker.go`) inspects `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and provider-specific equivalents on every successful response. When remaining tokens/requests drop below a configurable threshold, the provider is deprioritized before a 429 ever arrives.
+
+### Circuit Breaker
+
+`CircuitBreaker` (`internal/fallback/circuit_breaker.go`) wraps each cloud provider independently:
+
+| State | Trigger | Behavior |
+|-------|---------|----------|
+| **Closed** (normal) | — | All requests pass through |
+| **Open** | 3 consecutive failures | All requests skip this provider; returns immediately |
+| **Half-open** | 2 minutes after opening | One probe request allowed; success → Closed, failure → Open |
+
+Failure categories that trip the breaker: connection errors, 5xx responses, and timeouts. Rate-limit 429s do **not** count toward the failure threshold — they are handled by `RateLimitTracker` instead.
+
+### Memory Sync (MemoryAdapter)
+
+`MemoryAdapter` (`internal/fallback/memory_adapter.go`) wraps the agents `MemoryManager`. After each successful completion, memories with `importance >= 0.7` are asynchronously forwarded to HelixMemory (the parent HelixAgent's memory service) via `agents.PersistentSyncer`. Lower-importance memories remain local to the session. This keeps long-term knowledge synchronized without incurring network overhead on every turn.
+
+### Key Packages
+
+| Package | Responsibility |
+|---------|---------------|
+| `internal/fallback/chain.go` | Ordered provider list, retry loop, error aggregation |
+| `internal/fallback/scorer_bridge.go` | LLMsVerifier integration, background score refresh |
+| `internal/fallback/rate_limit_tracker.go` | Proactive rate-limit header parsing and deprioritization |
+| `internal/fallback/circuit_breaker.go` | Per-provider circuit breaker (closed/open/half-open) |
+| `internal/fallback/memory_adapter.go` | High-importance memory sync to HelixMemory |
+
+### Cloud Providers in the Chain
+
+All providers live in `internal/brain/` and implement `brain.Provider`.
+
+| Provider | Package | Key Env Var |
+|----------|---------|-------------|
+| Chutes | `chutes_provider.go` | `HELIX_LLM_CHUTES_KEY` |
+| OpenRouter | `openrouter_provider.go` | `HELIX_LLM_OPENROUTER_KEY` |
+| HuggingFace Inference | `huggingface_provider.go` | `HELIX_LLM_HUGGINGFACE_KEY` |
+| Nvidia NIM | `nvidia_provider.go` | `HELIX_LLM_NVIDIA_KEY` |
+| Cerebras | `cerebras_provider.go` | `HELIX_LLM_CEREBRAS_KEY` |
+| SambaNova | `sambanova_provider.go` | `HELIX_LLM_SAMBANOVA_KEY` |
+| Together AI | `together_provider.go` | `HELIX_LLM_TOGETHER_KEY` |
+| OpenAI | `openai_provider.go` | `OPENAI_API_KEY` |
+| Anthropic | `anthropic_provider.go` | `ANTHROPIC_API_KEY` |
+| llama.cpp (local) | `llamacpp.go` | *(always available, pinned last)* |
+
+Set `HELIX_LLM_DEFAULT_PROVIDER=auto` to let the ScorerBridge determine the starting provider dynamically. Set it to `local` to always start with llama.cpp (bypasses cloud providers entirely).
 
 ## Submodules
 
