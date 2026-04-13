@@ -50,11 +50,12 @@ func HandleChatCompletions(b *brain.Brain) gin.HandlerFunc {
 		}
 
 		if b != nil {
-			// Context protection: limit tools to prevent exceeding 32K context.
-			// CLI agents may send 200+ tools from MCPs which consume ~29K tokens.
-			// Keep the first N tools — the client orders tools by priority,
-			// so the most important ones come first. No hardcoded tool names.
-			const maxTools = 8
+			// Context protection: limit tools for the 7B model. Diagnostic
+			// testing shows the model makes better tool choices with fewer
+			// options — 9 tools causes confusion (Glob for questions, Read
+			// with hallucinated paths). 5 tools keeps the core set (Bash,
+			// Read, Write, Edit + respond) and reduces noise.
+			const maxTools = 5
 			if len(req.Tools) > maxTools {
 				req.Tools = req.Tools[:maxTools]
 			}
