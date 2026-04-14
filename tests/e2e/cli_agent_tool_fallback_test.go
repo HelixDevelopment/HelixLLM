@@ -229,9 +229,9 @@ func TestFallbackChain_BothProvidersReturnToolCalls(t *testing.T) {
 	rl := fallback.NewRateLimitTracker(1, 10)
 	chain := fallback.NewChain(providers, rl)
 	chain.SetEntries([]fallback.ChainEntry{
-		{ProviderName: "tc-primary", ModelID: "m", Score: 9.0, Status: fallback.EntryActive,
+		{ProviderName: "tc-primary", ModelID: "gpt-4", Score: 9.0, Status: fallback.EntryActive,
 			CircuitBreaker: fallback.NewCircuitBreaker(3, 30*time.Second)},
-		{ProviderName: "tc-secondary", ModelID: "m", Score: 7.0, Status: fallback.EntryActive,
+		{ProviderName: "tc-secondary", ModelID: "gpt-4", Score: 7.0, Status: fallback.EntryActive,
 			CircuitBreaker: fallback.NewCircuitBreaker(3, 30*time.Second)},
 	})
 

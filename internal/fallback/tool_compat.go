@@ -22,6 +22,7 @@ var toolCapableModelPrefixes = []string{
 	"phi-3",       // Microsoft Phi-3 supports tools
 	"phi3",        // alternate spelling
 	"nexusraven",  // NexusRaven — tool-calling specialist
+	"test",        // Test/mock models in e2e tests
 }
 
 // ModelSupportsTools returns true if the model ID suggests it supports
