@@ -58,10 +58,14 @@ type LLMConfig struct {
 	SambaNovaKey       string `env:"HELIX_LLM_SAMBANOVA_KEY"`
 	TogetherKey        string `env:"HELIX_LLM_TOGETHER_KEY"`
 	// Fallback chain
-	VerifierURL          string `env:"HELIX_LLM_VERIFIER_URL" default:"http://localhost:7061"`
+	// Defaults updated to match HelixAgent's canonical port registry
+	// (HELIXAGENT_PORT_HTTP = 8100 in the 81xx band). Operators
+	// can override via HELIX_LLM_VERIFIER_URL / HELIX_LLM_MEMORY_URL
+	// if HelixAgent is running on a non-default port or host.
+	VerifierURL          string `env:"HELIX_LLM_VERIFIER_URL" default:"http://localhost:8100"`
 	ScoreRefreshInterval string `env:"HELIX_LLM_SCORE_REFRESH_INTERVAL" default:"5m"`
 	MemorySyncEnabled    bool   `env:"HELIX_LLM_MEMORY_SYNC_ENABLED" default:"false"`
-	MemoryURL            string `env:"HELIX_LLM_MEMORY_URL" default:"http://localhost:7061"`
+	MemoryURL            string `env:"HELIX_LLM_MEMORY_URL" default:"http://localhost:8100"`
 	DefaultProvider    string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
 	ModelsDir          string `env:"HELIX_MODELS_DIR" default:"/models"`
 	ModelsAutoDownload bool   `env:"HELIX_MODELS_AUTO_DOWNLOAD" default:"true"`
