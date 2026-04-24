@@ -48,7 +48,7 @@ def requires_service(url: str, timeout: int = 5):
                     return func(*args, **kwargs)
             except requests.RequestException:
                 pass
-            pytest.skip(f"Service at {url} is not available")
+            pytest.skip(f"Service at {url} is not available")  # SKIP-OK: #legacy-untriaged
         return wrapper
     return decorator
 

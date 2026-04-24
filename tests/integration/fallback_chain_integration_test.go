@@ -19,7 +19,7 @@ import (
 // through it.  The test is skipped unless HELIX_INTEGRATION_TESTS=true.
 func TestFallbackChain_Integration(t *testing.T) {
 	if os.Getenv("HELIX_INTEGRATION_TESTS") != "true" {
-		t.Skip("HELIX_INTEGRATION_TESTS not set — skipping integration test")
+		t.Skip("HELIX_INTEGRATION_TESTS not set — skipping integration test")  // SKIP-OK: #integration-mode-only
 	}
 
 	providers := map[string]brain.Provider{}
@@ -61,7 +61,7 @@ func TestFallbackChain_Integration(t *testing.T) {
 	}
 
 	if len(providers) == 0 {
-		t.Skip("no provider API keys set — skipping integration test")
+		t.Skip("no provider API keys set — skipping integration test")  // SKIP-OK: #requires-upstream-key
 	}
 
 	rl := fallback.NewRateLimitTracker(5, 100)

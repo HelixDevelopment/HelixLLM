@@ -15,7 +15,7 @@ import (
 func TestScorerBridge_FetchScores_LiveVerifier(t *testing.T) {
 	verifierURL := os.Getenv("HELIX_LLM_VERIFIER_URL")
 	if verifierURL == "" {
-		t.Skip("HELIX_LLM_VERIFIER_URL not set — skipping scorer bridge integration test")
+		t.Skip("HELIX_LLM_VERIFIER_URL not set — skipping scorer bridge integration test")  // SKIP-OK: #integration-mode-only
 	}
 
 	bridge := fallback.NewScorerBridge(fallback.ScorerBridgeConfig{

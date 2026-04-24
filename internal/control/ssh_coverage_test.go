@@ -13,7 +13,7 @@ import (
 func TestExpandTilde_WithTilde(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Skip("cannot determine home directory")
+		t.Skip("cannot determine home directory")  // SKIP-OK: #legacy-untriaged
 	}
 
 	result := expandTilde("~/.ssh/id_ed25519")
@@ -35,7 +35,7 @@ func TestExpandTilde_WithoutTilde(t *testing.T) {
 func TestExpandTilde_TildeOnly(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Skip("cannot determine home directory")
+		t.Skip("cannot determine home directory")  // SKIP-OK: #legacy-untriaged
 	}
 
 	result := expandTilde("~")

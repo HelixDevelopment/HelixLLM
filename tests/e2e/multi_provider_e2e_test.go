@@ -18,7 +18,7 @@ import (
 func TestMultiProvider_E2E_ChatCompletion(t *testing.T) {
 	baseURL := os.Getenv("HELIX_LLM_URL")
 	if baseURL == "" {
-		t.Skip("HELIX_LLM_URL not set — skipping multi-provider E2E test")
+		t.Skip("HELIX_LLM_URL not set — skipping multi-provider E2E test")  // SKIP-OK: #legacy-untriaged
 	}
 
 	body := `{"model":"auto","messages":[{"role":"user","content":"Reply with exactly one word: ready"}],"max_tokens":10}`

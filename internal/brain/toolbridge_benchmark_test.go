@@ -137,7 +137,7 @@ func BenchmarkLlamaCpp_NoToolCall_PlainText(b *testing.B) {
 
 func TestStress_ConcurrentToolCallBridge(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
+		t.Skip("skipping stress test in short mode")  // SKIP-OK: #short-mode
 	}
 
 	content := `{"name": "read_file", "arguments": {"filePath": "/tmp/test.go"}}`
@@ -188,7 +188,7 @@ func TestStress_ConcurrentToolCallBridge(t *testing.T) {
 
 func TestStress_ConcurrentEmbeddingRequests(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
+		t.Skip("skipping stress test in short mode")  // SKIP-OK: #short-mode
 	}
 
 	// Use the integration test server which has the hash embedder.

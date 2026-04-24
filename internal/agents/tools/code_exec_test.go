@@ -22,7 +22,7 @@ func TestExecutePythonTool_Name(t *testing.T) {
 func TestExecutePythonTool_Execute(t *testing.T) {
 	// Skip if python3 is not available.
 	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not available, skipping")
+		t.Skip("python3 not available, skipping")  // SKIP-OK: #legacy-untriaged
 	}
 
 	s := DefaultSandbox()
@@ -42,7 +42,7 @@ func TestExecutePythonTool_Execute(t *testing.T) {
 
 func TestExecutePythonTool_SyntaxError(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not available, skipping")
+		t.Skip("python3 not available, skipping")  // SKIP-OK: #legacy-untriaged
 	}
 
 	s := DefaultSandbox()

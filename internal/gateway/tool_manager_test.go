@@ -281,7 +281,7 @@ func BenchmarkToolManager_CompressAndSelect_100(b *testing.B) {
 
 func TestToolManager_ConcurrentAccess(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping stress test in short mode")
+		t.Skip("skipping stress test in short mode")  // SKIP-OK: #short-mode
 	}
 	tm := gateway.DefaultToolManager()
 	var wg sync.WaitGroup
