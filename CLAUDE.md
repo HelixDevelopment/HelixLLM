@@ -10,15 +10,19 @@ same session as the change.** Coverage and green suites are not evidence.
 
 ### Acceptance demo for this module
 
-<!-- TODO: replace this block with the exact command(s) that exercise this
-     module end-to-end against real dependencies, and the expected output.
-     The commands must run the real artifact (built binary, deployed
-     container, real service) — no in-process fakes, no mocks, no
-     `httptest.NewServer`, no Robolectric, no JSDOM as proof of done. -->
-
 ```bash
-# TODO
+# Boot HelixLLM gateway and exercise the scored multi-provider fallback chain
+# Prefers configured cloud providers → falls back to local llama.cpp as last resort.
+cd HelixLLM && make build
+GOMAXPROCS=2 nice -n 19 ./bin/helixllm --mode=full --port=8443 &
+HELIXLLM_PID=$!
+sleep 5
+curl -fsSk https://localhost:8443/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"auto","messages":[{"role":"user","content":"say hi"}]}' | jq -e '.choices[0].message.content | length > 0'
+kill $HELIXLLM_PID
 ```
+Expect: `jq -e` exits 0; the response contains model+provider telemetry showing which link of the ranked chain served the request. With no cloud keys set, llama.cpp answers; `HELIX_LLM_TLS_SKIP_VERIFY=true` bypasses the self-signed cert check only for this demo — production must trust `HelixLLM/certs/cert.pem` via `SSL_CERT_FILE` per root `CLAUDE.md`.
+
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
