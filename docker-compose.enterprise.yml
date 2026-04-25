@@ -5,6 +5,10 @@ services:
     build:
       context: .
       dockerfile: container/Containerfile.llamacpp-router
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 2048
+    oom_score_adj: 500
     ports:
       - "8443:8443"
       - "8080:8080"
@@ -47,6 +51,10 @@ services:
 
   redis:
     image: redis:7-alpine
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "6379:6379"
     volumes:
@@ -63,6 +71,10 @@ services:
 
   chromadb:
     image: chromadb/chroma:latest
+    mem_limit: 3g
+    memswap_limit: 3g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "8001:8000"
     volumes:
@@ -76,6 +88,10 @@ services:
 
   nginx:
     image: nginx:alpine
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "80:80"
       - "443:443"
@@ -91,6 +107,10 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "9090:9090"
     volumes:
@@ -107,6 +127,10 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "3000:3000"
     volumes:

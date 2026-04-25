@@ -7,6 +7,10 @@ services:
     build:
       context: ..
       dockerfile: container/Containerfile
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 2048
+    oom_score_adj: 500
     ports:
       - "${HELIX_PORT:-8443}:8443/tcp"
       - "${HELIX_PORT:-8443}:8443/udp"
@@ -45,6 +49,10 @@ services:
   # --- LLM Inference ---
   llamacpp:
     image: ghcr.io/ggml-org/llama.cpp:server
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "8080:8080"
     volumes:
@@ -72,6 +80,10 @@ services:
   # --- Vector Database ---
   qdrant:
     image: qdrant/qdrant:latest
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -89,6 +101,10 @@ services:
   # --- Database ---
   postgres:
     image: postgres:16-alpine
+    mem_limit: 4g
+    memswap_limit: 4g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "5432:5432"
     environment:
@@ -107,6 +123,10 @@ services:
   # --- Cache ---
   redis:
     image: redis:7-alpine
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
@@ -122,6 +142,10 @@ services:
   # --- Messaging ---
   kafka:
     image: bitnami/kafka:latest
+    mem_limit: 3g
+    memswap_limit: 3g
+    pids_limit: 2048
+    oom_score_adj: 500
     ports:
       - "9092:9092"
     environment:
@@ -138,6 +162,10 @@ services:
   # --- Monitoring ---
   prometheus:
     image: prom/prometheus:latest
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "${HELIX_PROMETHEUS_PORT:-9090}:9090"
     volumes:
@@ -147,6 +175,10 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "${HELIX_GRAFANA_PORT:-3001}:3000"
     environment:
@@ -161,6 +193,10 @@ services:
 
   loki:
     image: grafana/loki:latest
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 1024
+    oom_score_adj: 500
     ports:
       - "3100:3100"
     volumes:
