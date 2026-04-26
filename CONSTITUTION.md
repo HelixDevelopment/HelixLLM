@@ -1,6 +1,9 @@
-# AGENTS.md — HelixLLM Agent Collaboration Rules
+# HelixLLM Constitution
 
-This file defines constraints for automated agents working on the HelixLLM codebase.
+This Constitution governs the HelixLLM submodule. It inherits the universal
+mandatory constraints from the HelixAgent root and adds project-specific
+addenda where applicable. Project-specific addenda may strengthen but never
+weaken or override the universal constraints.
 
 ## Universal Mandatory Constraints
 
@@ -105,58 +108,25 @@ session as the change.
 - **Evidence in the PR.** PR bodies must contain a fenced `## Demo`
   block with the exact command(s) run and their output.
 
-## General Rules
+## Project-Specific Addenda
 
-- **No interactive processes** — no sudo, no password prompts, no TTY-dependent commands
-- **No destructive git operations** — no force push, no hard reset, no branch deletion without explicit user request
-- **Respect all CLAUDE.md files** — the root CLAUDE.md and every submodule's CLAUDE.md define build, test, and style conventions
-- **Run tests after changes** — every code change must be validated with `make test-unit` at minimum
-- **No breaking changes** — changes must not break existing working functionality
+HelixLLM is the gateway / multi-provider fallback / RAG / agent runtime
+component. The following project-specific rules layer on top of the
+universal constraints:
 
-## Safe Parallel Changes (No Coordination Required)
-
-- Adding new test files (`*_test.go`)
-- Adding new challenge bank YAML files (`challenges/banks/**/*.yaml`)
-- Adding new documentation files (`docs/**/*.md`)
-- Adding new benchmark functions
-- Modifying code within a single package (if no interface changes)
-
-## Coordination Required
-
-- **Interface changes** — modifying `brain.Provider`, `agents.Tool`, `knowledge.VectorStore`, or any shared interface
-- **Config changes** — adding new environment variables to `internal/shared/config/config.go`
-- **go.mod changes** — adding or removing dependencies
-- **Makefile changes** — adding or modifying build/test targets
-- **Submodule updates** — changing submodule references
-- **API surface changes** — modifying HTTP route registrations in gateway
-
-## Submodule AGENTS.md Files
-
-Each of the 35 submodules under `submodules/` has its own `AGENTS.md` with package-specific constraints. Agents working on submodule code must read the relevant submodule's `AGENTS.md` before making changes.
-
-## Test Requirements
-
-| Change Type | Required Tests |
-|-------------|---------------|
-| Bug fix | Unit test reproducing the bug + fix verification |
-| New feature | Unit tests + integration test if touching API surface |
-| Refactor | All existing tests must pass unchanged |
-| Performance | Benchmark before/after comparison |
-
-## Fallback Chain Coordination
-
-The `FallbackChain` (`internal/fallback/`) sits between the Gateway and all Brain providers. Agents and gateway handlers must be aware of the following rules when dispatching or modifying completion requests:
-
-- **Agents dispatch through the chain, not directly to Brain.** All completion calls from the agents layer go via `gateway.Completer`, which resolves to the `FallbackChain` at runtime. Do not import or call `brain.Provider` implementations directly from agents code.
-- **Rate limiting is transparent.** `RateLimitTracker` and reactive 429 failover handle provider rotation automatically. Agents do not need to implement retry logic for rate limits — if a provider is exhausted the chain silently moves to the next one. Do not add per-provider retry loops in agent code.
-- **Circuit breaker state is per-provider and global.** A provider tripped open by one request type (e.g. a long-context call) will also be skipped for all other concurrent requests until the half-open probe succeeds. When writing integration tests that mock provider failures, account for this: failing a provider 3 times in test will open its breaker for 2 minutes.
-- **Memory sync happens automatically for high-importance memories.** `MemoryAdapter` forwards any memory with `importance >= 0.7` to HelixMemory asynchronously after each successful completion. Agents must set the `Importance` field on memories they create; the adapter handles the rest. Low-importance memories (< 0.7) remain session-local and are not forwarded.
-- **Local llama.cpp is the guaranteed fallback.** If every cloud provider in the chain is unavailable (all circuit breakers open, all rate limits exhausted), the request is served by the local llama.cpp fleet. Responses will be slower but the chain will never return a hard error solely due to cloud provider unavailability. Agents may observe higher latency under these conditions — this is expected behavior, not a bug.
-- **Coordination required for fallback chain changes.** Modifying `internal/fallback/` interfaces or adding/removing providers from the chain requires coordination (see "Coordination Required" above). The chain order is determined by `ScorerBridge` at runtime — hardcoding provider order in tests or agents is forbidden.
-
-## Commit Conventions
-
-Follow Conventional Commits: `type(scope): description`
-
-Types: `feat`, `fix`, `test`, `docs`, `refactor`, `perf`, `chore`
-Scopes: `brain`, `fallback`, `gateway`, `knowledge`, `agents`, `control`, `shared`, `deps`
+- **Layer separation.** Gateway never calls a Brain provider directly;
+  every completion request flows through `gateway.Completer` →
+  `FallbackChain`. See `CLAUDE.md` § "Multi-Provider Fallback Chain".
+- **TLS-only transport.** HelixLLM serves HTTP/3 (QUIC) with TLS 1.3
+  minimum; HTTP/2 is fallback only. Self-signed cert at
+  `HelixLLM/certs/cert.pem` MUST include SANs (`DNS:localhost,
+  IP:127.0.0.1, IP:::1`) per Go 1.15+ requirements. Never use
+  `curl -sk` or `NODE_TLS_REJECT_UNAUTHORIZED=0` in challenges/tests;
+  configure `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS` instead.
+- **Local llama.cpp guaranteed last-resort.** The fallback chain MUST
+  always pin local llama.cpp at the end. ScorerBridge may reorder cloud
+  providers; it MUST NOT reorder llama.cpp.
+- **Submodule discipline.** The 37 submodules under `submodules/` are
+  imported via `replace` directives. Submodule updates require
+  coordination per `AGENTS.md`. Each submodule has its own Constitution
+  and is cascaded independently.
