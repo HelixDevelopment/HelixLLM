@@ -52,7 +52,7 @@ func TestGitStatusTool_DefaultPath(t *testing.T) {
 	out, err := tool.Execute(context.Background(), nil)
 	if err != nil {
 		// This might fail if cwd is not a git repo, which is acceptable.
-		t.Skipf("current directory may not be a git repo: %v", err)
+		t.Skipf("current directory may not be a git repo: %v (SKIP-OK: #unmarked-skip-needs-ticket)", err)
 	}
 	if out == "" {
 		t.Error("expected non-empty status output")
