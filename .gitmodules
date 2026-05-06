@@ -16,9 +16,6 @@
 [submodule "submodules/Watcher"]
 	path = submodules/Watcher
 	url = git@github.com:vasic-digital/Watcher.git
-[submodule "submodules/Containers"]
-	path = submodules/Containers
-	url = git@github.com:vasic-digital/Containers.git
 [submodule "submodules/Middleware"]
 	path = submodules/Middleware
 	url = git@github.com:vasic-digital/Middleware.git
