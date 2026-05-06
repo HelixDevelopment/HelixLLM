@@ -28,9 +28,6 @@
 [submodule "submodules/RateLimiter"]
 	path = submodules/RateLimiter
 	url = git@github.com:vasic-digital/RateLimiter.git
-[submodule "submodules/Security"]
-	path = submodules/Security
-	url = git@github.com:vasic-digital/Security.git
 [submodule "submodules/Streaming"]
 	path = submodules/Streaming
 	url = git@github.com:vasic-digital/Streaming.git
