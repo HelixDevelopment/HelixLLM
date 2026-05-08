@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.backup_*
+.env.diff_*
 
 # Superpowers
 .superpowers/
