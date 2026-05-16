@@ -111,7 +111,7 @@ replace (
 	digital.vasic.eventbus => ../../vasic-digital/EventBus
 	digital.vasic.filesystem => ../../vasic-digital/Filesystem
 	digital.vasic.formatters => ../../vasic-digital/Formatters
-	digital.vasic.helixqa => ../../../../HelixQA
+	digital.vasic.helixqa => ../../../../helix_qa
 	digital.vasic.i18n => ../../vasic-digital/I18n
 	digital.vasic.lazy => ../../vasic-digital/Lazy
 	digital.vasic.llmorchestrator => ../../vasic-digital/LLMOrchestrator
