@@ -68,7 +68,7 @@ This document defines the comprehensive plan to bring every aspect of the HelixL
 | 23 | Deprecated model constants still exposed | `submodules/LLMProvider/pkg/providers/zen/zen.go:51-52` |
 | 24 | TOON submodule appears to have minimal API surface | `submodules/TOON/` |
 | 25 | Brain parameter accepted but unused in embeddings | `internal/gateway/openai.go` |
-| 26 | Partial disk monitoring implementation | `submodules/Containers/pkg/monitor/system_internal_test.go` |
+| 26 | Partial disk monitoring implementation | `submodules/containers/pkg/monitor/system_internal_test.go` |
 | 27 | Missing external modules referenced in submodule go.mod | `digital.vasic.models`, `digital.vasic.messaging` |
 
 ---
@@ -571,7 +571,7 @@ Wire Brain provider for embedding generation when local embedding provider route
 
 ### 7.5 Complete Disk Monitoring in Containers Submodule
 
-**Location:** `submodules/Containers/pkg/monitor/`
+**Location:** `submodules/containers/pkg/monitor/`
 
 Implement disk usage collection using OS-level syscalls:
 - `syscall.Statfs` for Linux

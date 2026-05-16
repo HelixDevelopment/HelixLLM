@@ -22,7 +22,7 @@ func TestAnalyzeCodeTool_Name(t *testing.T) {
 
 func TestAnalyzeCodeTool_AnalyzeToolsDir(t *testing.T) {
 	// Analyze the tools/ directory itself -- it has Go files with functions.
-	toolsDir := "/run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/internal/agents/tools"
+	toolsDir := "/run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM/internal/agents/tools"
 	s := NewSandbox(SandboxConfig{
 		AllowedPaths: []string{toolsDir},
 	})

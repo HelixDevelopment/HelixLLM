@@ -49,7 +49,7 @@ helixllm/
   submodules/
     Auth/                                digital.vasic.auth
     RateLimiter/                         digital.vasic.ratelimiter
-    Security/                            digital.vasic.security
+    security/                            digital.vasic.security
     Streaming/                           digital.vasic.streaming
     I18n/                                digital.vasic.i18n
     Formatters/                          digital.vasic.formatters

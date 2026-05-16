@@ -49,16 +49,16 @@ helixllm/
 
 **Files:**
 - Verify: `go.mod` (digital.vasic.containers replace directive exists)
-- Verify: `submodules/Containers/` exists and has pkg/remote, pkg/scheduler, pkg/distribution, pkg/monitor
+- Verify: `submodules/containers/` exists and has pkg/remote, pkg/scheduler, pkg/distribution, pkg/monitor
 
 - [ ] **Step 1: Verify the Containers submodule is accessible**
 
 ```bash
 cd /run/media/milosvasic/DATA4TB/Projects/HelixLLM
-ls submodules/Containers/pkg/remote/
-ls submodules/Containers/pkg/scheduler/
-ls submodules/Containers/pkg/distribution/
-ls submodules/Containers/pkg/monitor/
+ls submodules/containers/pkg/remote/
+ls submodules/containers/pkg/scheduler/
+ls submodules/containers/pkg/distribution/
+ls submodules/containers/pkg/monitor/
 ```
 
 Expected: all directories exist with `.go` files.

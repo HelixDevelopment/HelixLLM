@@ -10,7 +10,7 @@ import (
 )
 
 // The HelixLLM directory is a git repo, so we use it for real git tests.
-const helixLLMRoot = "/run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM"
+const helixLLMRoot = "/run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM"
 
 func gitSandbox() *Sandbox {
 	return NewSandbox(SandboxConfig{

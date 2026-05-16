@@ -11,7 +11,7 @@
 **Spec Reference:** `docs/superpowers/specs/2026-04-04-helixllm-master-design.md` -- Section 11 (Testing Strategy)
 
 **Important notes:**
-- The `digital.vasic.challenges` submodule already exists at `submodules/Challenges/` with a replace directive in `go.mod`. Challenge banks use its `pkg/bank` YAML format.
+- The `digital.vasic.challenges` submodule already exists at `submodules/challenges/` with a replace directive in `go.mod`. Challenge banks use its `pkg/bank` YAML format.
 - HelixQA does not yet exist as a Git submodule. Task 1 adds it from the HelixDevelopment org.
 - All existing tests (18 packages) must continue to pass after each task.
 - Complex infrastructure tests (chaos, stress, multi-host) are deferred -- they require real deployment.
@@ -25,7 +25,7 @@
 ```
 helixllm/
   submodules/
-    HelixQA/                              Task 1: HelixQA submodule
+    helix_qa/                              Task 1: HelixQA submodule
   challenges/
     banks/
       api/
@@ -52,7 +52,7 @@ helixllm/
 ### Task 1: Add HelixQA Submodule
 
 **Files:**
-- Add: `submodules/HelixQA/` (git submodule from HelixDevelopment org)
+- Add: `submodules/helix_qa/` (git submodule from HelixDevelopment org)
 - Modify: `go.mod` (add replace directive for dev.helix.qa)
 - Modify: `.gitmodules` (new submodule entry)
 

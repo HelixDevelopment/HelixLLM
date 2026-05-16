@@ -1,7 +1,7 @@
 [0;36m====================================[0m
 [0;36mHelixLLM Advanced LLMsVerifier Test Suite[0m
 [0;36m====================================[0m
-[0;34m[INFO][0m Report Directory: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260405-235515
+[0;34m[INFO][0m Report Directory: /run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM/reports/llmsverifier-20260405-235515
 [0;34m[INFO][0m Configuration:
 [0;34m[INFO][0m   HELIXLLM_ENDPOINT: https://localhost:8443
 [0;34m[INFO][0m   LLAMACPP_ENDPOINT: http://localhost:8081
@@ -137,9 +137,9 @@
 [0;36mGENERATING REPORT[0m
 [0;36m====================================[0m
 [0;32m[PASS][0m Reports generated:
-[0;34m[INFO][0m   JSON: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260405-235515/report.json
-[0;34m[INFO][0m   Markdown: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260405-235515/REPORT.md
-[0;34m[INFO][0m   Log: /run/media/milosvasic/DATA4TB/Projects/HelixAgent/HelixLLM/reports/llmsverifier-20260405-235515/test.log
+[0;34m[INFO][0m   JSON: /run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM/reports/llmsverifier-20260405-235515/report.json
+[0;34m[INFO][0m   Markdown: /run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM/reports/llmsverifier-20260405-235515/REPORT.md
+[0;34m[INFO][0m   Log: /run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM/reports/llmsverifier-20260405-235515/test.log
 [0;36m====================================[0m
 [0;36mFINAL SUMMARY[0m
 [0;36m====================================[0m
