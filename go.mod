@@ -100,7 +100,7 @@ replace (
 	digital.vasic.auth => ../../vasic-digital/Auth
 	digital.vasic.background => ../../vasic-digital/BackgroundTasks
 	digital.vasic.cache => ../../vasic-digital/Cache
-	digital.vasic.challenges => ../../../../Challenges
+	digital.vasic.challenges => ../../../../challenges
 	digital.vasic.concurrency => ../../vasic-digital/Concurrency
 	digital.vasic.config => ../../vasic-digital/Config
 	digital.vasic.containers => ../../../../containers
@@ -125,7 +125,7 @@ replace (
 	digital.vasic.rag => ../../vasic-digital/RAG
 	digital.vasic.ratelimiter => ../../vasic-digital/RateLimiter
 	digital.vasic.recovery => ../../vasic-digital/Recovery
-	digital.vasic.security => ../../../../Security
+	digital.vasic.security => ../../../../security
 	digital.vasic.streaming => ../../vasic-digital/Streaming
 	digital.vasic.toolschema => ../../vasic-digital/ToolSchema
 	digital.vasic.toon => ../../vasic-digital/TOON // TOON: Token-Oriented Object Notation — compact serialization for LLM token efficiency. Used by gateway ContentNegotiation middleware.
