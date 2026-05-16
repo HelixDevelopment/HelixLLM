@@ -103,7 +103,7 @@ replace (
 	digital.vasic.challenges => ../../../../Challenges
 	digital.vasic.concurrency => ../../vasic-digital/Concurrency
 	digital.vasic.config => ../../vasic-digital/Config
-	digital.vasic.containers => ../../../../Containers
+	digital.vasic.containers => ../../../../containers
 	digital.vasic.conversation => ../../vasic-digital/conversation
 	digital.vasic.database => ../../vasic-digital/Database
 	digital.vasic.document => ../../vasic-digital/Document
