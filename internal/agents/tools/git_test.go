@@ -9,13 +9,17 @@ import (
 	"testing"
 )
 
-// The HelixLLM directory is a git repo, so we use it for real git tests.
-const helixLLMRoot = "/run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM"
+// CONST-035 / CONST-051(B): we synthesize a real git repo per-test via
+// initTempRepo() (defined below) instead of relying on a hardcoded operator-host
+// absolute path to a HelixLLM checkout. The on-demand repo exercises the same
+// git plumbing on any host.
 
-func gitSandbox() *Sandbox {
+func gitSandbox(t *testing.T) (*Sandbox, string) {
+	t.Helper()
+	repo := initTempRepo(t)
 	return NewSandbox(SandboxConfig{
-		AllowedPaths: []string{"/tmp", helixLLMRoot},
-	})
+		AllowedPaths: []string{"/tmp", os.TempDir(), repo},
+	}), repo
 }
 
 // ---------------------------------------------------------------------------
@@ -23,18 +27,20 @@ func gitSandbox() *Sandbox {
 // ---------------------------------------------------------------------------
 
 func TestGitStatusTool_Name(t *testing.T) {
-	tool := NewGitStatusTool(gitSandbox())
+	sandbox, _ := gitSandbox(t)
+	tool := NewGitStatusTool(sandbox)
 	if tool.Name() != "git_status" {
 		t.Errorf("expected git_status, got %s", tool.Name())
 	}
 }
 
 func TestGitStatusTool_Execute(t *testing.T) {
-	tool := NewGitStatusTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitStatusTool(sandbox)
 	ctx := context.Background()
 
 	out, err := tool.Execute(ctx, map[string]interface{}{
-		"path": helixLLMRoot,
+		"path": repo,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -46,7 +52,8 @@ func TestGitStatusTool_Execute(t *testing.T) {
 }
 
 func TestGitStatusTool_DefaultPath(t *testing.T) {
-	tool := NewGitStatusTool(gitSandbox())
+	sandbox, _ := gitSandbox(t)
+	tool := NewGitStatusTool(sandbox)
 
 	// With nil args, should use current directory.
 	out, err := tool.Execute(context.Background(), nil)
@@ -64,19 +71,21 @@ func TestGitStatusTool_DefaultPath(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGitDiffTool_Name(t *testing.T) {
-	tool := NewGitDiffTool(gitSandbox())
+	sandbox, _ := gitSandbox(t)
+	tool := NewGitDiffTool(sandbox)
 	if tool.Name() != "git_diff" {
 		t.Errorf("expected git_diff, got %s", tool.Name())
 	}
 }
 
 func TestGitDiffTool_Execute(t *testing.T) {
-	tool := NewGitDiffTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitDiffTool(sandbox)
 	ctx := context.Background()
 
 	// This returns either diff content or "No changes." -- both are valid.
 	out, err := tool.Execute(ctx, map[string]interface{}{
-		"path": helixLLMRoot,
+		"path": repo,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -87,11 +96,12 @@ func TestGitDiffTool_Execute(t *testing.T) {
 }
 
 func TestGitDiffTool_Staged(t *testing.T) {
-	tool := NewGitDiffTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitDiffTool(sandbox)
 	ctx := context.Background()
 
 	out, err := tool.Execute(ctx, map[string]interface{}{
-		"path":   helixLLMRoot,
+		"path":   repo,
 		"staged": true,
 	})
 	if err != nil {
@@ -108,18 +118,20 @@ func TestGitDiffTool_Staged(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGitLogTool_Name(t *testing.T) {
-	tool := NewGitLogTool(gitSandbox())
+	sandbox, _ := gitSandbox(t)
+	tool := NewGitLogTool(sandbox)
 	if tool.Name() != "git_log" {
 		t.Errorf("expected git_log, got %s", tool.Name())
 	}
 }
 
 func TestGitLogTool_Execute(t *testing.T) {
-	tool := NewGitLogTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitLogTool(sandbox)
 	ctx := context.Background()
 
 	out, err := tool.Execute(ctx, map[string]interface{}{
-		"path":  helixLLMRoot,
+		"path":  repo,
 		"count": 5,
 	})
 	if err != nil {
@@ -133,10 +145,11 @@ func TestGitLogTool_Execute(t *testing.T) {
 }
 
 func TestGitLogTool_DefaultCount(t *testing.T) {
-	tool := NewGitLogTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitLogTool(sandbox)
 
 	out, err := tool.Execute(context.Background(), map[string]interface{}{
-		"path": helixLLMRoot,
+		"path": repo,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,11 +161,12 @@ func TestGitLogTool_DefaultCount(t *testing.T) {
 }
 
 func TestGitLogTool_ClampCount(t *testing.T) {
-	tool := NewGitLogTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitLogTool(sandbox)
 
 	// Negative count should be clamped to 10.
 	out, err := tool.Execute(context.Background(), map[string]interface{}{
-		"path":  helixLLMRoot,
+		"path":  repo,
 		"count": -5,
 	})
 	if err != nil {
@@ -168,18 +182,20 @@ func TestGitLogTool_ClampCount(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGitBranchTool_Name(t *testing.T) {
-	tool := NewGitBranchTool(gitSandbox())
+	sandbox, _ := gitSandbox(t)
+	tool := NewGitBranchTool(sandbox)
 	if tool.Name() != "git_branch" {
 		t.Errorf("expected git_branch, got %s", tool.Name())
 	}
 }
 
 func TestGitBranchTool_Execute(t *testing.T) {
-	tool := NewGitBranchTool(gitSandbox())
+	sandbox, repo := gitSandbox(t)
+	tool := NewGitBranchTool(sandbox)
 	ctx := context.Background()
 
 	out, err := tool.Execute(ctx, map[string]interface{}{
-		"path": helixLLMRoot,
+		"path": repo,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -191,7 +207,8 @@ func TestGitBranchTool_Execute(t *testing.T) {
 }
 
 func TestGitBranchTool_InvalidRepo(t *testing.T) {
-	tool := NewGitBranchTool(gitSandbox())
+	sandbox, _ := gitSandbox(t)
+	tool := NewGitBranchTool(sandbox)
 
 	_, err := tool.Execute(context.Background(), map[string]interface{}{
 		"path": "/tmp",

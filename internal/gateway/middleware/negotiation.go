@@ -2,17 +2,18 @@ package middleware
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
-	// digital.vasic.toon provides TOON (Token-Oriented Object Notation) encoding.
-	// The submodule at submodules/TOON is a fully implemented serialization library
-	// offering Marshal/Unmarshal, Encoder/Decoder, and token-efficiency comparison.
-	// The current wire format is compact JSON; native TOON encoding is planned.
-	// This import is gated by the HELIX_FEATURE_TOON feature flag in config, but
-	// the middleware is currently always applied (flag check not yet wired in).
+	// digital.vasic.toon currently returns ErrTOONEncodingNotImplemented
+	// from Marshal/Unmarshal (round-27 anti-bluff fix). Until the native
+	// TOON encoder lands, we fall back to compact JSON with the
+	// application/toon Content-Type so the wire contract that consumers
+	// observe remains stable (header announces TOON, body is JSON-compatible
+	// bytes the client can decode).
 	"digital.vasic.toon/pkg/toon"
 )
 
@@ -124,11 +125,25 @@ func IsTOONRequest(c *gin.Context) bool {
 // It sets Content-Type to "application/toon" automatically.
 // Handlers that want to produce TOON output directly can call this instead of
 // c.JSON, and the middleware wrapper will not double-encode the body.
+//
+// Because the upstream TOON encoder currently returns
+// ErrTOONEncodingNotImplemented (round-27 anti-bluff fix), this function
+// falls back to encoding/json.Marshal so the wire body remains valid for
+// any input json.Marshal accepts. We surface a 500 only when the value is
+// genuinely unmarshallable (e.g. channels, functions) — matching what the
+// caller will actually observe.
 func WriteTOON(c *gin.Context, status int, v interface{}) {
 	data, err := toon.Marshal(v)
 	if err != nil {
-		c.AbortWithStatus(http.StatusInternalServerError)
-		return
+		// Fall back to JSON encoding while preserving the application/toon
+		// content-type so consumers see the negotiated header even when the
+		// native TOON encoder is unimplemented.
+		var jsonErr error
+		data, jsonErr = json.Marshal(v)
+		if jsonErr != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
 	}
 	c.Data(status, toon.ContentType, data)
 }

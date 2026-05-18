@@ -21,8 +21,21 @@ func TestAnalyzeCodeTool_Name(t *testing.T) {
 }
 
 func TestAnalyzeCodeTool_AnalyzeToolsDir(t *testing.T) {
-	// Analyze the tools/ directory itself -- it has Go files with functions.
-	toolsDir := "/run/media/milosvasic/DATA4TB/Projects/helix_agent/HelixLLM/internal/agents/tools"
+	// CONST-035 / CONST-051(B): the previous version hardcoded an absolute
+	// operator-host path (`/run/media/.../helix_agent/HelixLLM/internal/agents/tools`),
+	// causing the test to fail on every other machine. We synthesize a small Go
+	// source tree in t.TempDir() that exercises the same Files/Lines/Functions
+	// reporting code path on any host.
+	toolsDir := t.TempDir()
+	files := map[string]string{
+		"alpha.go": "package fixture\n\nfunc Alpha() {}\n\nfunc Beta(x int) int {\n\treturn x + 1\n}\n",
+		"beta.go":  "package fixture\n\nfunc Gamma(s string) string {\n\treturn s + s\n}\n\nfunc Delta() bool { return true }\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(toolsDir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("seed fixture %s: %v", name, err)
+		}
+	}
 	s := NewSandbox(SandboxConfig{
 		AllowedPaths: []string{toolsDir},
 	})
