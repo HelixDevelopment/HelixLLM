@@ -29,4 +29,7 @@ certs/
 # OS
 .DS_Store
 Thumbs.db
-helixllm
+# Anchored to repo root so build artefact `./helixllm` is ignored,
+# but the `cmd/helixllm/` source directory remains trackable
+# (round-95 CONST-046 i18n migration added a test file there).
+/helixllm

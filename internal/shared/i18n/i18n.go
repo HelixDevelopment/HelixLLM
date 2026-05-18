@@ -14,6 +14,11 @@ const (
 	KeyModelNotFound       = "model_not_found"
 	KeyInvalidRequest      = "invalid_request"
 	KeyInternalError       = "internal_error"
+
+	// CONST-046 round-95 — CLI user-facing strings migrated from
+	// hardcoded literals in cmd/helixllm/{challenges,main}.go.
+	KeyHelixllmCLIFailedToLoadBanks  = "helixllm_cli_failed_to_load_banks"
+	KeyHelixllmCLIErrorLoadingConfig = "helixllm_cli_error_loading_config"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -23,6 +28,20 @@ var defaultEnglishMessages = map[string]string{
 	KeyModelNotFound:     "The model '{{model}}' does not exist",
 	KeyInvalidRequest:    "Invalid request: {{detail}}",
 	KeyInternalError:     "Internal server error",
+
+	KeyHelixllmCLIFailedToLoadBanks:  "failed to load banks: {{detail}}",
+	KeyHelixllmCLIErrorLoadingConfig: "error loading config: {{detail}}",
+}
+
+// TranslatorAPI is the minimal contract that call sites depend on so
+// they can be unit-tested with a fake implementation without binding
+// to the upstream Bundle. The concrete *Translator below satisfies it.
+//
+// Decoupling per CONST-051(B): this interface lives in HelixLLM's own
+// i18n package and references no consumer-project type — HelixLLM is
+// reusable as a standalone repository.
+type TranslatorAPI interface {
+	T(lang, key string, vars ...map[string]string) string
 }
 
 // Translator wraps an upstream Bundle and exposes a simplified API

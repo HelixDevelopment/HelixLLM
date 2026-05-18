@@ -113,3 +113,54 @@ func TestTranslator_NoVars(t *testing.T) {
 		t.Errorf("T() without vars = %q, want %q", got, want)
 	}
 }
+
+// CONST-046 round-95: regression test for the two CLI keys migrated
+// from cmd/helixllm/{challenges,main}.go. The English templates MUST
+// be loaded by i18n.New("en") and substitute {{detail}} correctly.
+func TestTranslator_HelixllmCLIFailedToLoadBanks_English(t *testing.T) {
+	tr := i18n.New("en")
+	got := tr.T("en", i18n.KeyHelixllmCLIFailedToLoadBanks, map[string]string{
+		"detail": "open banks/: no such file or directory",
+	})
+	want := "failed to load banks: open banks/: no such file or directory"
+	if got != want {
+		t.Errorf("T() = %q, want %q", got, want)
+	}
+}
+
+func TestTranslator_HelixllmCLIErrorLoadingConfig_English(t *testing.T) {
+	tr := i18n.New("en")
+	got := tr.T("en", i18n.KeyHelixllmCLIErrorLoadingConfig, map[string]string{
+		"detail": "permission denied",
+	})
+	want := "error loading config: permission denied"
+	if got != want {
+		t.Errorf("T() = %q, want %q", got, want)
+	}
+}
+
+// CONST-046 round-95: cross-language fallback test for the CLI keys.
+// French speakers asking the CLI for a non-translated key MUST get the
+// English template (not a Go fmt.Errorf wrapper, not the raw key).
+func TestTranslator_HelixllmCLIKeys_FallbackToEnglish(t *testing.T) {
+	tr := i18n.New("en")
+	got := tr.T("fr", i18n.KeyHelixllmCLIFailedToLoadBanks, map[string]string{
+		"detail": "no banks dir",
+	})
+	if got == i18n.KeyHelixllmCLIFailedToLoadBanks {
+		t.Fatalf("French lookup returned bare key %q — fallback to English template did not fire", got)
+	}
+	wantPrefix := "failed to load banks:"
+	if len(got) < len(wantPrefix) || got[:len(wantPrefix)] != wantPrefix {
+		t.Errorf("T(fr, %q) = %q, want English fallback starting with %q",
+			i18n.KeyHelixllmCLIFailedToLoadBanks, got, wantPrefix)
+	}
+}
+
+// TranslatorAPI compile-time assertion — *Translator MUST satisfy the
+// minimal contract used by call sites (cmd/helixllm/challenges.go,
+// cmd/helixllm/main.go). Decoupling proof per CONST-051(B).
+func TestTranslatorAPI_ContractSatisfied(t *testing.T) {
+	var _ i18n.TranslatorAPI = (*i18n.Translator)(nil)
+	var _ i18n.TranslatorAPI = i18n.New("en")
+}

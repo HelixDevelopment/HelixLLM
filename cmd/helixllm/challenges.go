@@ -5,16 +5,23 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	helixtest "github.com/HelixDevelopment/HelixLLM/internal/testing"
 )
 
 // runChallenges loads YAML banks from banksDir and executes challenges
 // filtered by category or priority (or all if neither is set).
 // Returns 0 on success, 1 if any challenge failed or banks could not be loaded.
-func runChallenges(baseURL, banksDir, category, priority string) int {
+//
+// User-facing strings are resolved via the injected TranslatorAPI per
+// CONST-046 (no hardcoded literals visible to end users).
+func runChallenges(tr i18n.TranslatorAPI, lang, baseURL, banksDir, category, priority string) int {
 	runner := helixtest.NewRunner(baseURL)
 	if err := runner.LoadBanksDir(banksDir); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load banks: %v\n", err)
+		msg := tr.T(lang, i18n.KeyHelixllmCLIFailedToLoadBanks, map[string]string{
+			"detail": err.Error(),
+		})
+		fmt.Fprintf(os.Stderr, "%s\n", msg)
 		return 1
 	}
 

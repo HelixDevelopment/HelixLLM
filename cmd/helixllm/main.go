@@ -26,6 +26,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/events"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/hardware"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/health"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/logging"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/observability"
@@ -41,13 +42,22 @@ func main() {
 	priorityFlag   := flag.String("priority", "", "Run only challenges matching this priority")
 	flag.Parse()
 
+	// CONST-046: user-facing CLI strings resolved via i18n Translator.
+	// Language selection follows the standard env-precedence fallback
+	// (LANG / LC_ALL → "en") used by every CLI in the platform.
+	lang := resolveCLILang()
+	tr := i18n.New(lang)
+
 	if *challengesFlag {
-		os.Exit(runChallenges(*baseURLFlag, *banksDirFlag, *categoryFlag, *priorityFlag))
+		os.Exit(runChallenges(tr, lang, *baseURLFlag, *banksDirFlag, *categoryFlag, *priorityFlag))
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
+		msg := tr.T(lang, i18n.KeyHelixllmCLIErrorLoadingConfig, map[string]string{
+			"detail": err.Error(),
+		})
+		fmt.Fprintf(os.Stderr, "%s\n", msg)
 		os.Exit(1)
 	}
 
@@ -520,4 +530,21 @@ func parseDuration(s string, fallbackVal time.Duration) time.Duration {
 		return fallbackVal
 	}
 	return d
+}
+
+// resolveCLILang picks a 2-letter language tag for user-facing CLI
+// strings based on the standard POSIX env precedence (LC_ALL > LANG).
+// Falls back to "en". Never returns "" — the i18n Translator's fallback
+// chain assumes a non-empty default-language tag.
+//
+// CONST-046 round-95: hardcoded English literals at CLI call sites are
+// replaced by i18n.Translator.T(lang, key); this function supplies lang.
+func resolveCLILang() string {
+	for _, env := range []string{"LC_ALL", "LANG"} {
+		v := os.Getenv(env)
+		if len(v) >= 2 {
+			return v[:2]
+		}
+	}
+	return "en"
 }
