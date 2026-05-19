@@ -1,0 +1,10 @@
+# HelixLLM round-295 challenge fixture — Japanese (ja).
+#
+# Demonstrates LoadMessages + T fan-out for a non-English locale
+# plus template substitution for the {{detail}} placeholder.
+# Japanese romaji used for fixture-portability across editors.
+locale: ja
+message_key: round_295_demo_ja
+message_value: "Raundo 295 demo messeji: shosai {{detail}}"
+expect_substr: "Raundo 295 demo messeji"
+template_detail_val: "japanese-detail-token"

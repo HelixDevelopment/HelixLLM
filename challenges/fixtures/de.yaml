@@ -1,0 +1,9 @@
+# HelixLLM round-295 challenge fixture — German (de).
+#
+# Demonstrates LoadMessages + T fan-out for a non-English locale
+# plus template substitution for the {{detail}} placeholder.
+locale: de
+message_key: round_295_demo_de
+message_value: "Runde 295 Demo Nachricht: Detail {{detail}}"
+expect_substr: "Runde 295 Demo Nachricht"
+template_detail_val: "german-detail-token"

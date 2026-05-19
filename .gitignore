@@ -33,3 +33,9 @@ Thumbs.db
 # but the `cmd/helixllm/` source directory remains trackable
 # (round-95 CONST-046 i18n migration added a test file there).
 /helixllm
+
+# round-295 — stray `go build ./challenges/runner/` artefact at
+# repo root if the runner is built without -o. Source under
+# `challenges/runner/` remains trackable; only the root binary
+# named `runner` is ignored (anchored).
+/runner

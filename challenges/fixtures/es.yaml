@@ -1,0 +1,9 @@
+# HelixLLM round-295 challenge fixture — Spanish (es).
+#
+# Demonstrates LoadMessages + T fan-out for a non-English locale
+# plus template substitution for the {{detail}} placeholder.
+locale: es
+message_key: round_295_demo_es
+message_value: "Ronda 295 mensaje de demostracion: detalle {{detail}}"
+expect_substr: "Ronda 295 mensaje de demostracion"
+template_detail_val: "spanish-detail-token"

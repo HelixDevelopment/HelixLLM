@@ -1,0 +1,11 @@
+# HelixLLM round-295 challenge fixture — English (en).
+#
+# Drives the Challenge runner at challenges/runner/main.go through a
+# real i18n.Translator.LoadMessages + T round-trip + template
+# substitution. Anti-bluff: the rendered message MUST contain the
+# expect_substr literal; a runtime mismatch fails the run.
+locale: en
+message_key: round_295_demo_en
+message_value: "Round 295 demo message: detail {{detail}}"
+expect_substr: "Round 295 demo message"
+template_detail_val: "english-detail-token"

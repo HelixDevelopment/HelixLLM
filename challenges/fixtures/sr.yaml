@@ -1,0 +1,10 @@
+# HelixLLM round-295 challenge fixture — Serbian (sr).
+#
+# Demonstrates LoadMessages + T fan-out for a non-English locale
+# plus template substitution for the {{detail}} placeholder.
+# Serbian latinica used for fixture-portability across editors.
+locale: sr
+message_key: round_295_demo_sr
+message_value: "Runda 295 demo poruka: detalj {{detail}}"
+expect_substr: "Runda 295 demo poruka"
+template_detail_val: "serbian-detail-token"
