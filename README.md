@@ -203,6 +203,125 @@ helixllm/
 
 - **User Guide:** [Getting Started](docs/user-guide/getting-started.md) | [Configuration](docs/user-guide/configuration.md) | [API Reference](docs/user-guide/api-reference.md) | [Models](docs/user-guide/models.md) | [RAG Knowledge](docs/user-guide/rag-knowledge.md) | [Agents](docs/user-guide/agents.md) | [Multi-Host Setup](docs/user-guide/multi-host-setup.md) | [Monitoring](docs/user-guide/monitoring.md) | [Troubleshooting](docs/user-guide/troubleshooting.md)
 - **Manual:** [Architecture](docs/manual/architecture.md) | [Development](docs/manual/development.md) | [Testing](docs/manual/testing.md) | [Security](docs/manual/security.md) | [Operations](docs/manual/operations.md) | [Modules](docs/manual/modules.md)
+- **Governance:** [`CONSTITUTION.md`](CONSTITUTION.md) | [`CLAUDE.md`](CLAUDE.md) | [`AGENTS.md`](AGENTS.md) — anti-bluff posture, cascade anchors, governance discipline. The constitution submodule at `<consuming-project>/constitution/` is the canonical root per CONST-059; HelixLLM's own files are consumer extensions and inherit every universal rule.
+- **Test-coverage ledger:** [`docs/test-coverage.md`](docs/test-coverage.md) — CONST-050(B) accountability matrix mapping HelixLLM's seven primary surfaces against the fourteen test types §11.4.27 enumerates, with per-row evidence pointers.
+
+## Test posture and anti-bluff guarantees
+
+HelixLLM ships under the constitution submodule's Article XI §11.9
+anti-bluff forensic anchor. The bar for shipping is **not** "tests
+pass" but "users can use the feature." Every PASS in this codebase
+carries positive runtime evidence captured during execution.
+
+Five guard rails enforce that bar:
+
+1. **No-fakes-beyond-unit-tests (CONST-050(A)).** Mocks live only in
+   `*_test.go` files invoked without an integration build tag. The
+   `fakeTranslator` in `cmd/helixllm/challenges_test.go` is the
+   canonical example: satisfies `i18n.TranslatorAPI`, lives in the
+   unit-test source, never imported from production code. Integration,
+   E2E, security, chaos, stress, performance, benchmarking,
+   Challenges, and helix_qa runs exercise the real, fully implemented
+   HelixLLM against real backing services (llama.cpp endpoint, real
+   Redis, real Postgres, real cloud-provider HTTP).
+
+2. **No-hardcoded-content (CONST-046).** Every user-facing string is
+   either LLM-generated at runtime, loaded from the i18n bundle
+   (`internal/shared/i18n/`), or composed from verifier metadata.
+   Round 95 migrated the two surviving CLI literals
+   (`KeyHelixllmCLIFailedToLoadBanks`,
+   `KeyHelixllmCLIErrorLoadingConfig`); round 215 wraps that work in
+   `challenges/scripts/helixllm_cli_challenge.sh` with a
+   paired-mutation gate that refuses any regression.
+
+3. **No-secret-leak (CONST-042).** API keys live in `.env` files
+   (mode 0600) listed in `.gitignore`. The repository's `.gitignore`
+   forbids tracking any of the categories §11.4.30 enumerates:
+   build artefacts, caches, tmp files, `.env*` (except
+   `.env.example`), PEM/key/crt, logs, OS/IDE personal state.
+
+4. **No-host-power-management (CONST-033).** HelixLLM never emits
+   shell commands or systemd units that suspend, hibernate,
+   hybrid-sleep, poweroff, halt, or reboot the host. See
+   `docs/HOST_POWER_MANAGEMENT.md` for the verbatim ban and
+   `challenges/scripts/host_no_auto_suspend_challenge.sh` +
+   `challenges/scripts/no_suspend_calls_challenge.sh` for the
+   runtime guards.
+
+5. **Paired-mutation gates (§1.1).** Every governance gate ships with
+   a paired-mutation self-test that plants a known violation and
+   asserts the gate flips to FAIL. The new round-215
+   `helixllm_cli_challenge.sh` demonstrates the pattern: invariant 6
+   creates a sandbox copy with a bare-English literal restored, runs
+   the same scan logic against the sandbox, and refuses to report
+   overall PASS unless the planted violation is caught.
+
+### Running the test suite
+
+The full test-type catalog is documented in
+[`docs/test-coverage.md`](docs/test-coverage.md). Quick reference:
+
+```bash
+make test-unit              # internal/... with -race, threshold 91%
+make test-integration       # real backing services, no mocks
+make test-e2e               # full user-flow exercise
+make test-automation        # test-unit → test-integration → test-challenges
+make test-security          # security bank + scan-quick + scan-fs
+make test-stress            # request-flood profile (DDoS / stress)
+make test-chaos             # failure-injection profile
+make test-performance       # SLO baselines under tests/performance/baselines/
+make test-benchmark         # historical p95 drift detection
+make test-challenges        # every YAML bank under challenges/banks/
+make coverage               # enforces 91% coverage floor
+
+# Round-215 CLI-surface anti-bluff sweep (six invariants,
+# 16 individual checks, paired-mutation self-test):
+./challenges/scripts/helixllm_cli_challenge.sh
+```
+
+The release-gate sweep regenerates `docs/test-coverage.md` and
+verifies every (surface × test-type) cell either has a documented
+PASS evidence pointer or an explicit `PENDING`/`n/a` rationale. A row
+that reads PASS without evidence is a CONST-035 violation of the
+same severity as a green CI badge hiding a broken feature.
+
+### Reproducing a Challenge result
+
+Every Challenge under `challenges/scripts/` is self-contained and
+executable from the repository root. Twelve cross-cutting scripts:
+
+| Script | Surface |
+|--------|---------|
+| `helixllm_cli_challenge.sh` (round 215) | CLI surface, i18n, paired-mutation |
+| `multi_provider_fallback_challenge.sh`  | Provider × fallback wiring, build, unit-test |
+| `multi_model_fleet_challenge.sh`        | Multi-model coordination |
+| `helixllm_memory_sync_challenge.sh`     | Conversation memory persistence |
+| `chaos_failure_injection_challenge.sh`  | Recovery from forced failure |
+| `ddos_health_flood_challenge.sh`        | Health-endpoint flood resilience |
+| `scaling_horizontal_challenge.sh`       | Multi-process load-balancing |
+| `stress_sustained_load_challenge.sh`    | Memory + goroutine leak detection |
+| `ui_terminal_interaction_challenge.sh`  | TUI monitor interaction flow |
+| `ux_end_to_end_flow_challenge.sh`       | Clone → dev → chat → stream |
+| `host_no_auto_suspend_challenge.sh`     | CONST-033 host-power guard |
+| `no_suspend_calls_challenge.sh`         | CONST-033 source-level guard |
+
+Per-bank YAML challenges under `challenges/banks/` are driven by the
+in-process runner via `make test-challenges` or by the binary directly:
+
+```bash
+./bin/helixllm --challenges --banks-dir=challenges/banks/api/ \
+               --base-url=https://localhost:8443
+```
+
+### What "PASS" means here
+
+A passing test in HelixLLM is a claim that the feature **works for
+the end user** — Quality + Completion + Full Usability. Any test
+that doesn't certify all three is a bluff and gets tightened (or
+reopened per CONST-058 with `By: AI, Reason:
+captured-evidence-contradicts`). The forensic anchor at Article XI
+§11.9 of the constitution submodule is the operative authority; this
+README's role is to make the discipline visible at the entry point.
 
 ## License
 
