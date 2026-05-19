@@ -164,3 +164,84 @@ func TestTranslatorAPI_ContractSatisfied(t *testing.T) {
 	var _ i18n.TranslatorAPI = (*i18n.Translator)(nil)
 	var _ i18n.TranslatorAPI = i18n.New("en")
 }
+
+// CONST-046 round-321: regression test for the cluster-monitor TUI keys
+// migrated from hardcoded literals in internal/control/tui.go. Each
+// English template MUST be loaded by i18n.New("en") and resolve to a
+// non-key string.
+func TestTranslator_MonitorKeys_English(t *testing.T) {
+	tr := i18n.New("en")
+
+	cases := []struct {
+		key  string
+		want string
+	}{
+		{i18n.KeyMonitorTitle, "HelixLLM Cluster Monitor"},
+		{i18n.KeyMonitorTitleRule, "========================"},
+		{i18n.KeyMonitorNoHosts, "No hosts configured."},
+		{i18n.KeyMonitorColHost, "HOST"},
+		{i18n.KeyMonitorColStatus, "STATUS"},
+		{i18n.KeyMonitorColCPUCores, "CPU CORES"},
+		{i18n.KeyMonitorColMemoryMB, "MEMORY (MB)"},
+		{i18n.KeyMonitorColDeploys, "DEPLOYMENTS"},
+		{i18n.KeyMonitorOverallOK, "healthy"},
+		{i18n.KeyMonitorOverallBad, "DEGRADED"},
+	}
+
+	for _, tc := range cases {
+		got := tr.T("en", tc.key)
+		if got != tc.want {
+			t.Errorf("T(en, %q) = %q, want %q", tc.key, got, tc.want)
+		}
+		// Paired mutation: a bare-key return means the template was
+		// never loaded — the migration silently broke the TUI.
+		if got == tc.key {
+			t.Errorf("T(en, %q) returned bare key — template not loaded", tc.key)
+		}
+	}
+}
+
+// CONST-046 round-321: template-substitution test for the monitor's
+// composed status line. {{overall}}, {{hosts}}, {{time}} MUST all be
+// substituted.
+func TestTranslator_MonitorClusterState_Substitution(t *testing.T) {
+	tr := i18n.New("en")
+
+	got := tr.T("en", i18n.KeyMonitorClusterState, map[string]string{
+		"overall": "healthy",
+		"hosts":   "3",
+		"time":    "2026-05-20T10:00:00Z",
+	})
+	want := "Cluster: healthy  |  Hosts: 3  |  Last check: 2026-05-20T10:00:00Z"
+	if got != want {
+		t.Errorf("T() = %q, want %q", got, want)
+	}
+}
+
+func TestTranslator_MonitorLastCheck_Substitution(t *testing.T) {
+	tr := i18n.New("en")
+
+	got := tr.T("en", i18n.KeyMonitorLastCheck, map[string]string{
+		"time": "2026-05-20T10:00:00Z",
+	})
+	want := "Last check: 2026-05-20T10:00:00Z"
+	if got != want {
+		t.Errorf("T() = %q, want %q", got, want)
+	}
+}
+
+// CONST-046 round-321: cross-language fallback for the monitor keys —
+// a non-English operator MUST receive the English template, never the
+// raw key.
+func TestTranslator_MonitorKeys_FallbackToEnglish(t *testing.T) {
+	tr := i18n.New("en")
+
+	got := tr.T("ja", i18n.KeyMonitorTitle)
+	if got == i18n.KeyMonitorTitle {
+		t.Fatalf("Japanese lookup of %q returned bare key — English fallback did not fire",
+			i18n.KeyMonitorTitle)
+	}
+	if got != "HelixLLM Cluster Monitor" {
+		t.Errorf("T(ja, %q) = %q, want English fallback", i18n.KeyMonitorTitle, got)
+	}
+}

@@ -3,6 +3,8 @@ package control
 import (
 	"testing"
 	"time"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 )
 
 func TestRenderStatus_WithHostsAndDeployments(t *testing.T) {
@@ -43,7 +45,7 @@ func TestRenderStatus_WithHostsAndDeployments(t *testing.T) {
 	}
 
 	// Should not panic when rendering hosts with deployments.
-	renderStatus(cp)
+	renderStatus(cp, i18n.New("en"), "en")
 }
 
 func TestRenderStatus_DegradedCluster(t *testing.T) {
@@ -80,7 +82,7 @@ func TestRenderStatus_DegradedCluster(t *testing.T) {
 	}
 
 	// Should not panic; should show DEGRADED status.
-	renderStatus(cp)
+	renderStatus(cp, i18n.New("en"), "en")
 }
 
 func TestRenderStatus_NoHostsConfigured(t *testing.T) {
@@ -96,5 +98,5 @@ func TestRenderStatus_NoHostsConfigured(t *testing.T) {
 	}
 
 	// Should print "No hosts configured." without panicking.
-	renderStatus(cp)
+	renderStatus(cp, i18n.New("en"), "en")
 }

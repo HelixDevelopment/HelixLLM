@@ -19,6 +19,21 @@ const (
 	// hardcoded literals in cmd/helixllm/{challenges,main}.go.
 	KeyHelixllmCLIFailedToLoadBanks  = "helixllm_cli_failed_to_load_banks"
 	KeyHelixllmCLIErrorLoadingConfig = "helixllm_cli_error_loading_config"
+
+	// CONST-046 round-321 — cluster-monitor TUI user-facing strings
+	// migrated from hardcoded literals in internal/control/tui.go.
+	KeyMonitorTitle        = "monitor_title"
+	KeyMonitorTitleRule    = "monitor_title_rule"
+	KeyMonitorNoHosts      = "monitor_no_hosts"
+	KeyMonitorLastCheck    = "monitor_last_check"
+	KeyMonitorColHost      = "monitor_col_host"
+	KeyMonitorColStatus    = "monitor_col_status"
+	KeyMonitorColCPUCores  = "monitor_col_cpu_cores"
+	KeyMonitorColMemoryMB  = "monitor_col_memory_mb"
+	KeyMonitorColDeploys   = "monitor_col_deployments"
+	KeyMonitorClusterState = "monitor_cluster_state"
+	KeyMonitorOverallOK    = "monitor_overall_healthy"
+	KeyMonitorOverallBad   = "monitor_overall_degraded"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -31,6 +46,19 @@ var defaultEnglishMessages = map[string]string{
 
 	KeyHelixllmCLIFailedToLoadBanks:  "failed to load banks: {{detail}}",
 	KeyHelixllmCLIErrorLoadingConfig: "error loading config: {{detail}}",
+
+	KeyMonitorTitle:        "HelixLLM Cluster Monitor",
+	KeyMonitorTitleRule:    "========================",
+	KeyMonitorNoHosts:      "No hosts configured.",
+	KeyMonitorLastCheck:    "Last check: {{time}}",
+	KeyMonitorColHost:      "HOST",
+	KeyMonitorColStatus:    "STATUS",
+	KeyMonitorColCPUCores:  "CPU CORES",
+	KeyMonitorColMemoryMB:  "MEMORY (MB)",
+	KeyMonitorColDeploys:   "DEPLOYMENTS",
+	KeyMonitorClusterState: "Cluster: {{overall}}  |  Hosts: {{hosts}}  |  Last check: {{time}}",
+	KeyMonitorOverallOK:    "healthy",
+	KeyMonitorOverallBad:   "DEGRADED",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so
