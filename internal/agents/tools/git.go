@@ -21,7 +21,7 @@ func NewGitStatusTool(sandbox *Sandbox) *GitStatusTool {
 
 func (g *GitStatusTool) Name() string { return "git_status" }
 func (g *GitStatusTool) Description() string {
-	return "Show the working tree status of a git repository (short format with branch info)."
+	return tr(keyGitStatusDesc)
 }
 
 func (g *GitStatusTool) Parameters() map[string]interface{} {
@@ -30,7 +30,7 @@ func (g *GitStatusTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 		},
 		"required": []string{},
@@ -62,7 +62,7 @@ func NewGitDiffTool(sandbox *Sandbox) *GitDiffTool {
 
 func (g *GitDiffTool) Name() string { return "git_diff" }
 func (g *GitDiffTool) Description() string {
-	return "Show changes in a git repository. Use staged=true to see staged changes."
+	return tr(keyGitDiffDesc)
 }
 
 func (g *GitDiffTool) Parameters() map[string]interface{} {
@@ -71,11 +71,11 @@ func (g *GitDiffTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 			"staged": map[string]interface{}{
 				"type":        "boolean",
-				"description": "Show staged changes instead of unstaged (default false)",
+				"description": tr(keyGitParamDiffStaged),
 			},
 		},
 		"required": []string{},
@@ -96,7 +96,7 @@ func (g *GitDiffTool) Execute(ctx context.Context, args map[string]interface{}) 
 		return "", fmt.Errorf("git_diff: %w", err)
 	}
 	if out == "" {
-		return "No changes.", nil
+		return tr(keyGitResultNoChanges), nil
 	}
 	return truncate(out, 10240), nil
 }
@@ -117,7 +117,7 @@ func NewGitLogTool(sandbox *Sandbox) *GitLogTool {
 
 func (g *GitLogTool) Name() string { return "git_log" }
 func (g *GitLogTool) Description() string {
-	return "Show recent commits in a git repository (oneline format)."
+	return tr(keyGitLogDesc)
 }
 
 func (g *GitLogTool) Parameters() map[string]interface{} {
@@ -126,11 +126,11 @@ func (g *GitLogTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 			"count": map[string]interface{}{
 				"type":        "integer",
-				"description": "Number of commits to show (default 10)",
+				"description": tr(keyGitParamLogCount),
 			},
 		},
 		"required": []string{},
@@ -148,12 +148,12 @@ func (g *GitLogTool) Execute(ctx context.Context, args map[string]interface{}) (
 	}
 
 	out, err := g.sandbox.Execute(ctx, "git", "-C", repoPath, "log",
-		fmt.Sprintf("--oneline"), fmt.Sprintf("-n%d", count))
+		"--oneline", fmt.Sprintf("-n%d", count))
 	if err != nil {
 		return "", fmt.Errorf("git_log: %w", err)
 	}
 	if out == "" {
-		return "No commits found.", nil
+		return tr(keyGitResultNoCommits), nil
 	}
 	return truncate(out, 10240), nil
 }
@@ -174,7 +174,7 @@ func NewGitBranchTool(sandbox *Sandbox) *GitBranchTool {
 
 func (g *GitBranchTool) Name() string { return "git_branch" }
 func (g *GitBranchTool) Description() string {
-	return "List all branches (local and remote) in a git repository."
+	return tr(keyGitBranchDesc)
 }
 
 func (g *GitBranchTool) Parameters() map[string]interface{} {
@@ -183,7 +183,7 @@ func (g *GitBranchTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 		},
 		"required": []string{},
@@ -197,7 +197,7 @@ func (g *GitBranchTool) Execute(ctx context.Context, args map[string]interface{}
 		return "", fmt.Errorf("git_branch: %w", err)
 	}
 	if out == "" {
-		return "No branches found.", nil
+		return tr(keyGitResultNoBranches), nil
 	}
 	return truncate(out, 10240), nil
 }
@@ -218,7 +218,7 @@ func NewGitCommitTool(sandbox *Sandbox) *GitCommitTool {
 
 func (g *GitCommitTool) Name() string { return "git_commit" }
 func (g *GitCommitTool) Description() string {
-	return "Create a git commit with the given message. Optionally stage all changes first."
+	return tr(keyGitCommitDesc)
 }
 
 func (g *GitCommitTool) Parameters() map[string]interface{} {
@@ -227,15 +227,15 @@ func (g *GitCommitTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"message": map[string]interface{}{
 				"type":        "string",
-				"description": "Commit message (required)",
+				"description": tr(keyGitParamCommitMsg),
 			},
 			"all": map[string]interface{}{
 				"type":        "boolean",
-				"description": "Stage all changes before committing (git add -A) (default false)",
+				"description": tr(keyGitParamCommitAll),
 			},
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 		},
 		"required": []string{"message"},
@@ -281,7 +281,7 @@ func NewGitPushTool(sandbox *Sandbox) *GitPushTool {
 
 func (g *GitPushTool) Name() string { return "git_push" }
 func (g *GitPushTool) Description() string {
-	return "Push commits to a remote repository. Defaults to 'origin' if no remote is specified."
+	return tr(keyGitPushDesc)
 }
 
 func (g *GitPushTool) Parameters() map[string]interface{} {
@@ -290,15 +290,15 @@ func (g *GitPushTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"remote": map[string]interface{}{
 				"type":        "string",
-				"description": "Remote name (default: origin)",
+				"description": tr(keyGitParamRemote),
 			},
 			"branch": map[string]interface{}{
 				"type":        "string",
-				"description": "Branch to push (default: current branch)",
+				"description": tr(keyGitParamBranch),
 			},
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 		},
 		"required": []string{},
@@ -325,7 +325,7 @@ func (g *GitPushTool) Execute(ctx context.Context, args map[string]interface{}) 
 		return "", fmt.Errorf("git_push: %w", err)
 	}
 	if out == "" {
-		return "Push completed successfully.", nil
+		return tr(keyGitResultPushDone), nil
 	}
 	return truncate(out, 10240), nil
 }
@@ -346,7 +346,7 @@ func NewGitPullTool(sandbox *Sandbox) *GitPullTool {
 
 func (g *GitPullTool) Name() string { return "git_pull" }
 func (g *GitPullTool) Description() string {
-	return "Pull changes from a remote repository into the current branch."
+	return tr(keyGitPullDesc)
 }
 
 func (g *GitPullTool) Parameters() map[string]interface{} {
@@ -355,15 +355,15 @@ func (g *GitPullTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"remote": map[string]interface{}{
 				"type":        "string",
-				"description": "Remote name (default: origin)",
+				"description": tr(keyGitParamRemote),
 			},
 			"branch": map[string]interface{}{
 				"type":        "string",
-				"description": "Branch to pull (default: current branch)",
+				"description": tr(keyGitParamBranch),
 			},
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 		},
 		"required": []string{},
@@ -390,7 +390,7 @@ func (g *GitPullTool) Execute(ctx context.Context, args map[string]interface{}) 
 		return "", fmt.Errorf("git_pull: %w", err)
 	}
 	if out == "" {
-		return "Pull completed successfully.", nil
+		return tr(keyGitResultPullDone), nil
 	}
 	return truncate(out, 10240), nil
 }
@@ -411,7 +411,7 @@ func NewGitCreateBranchTool(sandbox *Sandbox) *GitCreateBranchTool {
 
 func (g *GitCreateBranchTool) Name() string { return "git_create_branch" }
 func (g *GitCreateBranchTool) Description() string {
-	return "Create a new git branch. Optionally switch to it immediately."
+	return tr(keyGitCreateBranchDesc)
 }
 
 func (g *GitCreateBranchTool) Parameters() map[string]interface{} {
@@ -420,15 +420,15 @@ func (g *GitCreateBranchTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"name": map[string]interface{}{
 				"type":        "string",
-				"description": "Name of the new branch (required)",
+				"description": tr(keyGitParamNewBranch),
 			},
 			"checkout": map[string]interface{}{
 				"type":        "boolean",
-				"description": "Switch to the new branch after creating it (default true)",
+				"description": tr(keyGitParamCheckout),
 			},
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the git repository (default: current directory)",
+				"description": tr(keyGitParamRepoPath),
 			},
 		},
 		"required": []string{"name"},
@@ -455,9 +455,9 @@ func (g *GitCreateBranchTool) Execute(ctx context.Context, args map[string]inter
 	}
 	if out == "" {
 		if checkout {
-			return fmt.Sprintf("Switched to a new branch '%s'.", name), nil
+			return tr(keyGitResultSwitchedBranch, map[string]string{"name": name}), nil
 		}
-		return fmt.Sprintf("Branch '%s' created.", name), nil
+		return tr(keyGitResultBranchCreated, map[string]string{"name": name}), nil
 	}
 	return truncate(out, 10240), nil
 }
