@@ -323,3 +323,83 @@ func TestTranslator_GatewayKeys_FallbackToEnglish(t *testing.T) {
 		t.Errorf("T(sr, %q) = %q, want English fallback", i18n.KeyGatewayGreeting, got)
 	}
 }
+
+// CONST-046 round-410: CLI challenge-runner output, CLI startup errors,
+// cluster-monitor remediation reasons, deployer host-status, and the
+// knowledge-API request-body error resolve to their English templates
+// with every {{placeholder}} substituted.
+func TestTranslator_Round410Keys_Substitution(t *testing.T) {
+	tr := i18n.New("en")
+
+	cases := []struct {
+		key  string
+		vars map[string]string
+		want string
+	}{
+		{i18n.KeyHelixllmCLIChallengeFail,
+			map[string]string{"id": "CH-7", "error": "timeout"},
+			"FAIL: CH-7 - timeout"},
+		{i18n.KeyHelixllmCLIChallengeSummary,
+			map[string]string{"passed": "9", "failed": "1", "skipped": "0"},
+			"9 passed, 1 failed, 0 skipped"},
+		{i18n.KeyHelixllmCLIInvalidConfig,
+			map[string]string{"detail": "missing port"},
+			"invalid config: missing port"},
+		{i18n.KeyHelixllmCLIGenericError,
+			map[string]string{"detail": "bad mode"},
+			"error: bad mode"},
+		{i18n.KeyControlRemediationAlertNoHosts,
+			map[string]string{"service": "api", "attempts": "3"},
+			"service api failed 3 times and no healthy hosts are available for rescheduling"},
+		{i18n.KeyControlRemediationReschedule,
+			map[string]string{"service": "api", "attempts": "3", "host": "h1", "target": "h2"},
+			"service api failed 3 consecutive restarts on h1; rescheduling to h2"},
+		{i18n.KeyControlRemediationRestartFailed,
+			map[string]string{"attempt": "2", "detail": "ssh down"},
+			"restart attempt 2 failed: ssh down"},
+		{i18n.KeyControlRemediationRestartOK,
+			map[string]string{"service": "api", "host": "h1", "attempt": "2"},
+			"restarted api on h1 (attempt 2)"},
+		{i18n.KeyControlHostUnreachable,
+			map[string]string{"host": "h9"},
+			"host h9 is unreachable"},
+		{i18n.KeyKnowledgeInvalidRequestBody,
+			map[string]string{"detail": "EOF"},
+			"invalid request body: EOF"},
+	}
+
+	for _, tc := range cases {
+		got := tr.T("en", tc.key, tc.vars)
+		if got != tc.want {
+			t.Errorf("T(en, %q) = %q, want %q", tc.key, got, tc.want)
+		}
+		// Paired mutation: an un-substituted {{placeholder}} means the
+		// migration broke variable interpolation.
+		if strings.Contains(got, "{{") {
+			t.Errorf("T(en, %q) = %q — placeholder not substituted", tc.key, got)
+		}
+		// Paired mutation: a bare key returned means the key was never
+		// registered in defaultEnglishMessages.
+		if got == tc.key {
+			t.Errorf("T(en, %q) returned bare key — key not registered", tc.key)
+		}
+	}
+}
+
+// CONST-046 round-410: a non-English caller MUST receive the English
+// template for the round-410 keys, never the raw key.
+func TestTranslator_Round410Keys_FallbackToEnglish(t *testing.T) {
+	tr := i18n.New("en")
+
+	for _, key := range []string{
+		i18n.KeyHelixllmCLIChallengeFail,
+		i18n.KeyControlRemediationRestartOK,
+		i18n.KeyControlHostUnreachable,
+		i18n.KeyKnowledgeInvalidRequestBody,
+	} {
+		got := tr.T("sr", key)
+		if got == key {
+			t.Errorf("Serbian lookup of %q returned bare key — English fallback did not fire", key)
+		}
+	}
+}

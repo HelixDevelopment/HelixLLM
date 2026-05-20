@@ -2,10 +2,23 @@ package control
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 )
+
+// remediationLang is the locale used to render operator-facing
+// RemediationAction.Reason strings. Background remediation runs without
+// a request context, so it falls back to the server's default locale.
+// CONST-046: remediation reasons MUST NOT be hardcoded English literals.
+const remediationLang = "en"
+
+// remediationTranslator resolves the localised RemediationAction.Reason
+// templates. It shares the English defaults registered in the shared
+// i18n package; operators MAY call LoadMessages to register more locales.
+var remediationTranslator = i18n.New(remediationLang)
 
 // RemediationAction records what the monitor decided to do in response
 // to an unhealthy container.
@@ -129,14 +142,22 @@ func (m *Monitor) Remediate(ctx context.Context) []RemediationAction {
 					Type:    "alert",
 					Host:    dep.HostName,
 					Service: dep.ServiceName,
-					Reason:  fmt.Sprintf("service %q failed %d times and no healthy hosts are available for rescheduling", dep.ServiceName, attempts),
+					Reason: remediationTranslator.T(remediationLang, i18n.KeyControlRemediationAlertNoHosts, map[string]string{
+						"service":  dep.ServiceName,
+						"attempts": strconv.Itoa(attempts),
+					}),
 				})
 			} else {
 				actions = append(actions, RemediationAction{
 					Type:    "reschedule",
 					Host:    healthyHosts[0],
 					Service: dep.ServiceName,
-					Reason:  fmt.Sprintf("service %q failed %d consecutive restarts on %s; rescheduling to %s", dep.ServiceName, attempts, dep.HostName, healthyHosts[0]),
+					Reason: remediationTranslator.T(remediationLang, i18n.KeyControlRemediationReschedule, map[string]string{
+						"service":  dep.ServiceName,
+						"attempts": strconv.Itoa(attempts),
+						"host":     dep.HostName,
+						"target":   healthyHosts[0],
+					}),
 				})
 				// Reset counter after rescheduling decision.
 				delete(m.remState.restartAttempts, dep.ServiceName)
@@ -156,7 +177,10 @@ func (m *Monitor) Remediate(ctx context.Context) []RemediationAction {
 				Type:    "restart",
 				Host:    dep.HostName,
 				Service: dep.ServiceName,
-				Reason:  fmt.Sprintf("restart attempt %d failed: %v", attempts+1, restartErr),
+				Reason: remediationTranslator.T(remediationLang, i18n.KeyControlRemediationRestartFailed, map[string]string{
+					"attempt": strconv.Itoa(attempts + 1),
+					"detail":  restartErr.Error(),
+				}),
 			})
 		} else {
 			// Restart succeeded (or no remediator); reset counter.
@@ -165,7 +189,11 @@ func (m *Monitor) Remediate(ctx context.Context) []RemediationAction {
 				Type:    "restart",
 				Host:    dep.HostName,
 				Service: dep.ServiceName,
-				Reason:  fmt.Sprintf("restarted %q on %s (attempt %d)", dep.ServiceName, dep.HostName, attempts+1),
+				Reason: remediationTranslator.T(remediationLang, i18n.KeyControlRemediationRestartOK, map[string]string{
+					"service": dep.ServiceName,
+					"host":    dep.HostName,
+					"attempt": strconv.Itoa(attempts + 1),
+				}),
 			})
 		}
 	}

@@ -67,13 +67,17 @@ func main() {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "invalid config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s\n", tr.T(lang, i18n.KeyHelixllmCLIInvalidConfig, map[string]string{
+			"detail": err.Error(),
+		}))
 		os.Exit(1)
 	}
 
 	m, err := mode.Parse(cfg.Mode)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s\n", tr.T(lang, i18n.KeyHelixllmCLIGenericError, map[string]string{
+			"detail": err.Error(),
+		}))
 		os.Exit(1)
 	}
 

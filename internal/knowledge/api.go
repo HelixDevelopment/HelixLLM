@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 )
 
@@ -31,7 +32,9 @@ func handleIngest(p *Pipeline) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req IngestRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, errorResponse("invalid request body: "+err.Error()))
+			c.JSON(http.StatusBadRequest, errorResponse(
+				trKnowledge(c, i18n.KeyKnowledgeInvalidRequestBody,
+					map[string]string{"detail": err.Error()})))
 			return
 		}
 
@@ -53,7 +56,9 @@ func handleQuery(p *Pipeline) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req QueryRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, errorResponse("invalid request body: "+err.Error()))
+			c.JSON(http.StatusBadRequest, errorResponse(
+				trKnowledge(c, i18n.KeyKnowledgeInvalidRequestBody,
+					map[string]string{"detail": err.Error()})))
 			return
 		}
 

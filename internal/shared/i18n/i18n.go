@@ -49,6 +49,22 @@ const (
 	KeyControlNoServicesSpecified = "control_no_services_specified"
 	KeyControlSchedulingFailed    = "control_scheduling_failed"
 	KeyControlRebalanceFailed     = "control_rebalance_scheduling_failed"
+
+	// CONST-046 round-410 — CLI challenge-runner output, CLI startup
+	// errors, cluster-monitor remediation reasons, deployer host-status
+	// messages, and knowledge-API request errors migrated from hardcoded
+	// literals in cmd/helixllm/{challenges,main}.go,
+	// internal/control/{monitor,deployer}.go, and internal/knowledge/api.go.
+	KeyHelixllmCLIChallengeFail        = "helixllm_cli_challenge_fail"
+	KeyHelixllmCLIChallengeSummary     = "helixllm_cli_challenge_summary"
+	KeyHelixllmCLIInvalidConfig        = "helixllm_cli_invalid_config"
+	KeyHelixllmCLIGenericError         = "helixllm_cli_generic_error"
+	KeyControlRemediationAlertNoHosts  = "control_remediation_alert_no_healthy_hosts"
+	KeyControlRemediationReschedule    = "control_remediation_reschedule"
+	KeyControlRemediationRestartFailed = "control_remediation_restart_failed"
+	KeyControlRemediationRestartOK     = "control_remediation_restart_ok"
+	KeyControlHostUnreachable          = "control_host_unreachable"
+	KeyKnowledgeInvalidRequestBody     = "knowledge_invalid_request_body"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -85,6 +101,19 @@ var defaultEnglishMessages = map[string]string{
 	KeyControlNoServicesSpecified: "no services specified",
 	KeyControlSchedulingFailed:    "scheduling failed: {{detail}}",
 	KeyControlRebalanceFailed:     "rebalance scheduling failed: {{detail}}",
+
+	KeyHelixllmCLIChallengeFail:    "FAIL: {{id}} - {{error}}",
+	KeyHelixllmCLIChallengeSummary: "{{passed}} passed, {{failed}} failed, {{skipped}} skipped",
+	KeyHelixllmCLIInvalidConfig:    "invalid config: {{detail}}",
+	KeyHelixllmCLIGenericError:     "error: {{detail}}",
+	KeyControlRemediationAlertNoHosts: "service {{service}} failed {{attempts}} times and no healthy hosts " +
+		"are available for rescheduling",
+	KeyControlRemediationReschedule: "service {{service}} failed {{attempts}} consecutive restarts " +
+		"on {{host}}; rescheduling to {{target}}",
+	KeyControlRemediationRestartFailed: "restart attempt {{attempt}} failed: {{detail}}",
+	KeyControlRemediationRestartOK:     "restarted {{service}} on {{host}} (attempt {{attempt}})",
+	KeyControlHostUnreachable:          "host {{host}} is unreachable",
+	KeyKnowledgeInvalidRequestBody:     "invalid request body: {{detail}}",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so

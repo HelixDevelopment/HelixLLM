@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	helixtest "github.com/HelixDevelopment/HelixLLM/internal/testing"
@@ -42,13 +43,20 @@ func runChallenges(tr i18n.TranslatorAPI, lang, baseURL, banksDir, category, pri
 			passed++
 		case "failed":
 			failed++
-			fmt.Printf("FAIL: %s - %s\n", r.ID, r.Error)
+			fmt.Printf("%s\n", tr.T(lang, i18n.KeyHelixllmCLIChallengeFail, map[string]string{
+				"id":    r.ID,
+				"error": r.Error,
+			}))
 		case "skipped":
 			skipped++
 		}
 	}
 
-	fmt.Printf("\n%d passed, %d failed, %d skipped\n", passed, failed, skipped)
+	fmt.Printf("\n%s\n", tr.T(lang, i18n.KeyHelixllmCLIChallengeSummary, map[string]string{
+		"passed":  strconv.Itoa(passed),
+		"failed":  strconv.Itoa(failed),
+		"skipped": strconv.Itoa(skipped),
+	}))
 	if failed > 0 {
 		return 1
 	}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 )
 
 // defaultRuntime is the container runtime used when none is
@@ -55,7 +57,9 @@ func (d *Deployer) Deploy(
 			ServiceName: name,
 			HostName:    host,
 			State:       "failed",
-			Error:       fmt.Sprintf("host %q is unreachable", host),
+			// CONST-046: operator-facing Error field resolved via i18n.
+			Error: remediationTranslator.T(remediationLang, i18n.KeyControlHostUnreachable,
+				map[string]string{"host": host}),
 		}, fmt.Errorf("host %q is unreachable", host)
 	}
 
