@@ -221,7 +221,9 @@ func (l *ListDirectoryTool) Execute(_ context.Context, args map[string]interface
 
 	var entries []string
 	if recursive {
-		err = filepath.Walk(path, func(p string, info os.FileInfo, walkErr error) error {
+		// WalkDir avoids a per-entry os.Lstat by reusing the fs.DirEntry the
+		// directory read already produced — cheaper on large trees.
+		err = filepath.WalkDir(path, func(p string, d os.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil // skip errors
 			}
@@ -230,7 +232,7 @@ func (l *ListDirectoryTool) Execute(_ context.Context, args map[string]interface
 				return nil
 			}
 			suffix := ""
-			if info.IsDir() {
+			if d.IsDir() {
 				suffix = "/"
 			}
 			entries = append(entries, rel+suffix)
@@ -333,16 +335,21 @@ func (s *SearchFilesTool) Execute(_ context.Context, args map[string]interface{}
 		return truncate(strings.Join(results, "\n"), 10240), nil
 	}
 
-	// Fall back to content search (grep-like).
+	// Fall back to content search (grep-like). WalkDir reuses the fs.DirEntry
+	// from the directory read; size is fetched lazily only for regular files.
 	var results []string
-	_ = filepath.Walk(searchPath, func(p string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
+	_ = filepath.WalkDir(searchPath, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() {
 			return nil
 		}
 		if len(results) >= 100 {
 			return filepath.SkipAll
 		}
 		// Only search text files (skip large or binary).
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
 		if info.Size() > 1024*1024 { // skip files > 1MB
 			return nil
 		}

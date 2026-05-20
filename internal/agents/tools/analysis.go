@@ -100,13 +100,19 @@ func (a *AnalyzeCodeTool) Execute(_ context.Context, args map[string]interface{}
 	}
 
 	if info.IsDir() {
-		_ = filepath.Walk(path, func(p string, fi os.FileInfo, walkErr error) error {
-			if walkErr != nil || fi.IsDir() {
+		// WalkDir reuses the fs.DirEntry produced by the directory read,
+		// avoiding a per-entry os.Lstat on large trees.
+		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil || d.IsDir() {
 				return nil
 			}
 			// Skip binary and hidden files.
-			name := fi.Name()
-			if strings.HasPrefix(name, ".") || fi.Size() > 2*1024*1024 {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") {
+				return nil
+			}
+			fi, statErr := d.Info()
+			if statErr != nil || fi.Size() > 2*1024*1024 {
 				return nil
 			}
 			analyze(p)
@@ -426,8 +432,10 @@ func (c *CalculateComplexityTool) Execute(_ context.Context, args map[string]int
 	}
 
 	if info.IsDir() {
-		_ = filepath.Walk(path, func(p string, fi os.FileInfo, walkErr error) error {
-			if walkErr != nil || fi.IsDir() {
+		// WalkDir reuses the fs.DirEntry produced by the directory read,
+		// avoiding a per-entry os.Lstat on large trees.
+		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil || d.IsDir() {
 				return nil
 			}
 			processFile(p)
