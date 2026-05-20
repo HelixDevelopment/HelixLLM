@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	gorillaws "github.com/gorilla/websocket"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
@@ -33,6 +34,11 @@ func HandleWebSocket(b Completer) gin.HandlerFunc {
 		}
 		defer conn.Close()
 
+		// Negotiate the response language once from the upgrade
+		// request's Accept-Language header; the WebSocket protocol
+		// carries no per-frame language hint.
+		lang := langFromContext(c)
+
 		for {
 			_, raw, err := conn.ReadMessage()
 			if err != nil {
@@ -43,7 +49,8 @@ func HandleWebSocket(b Completer) gin.HandlerFunc {
 			var req types.InternalChatRequest
 			if err := json.Unmarshal(raw, &req); err != nil {
 				_ = conn.WriteJSON(map[string]string{
-					"error": "invalid request: " + err.Error(),
+					"error": gatewayTranslator.T(lang, i18n.KeyGatewayInvalidRequest,
+						map[string]string{"detail": err.Error()}),
 				})
 				continue
 			}

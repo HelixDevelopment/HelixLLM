@@ -34,6 +34,21 @@ const (
 	KeyMonitorClusterState = "monitor_cluster_state"
 	KeyMonitorOverallOK    = "monitor_overall_healthy"
 	KeyMonitorOverallBad   = "monitor_overall_degraded"
+
+	// CONST-046 round-391 — HTTP gateway + control-plane API
+	// user-facing strings migrated from hardcoded literals in
+	// internal/gateway/{openai,anthropic,websocket}.go and
+	// internal/control/api.go.
+	KeyGatewayInvalidRequestBody  = "gateway_invalid_request_body"
+	KeyGatewayInvalidRequest      = "gateway_invalid_request"
+	KeyGatewayBrainError          = "gateway_brain_error"
+	KeyGatewayBrainStreamError    = "gateway_brain_stream_error"
+	KeyGatewayModelNotFound       = "gateway_model_not_found"
+	KeyGatewayGreeting            = "gateway_greeting"
+	KeyGatewayHelpAcknowledgement = "gateway_help_acknowledgement"
+	KeyControlNoServicesSpecified = "control_no_services_specified"
+	KeyControlSchedulingFailed    = "control_scheduling_failed"
+	KeyControlRebalanceFailed     = "control_rebalance_scheduling_failed"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -59,6 +74,17 @@ var defaultEnglishMessages = map[string]string{
 	KeyMonitorClusterState: "Cluster: {{overall}}  |  Hosts: {{hosts}}  |  Last check: {{time}}",
 	KeyMonitorOverallOK:    "healthy",
 	KeyMonitorOverallBad:   "DEGRADED",
+
+	KeyGatewayInvalidRequestBody:  "invalid request body: {{detail}}",
+	KeyGatewayInvalidRequest:      "invalid request: {{detail}}",
+	KeyGatewayBrainError:          "brain error: {{detail}}",
+	KeyGatewayBrainStreamError:    "brain stream error: {{detail}}",
+	KeyGatewayModelNotFound:       "model {{model}} not found",
+	KeyGatewayGreeting:            "Hello! I'm HelixLLM.",
+	KeyGatewayHelpAcknowledgement: "Yes, I can help with that. What would you like me to do?",
+	KeyControlNoServicesSpecified: "no services specified",
+	KeyControlSchedulingFailed:    "scheduling failed: {{detail}}",
+	KeyControlRebalanceFailed:     "rebalance scheduling failed: {{detail}}",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so

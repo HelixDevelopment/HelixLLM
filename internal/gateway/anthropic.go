@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -53,8 +54,9 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, api.ErrorResponse{
 				Error: api.ErrorDetail{
-					Message: fmt.Sprintf("invalid request body: %v", err),
-					Type:    "invalid_request_error",
+					Message: tr(c, i18n.KeyGatewayInvalidRequestBody,
+						map[string]string{"detail": err.Error()}),
+					Type: "invalid_request_error",
 				},
 			})
 			return
@@ -75,8 +77,9 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 						Error: api.ErrorDetail{
-							Message: fmt.Sprintf("brain stream error: %v", err),
-							Type:    "server_error",
+							Message: tr(c, i18n.KeyGatewayBrainStreamError,
+								map[string]string{"detail": err.Error()}),
+							Type: "server_error",
 						},
 					})
 					return
@@ -89,8 +92,9 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 					Error: api.ErrorDetail{
-						Message: fmt.Sprintf("brain error: %v", err),
-						Type:    "server_error",
+						Message: tr(c, i18n.KeyGatewayBrainError,
+							map[string]string{"detail": err.Error()}),
+						Type: "server_error",
 					},
 				})
 				return
@@ -111,7 +115,7 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 			Type: "message",
 			Role: "assistant",
 			Content: []api.ContentBlock{
-				{Type: "text", Text: "Hello! I'm HelixLLM."},
+				{Type: "text", Text: tr(c, i18n.KeyGatewayGreeting)},
 			},
 			Model:      model,
 			StopReason: &stopReason,

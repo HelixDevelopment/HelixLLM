@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -47,8 +49,9 @@ func HandleChatCompletions(b Completer, toolMgr *ToolManager, ragHook func(*type
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, api.ErrorResponse{
 				Error: api.ErrorDetail{
-					Message: fmt.Sprintf("invalid request body: %v", err),
-					Type:    "invalid_request_error",
+					Message: tr(c, i18n.KeyGatewayInvalidRequestBody,
+						map[string]string{"detail": err.Error()}),
+					Type: "invalid_request_error",
 				},
 			})
 			return
@@ -258,8 +261,9 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 						Error: api.ErrorDetail{
-							Message: fmt.Sprintf("brain stream error: %v", err),
-							Type:    "server_error",
+							Message: tr(c, i18n.KeyGatewayBrainStreamError,
+								map[string]string{"detail": err.Error()}),
+							Type: "server_error",
 						},
 					})
 					return
@@ -302,8 +306,9 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 					Error: api.ErrorDetail{
-						Message: fmt.Sprintf("brain error: %v", err),
-						Type:    "server_error",
+						Message: tr(c, i18n.KeyGatewayBrainError,
+							map[string]string{"detail": err.Error()}),
+						Type: "server_error",
 					},
 				})
 				return
@@ -318,7 +323,7 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 			// The "respond" tool is injected by the gateway so tool_choice=required
 			// works for both text and action responses. Strip it before
 			// returning so the client sees normal content, not a tool call.
-			convertRespondToolCall(resp)
+			convertRespondToolCall(resp, langFromContext(c))
 
 			// If we forced non-stream for tool bridging but the client
 			// wanted streaming, emit the full response as SSE chunks.
@@ -378,7 +383,7 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 					Index: 0,
 					Message: api.ChatMessage{
 						Role:    "assistant",
-						Content: "Hello! I'm HelixLLM.",
+						Content: tr(c, i18n.KeyGatewayGreeting),
 					},
 					FinishReason: "stop",
 				},
@@ -436,8 +441,9 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, api.ErrorResponse{
 				Error: api.ErrorDetail{
-					Message: fmt.Sprintf("invalid request body: %v", err),
-					Type:    "invalid_request_error",
+					Message: tr(c, i18n.KeyGatewayInvalidRequestBody,
+						map[string]string{"detail": err.Error()}),
+					Type: "invalid_request_error",
 				},
 			})
 			return
@@ -465,8 +471,9 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 					Error: api.ErrorDetail{
-						Message: fmt.Sprintf("brain error: %v", err),
-						Type:    "server_error",
+						Message: tr(c, i18n.KeyGatewayBrainError,
+							map[string]string{"detail": err.Error()}),
+						Type: "server_error",
 					},
 				})
 				return
@@ -500,7 +507,7 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 			Model:   model,
 			Choices: []api.CompletionChoice{
 				{
-					Text:         "Hello! I'm HelixLLM.",
+					Text:         tr(c, i18n.KeyGatewayGreeting),
 					Index:        0,
 					FinishReason: "stop",
 				},
@@ -547,8 +554,9 @@ func HandleGetModel(b *brain.Brain) gin.HandlerFunc {
 			}
 			c.JSON(http.StatusNotFound, api.ErrorResponse{
 				Error: api.ErrorDetail{
-					Message: fmt.Sprintf("model %q not found", id),
-					Type:    "invalid_request_error",
+					Message: tr(c, i18n.KeyGatewayModelNotFound,
+						map[string]string{"model": strconv.Quote(id)}),
+					Type: "invalid_request_error",
 				},
 			})
 			return
@@ -579,8 +587,9 @@ func HandleEmbeddings(_ *brain.Brain, embedder knowledge.Embedder) gin.HandlerFu
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, api.ErrorResponse{
 				Error: api.ErrorDetail{
-					Message: fmt.Sprintf("invalid request body: %v", err),
-					Type:    "invalid_request_error",
+					Message: tr(c, i18n.KeyGatewayInvalidRequestBody,
+						map[string]string{"detail": err.Error()}),
+					Type: "invalid_request_error",
 				},
 			})
 			return
@@ -872,7 +881,7 @@ func extractWorkingDirectory(msgs []api.ChatMessage) string {
 //     The 7B model sometimes calls Read/Write with "/path/to/file" or
 //     "/path/to/your/codebase" — these are not real files. Convert them
 //     to a text response so the client doesn't get an error.
-func convertRespondToolCall(resp *types.InternalChatResponse) {
+func convertRespondToolCall(resp *types.InternalChatResponse, lang string) {
 	if len(resp.Message.ToolCalls) != 1 {
 		return
 	}
@@ -907,7 +916,7 @@ func convertRespondToolCall(resp *types.InternalChatResponse) {
 					strings.Contains(p, "/your/file") ||
 					strings.Contains(p, "/example/") {
 					// Hallucinated path — convert to respond
-					resp.Message.Content = "Yes, I can help with that. What would you like me to do?"
+					resp.Message.Content = gatewayTranslator.T(lang, i18n.KeyGatewayHelpAcknowledgement)
 					resp.Message.ToolCalls = nil
 					resp.FinishReason = "stop"
 					log.Printf("[HelixLLM] Intercepted hallucinated path %q in %s call → converted to respond", p, tc.Function.Name)

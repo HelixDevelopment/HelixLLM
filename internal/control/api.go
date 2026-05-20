@@ -3,11 +3,41 @@ package control
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/shared/i18n"
 )
+
+// controlTranslator localises user-facing control-plane API error
+// messages. CONST-046: HTTP error strings MUST NOT be hardcoded English
+// literals — each handler resolves them through this translator using
+// the request's Accept-Language header.
+var controlTranslator = i18n.New("en")
+
+// controlLang extracts the preferred language tag from the request's
+// Accept-Language header, falling back to "en" when absent.
+func controlLang(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return "en"
+	}
+	header := c.GetHeader("Accept-Language")
+	if header == "" {
+		return "en"
+	}
+	first := strings.TrimSpace(strings.Split(header, ",")[0])
+	first = strings.TrimSpace(strings.Split(first, ";")[0])
+	if first == "" || first == "*" {
+		return "en"
+	}
+	if idx := strings.IndexAny(first, "-_"); idx > 0 {
+		first = first[:idx]
+	}
+	return strings.ToLower(first)
+}
 
 // ControlPlaneOptions configures the ControlPlane.
 type ControlPlaneOptions struct {
@@ -142,13 +172,14 @@ func (cp *ControlPlane) handleDeploy(c *gin.Context) {
 	var req deployRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid request body: " + err.Error(),
+			"error": controlTranslator.T(controlLang(c), i18n.KeyGatewayInvalidRequestBody,
+				map[string]string{"detail": err.Error()}),
 		})
 		return
 	}
 	if len(req.Services) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "no services specified",
+			"error": controlTranslator.T(controlLang(c), i18n.KeyControlNoServicesSpecified),
 		})
 		return
 	}
@@ -175,7 +206,8 @@ func (cp *ControlPlane) handleDeploy(c *gin.Context) {
 	placements, err := cp.scheduler.Schedule(profiles, req.Services)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "scheduling failed: " + err.Error(),
+			"error": controlTranslator.T(controlLang(c), i18n.KeyControlSchedulingFailed,
+				map[string]string{"detail": err.Error()}),
 		})
 		return
 	}
@@ -236,7 +268,8 @@ func (cp *ControlPlane) handleRebalance(c *gin.Context) {
 	placements, err := cp.scheduler.Schedule(profiles, services)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "rebalance scheduling failed: " + err.Error(),
+			"error": controlTranslator.T(controlLang(c), i18n.KeyControlRebalanceFailed,
+				map[string]string{"detail": err.Error()}),
 		})
 		return
 	}
