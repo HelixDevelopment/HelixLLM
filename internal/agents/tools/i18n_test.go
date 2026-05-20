@@ -283,3 +283,118 @@ func TestToolsI18n_NonGitRealTranslatorLocalisation(t *testing.T) {
 		t.Errorf("expected German description, got %q", desc)
 	}
 }
+
+// --- round-421: LSP tool i18n (CONST-046 Phase 4) ---------------------------
+
+// lspParamDescription pulls the description string for a named property
+// out of an LSP tool's Parameters() JSON-schema map. Returns "" when the
+// property or its description is absent — making a missing-key mistake
+// loud rather than silent.
+func lspParamDescription(params map[string]interface{}, prop string) string {
+	props, ok := params["properties"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	p, ok := props[prop].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	desc, _ := p["description"].(string)
+	return desc
+}
+
+// TestToolsI18n_LSPDefaultFallbackIsEnglish verifies that with no
+// translator wired, every LSP tool's description and parameter
+// descriptions resolve to the bundled English fallback — the standalone
+// default per CONST-046 / CONST-051(B).
+func TestToolsI18n_LSPDefaultFallbackIsEnglish(t *testing.T) {
+	restoreToolsI18n(t)
+	SetTranslator(nil)
+
+	descCases := []struct {
+		name string
+		desc string
+		want string
+	}{
+		{"goto_definition", (&GotoDefinitionTool{}).Description(), "Go to the definition"},
+		{"find_references", (&FindReferencesTool{}).Description(), "Find all references"},
+		{"hover_info", (&HoverInfoTool{}).Description(), "hover documentation"},
+		{"diagnostics", (&DiagnosticsTool{}).Description(), "compiler and linter diagnostics"},
+	}
+	for _, c := range descCases {
+		if !strings.Contains(c.desc, c.want) {
+			t.Errorf("%s description = %q, want substring %q", c.name, c.desc, c.want)
+		}
+	}
+
+	// Parameter descriptions resolve through the seam too.
+	params := (&GotoDefinitionTool{}).Parameters()
+	if got := lspParamDescription(params, "file"); !strings.Contains(got, "Absolute file path") {
+		t.Errorf("goto_definition file param = %q, want 'Absolute file path'", got)
+	}
+	if got := lspParamDescription(params, "line"); !strings.Contains(got, "Line number") {
+		t.Errorf("goto_definition line param = %q, want 'Line number'", got)
+	}
+	if got := lspParamDescription(params, "column"); !strings.Contains(got, "Column number") {
+		t.Errorf("goto_definition column param = %q, want 'Column number'", got)
+	}
+	if got := lspParamDescription((&DiagnosticsTool{}).Parameters(), "file"); !strings.Contains(got, "Absolute file path") {
+		t.Errorf("diagnostics file param = %q, want 'Absolute file path'", got)
+	}
+}
+
+// TestToolsI18n_LSPSeamMutation is the paired-mutation test (§1.1): it
+// wires a marking fake Translator and asserts every LSP user-facing
+// string carries the marker. If a future edit reverts an LSP call site
+// to a hardcoded English literal, the marker is absent and this test
+// fails — proving the seam is genuinely consulted, not bypassed.
+func TestToolsI18n_LSPSeamMutation(t *testing.T) {
+	restoreToolsI18n(t)
+	SetTranslator(fakeToolsTranslator{prefix: "XX::"})
+
+	descs := []struct {
+		name string
+		got  string
+	}{
+		{"goto_definition", (&GotoDefinitionTool{}).Description()},
+		{"find_references", (&FindReferencesTool{}).Description()},
+		{"hover_info", (&HoverInfoTool{}).Description()},
+		{"diagnostics", (&DiagnosticsTool{}).Description()},
+	}
+	for _, d := range descs {
+		if !strings.HasPrefix(d.got, "XX::") {
+			t.Errorf("%s description %q did not route through the i18n seam (hardcoded literal?)", d.name, d.got)
+		}
+	}
+
+	for _, prop := range []string{"file", "line", "column"} {
+		got := lspParamDescription((&FindReferencesTool{}).Parameters(), prop)
+		if !strings.HasPrefix(got, "XX::") {
+			t.Errorf("find_references %s param %q did not route through the i18n seam", prop, got)
+		}
+	}
+	if got := lspParamDescription((&DiagnosticsTool{}).Parameters(), "file"); !strings.HasPrefix(got, "XX::") {
+		t.Errorf("diagnostics file param %q did not route through the i18n seam", got)
+	}
+}
+
+// TestToolsI18n_LSPRealTranslatorLocalisation proves the LSP keys
+// localise through the real shared/i18n Translator — the genuine
+// end-user usability guarantee behind CONST-046.
+func TestToolsI18n_LSPRealTranslatorLocalisation(t *testing.T) {
+	restoreToolsI18n(t)
+	real := i18n.New("en")
+	real.LoadMessages("de", map[string]string{
+		keyGotoDefinitionDesc:    "Springe zur Definition eines Symbols.",
+		keyLSPResultNoReferences: "Keine Verweise gefunden.",
+	})
+	SetTranslator(real)
+	SetLang("de")
+
+	if desc := (&GotoDefinitionTool{}).Description(); !strings.Contains(desc, "Springe zur Definition") {
+		t.Errorf("expected German LSP description, got %q", desc)
+	}
+	if msg := tr(keyLSPResultNoReferences); !strings.Contains(msg, "Keine Verweise") {
+		t.Errorf("expected German no-references result, got %q", msg)
+	}
+}

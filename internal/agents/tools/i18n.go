@@ -96,6 +96,23 @@ const (
 	keySearchFilesParamQ   = "tool_search_files_param_query"
 	keySearchFilesParamDir = "tool_search_files_param_dir"
 	keySearchFilesNoMatch  = "tool_search_files_result_no_matches"
+
+	// LSP tool descriptions.
+	keyGotoDefinitionDesc = "tool_goto_definition_description"
+	keyFindReferencesDesc = "tool_find_references_description"
+	keyHoverInfoDesc      = "tool_hover_info_description"
+	keyDiagnosticsDesc    = "tool_diagnostics_description"
+
+	// LSP tool parameter descriptions.
+	keyLSPParamFile   = "tool_lsp_param_file"
+	keyLSPParamLine   = "tool_lsp_param_line"
+	keyLSPParamColumn = "tool_lsp_param_column"
+
+	// LSP tool execution result messages.
+	keyLSPResultNoDefinition  = "tool_lsp_result_no_definition"
+	keyLSPResultNoReferences  = "tool_lsp_result_no_references"
+	keyLSPResultNoHover       = "tool_lsp_result_no_hover"
+	keyLSPResultNoDiagnostics = "tool_lsp_result_no_diagnostics"
 )
 
 // englishFallbacks maps every tools-package i18n key to its bundled
@@ -166,6 +183,20 @@ var englishFallbacks = map[string]string{
 	keySearchFilesParamQ:   "Glob pattern (e.g. '*.go') or text to search for in file contents",
 	keySearchFilesParamDir: "Directory to search in (default: current directory)",
 	keySearchFilesNoMatch:  "No matches found.",
+
+	keyGotoDefinitionDesc: "Go to the definition of a symbol at a given file location",
+	keyFindReferencesDesc: "Find all references to the symbol at a given file location",
+	keyHoverInfoDesc:      "Get hover documentation for the symbol at a given file location",
+	keyDiagnosticsDesc:    "Get compiler and linter diagnostics for a file reported by the language server",
+
+	keyLSPParamFile:   "Absolute file path",
+	keyLSPParamLine:   "Line number (0-based)",
+	keyLSPParamColumn: "Column number (0-based)",
+
+	keyLSPResultNoDefinition:  "No definition found.",
+	keyLSPResultNoReferences:  "No references found.",
+	keyLSPResultNoHover:       "No hover information available.",
+	keyLSPResultNoDiagnostics: "No diagnostics reported.",
 }
 
 // pkgTranslator is the package-level Translator used by tool

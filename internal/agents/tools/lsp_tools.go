@@ -18,19 +18,11 @@ func NewGotoDefinitionTool(client LSPProvider) *GotoDefinitionTool {
 
 func (t *GotoDefinitionTool) Name() string { return "goto_definition" }
 func (t *GotoDefinitionTool) Description() string {
-	return "Go to the definition of a symbol at a given file location"
+	return tr(keyGotoDefinitionDesc)
 }
 
 func (t *GotoDefinitionTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"file":   map[string]interface{}{"type": "string", "description": "Absolute file path"},
-			"line":   map[string]interface{}{"type": "integer", "description": "Line number (0-based)"},
-			"column": map[string]interface{}{"type": "integer", "description": "Column number (0-based)"},
-		},
-		"required": []string{"file", "line", "column"},
-	}
+	return filePositionParameters()
 }
 
 func (t *GotoDefinitionTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -45,7 +37,7 @@ func (t *GotoDefinitionTool) Execute(ctx context.Context, args map[string]interf
 	}
 
 	if len(locs) == 0 {
-		return "No definition found.", nil
+		return tr(keyLSPResultNoDefinition), nil
 	}
 	return formatLocations(locs), nil
 }
@@ -62,19 +54,11 @@ func NewFindReferencesTool(client LSPProvider) *FindReferencesTool {
 
 func (t *FindReferencesTool) Name() string { return "find_references" }
 func (t *FindReferencesTool) Description() string {
-	return "Find all references to the symbol at a given file location"
+	return tr(keyFindReferencesDesc)
 }
 
 func (t *FindReferencesTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"file":   map[string]interface{}{"type": "string", "description": "Absolute file path"},
-			"line":   map[string]interface{}{"type": "integer", "description": "Line number (0-based)"},
-			"column": map[string]interface{}{"type": "integer", "description": "Column number (0-based)"},
-		},
-		"required": []string{"file", "line", "column"},
-	}
+	return filePositionParameters()
 }
 
 func (t *FindReferencesTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -89,7 +73,7 @@ func (t *FindReferencesTool) Execute(ctx context.Context, args map[string]interf
 	}
 
 	if len(locs) == 0 {
-		return "No references found.", nil
+		return tr(keyLSPResultNoReferences), nil
 	}
 	return formatLocations(locs), nil
 }
@@ -106,19 +90,11 @@ func NewHoverInfoTool(client LSPProvider) *HoverInfoTool {
 
 func (t *HoverInfoTool) Name() string { return "hover_info" }
 func (t *HoverInfoTool) Description() string {
-	return "Get hover documentation for the symbol at a given file location"
+	return tr(keyHoverInfoDesc)
 }
 
 func (t *HoverInfoTool) Parameters() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"file":   map[string]interface{}{"type": "string", "description": "Absolute file path"},
-			"line":   map[string]interface{}{"type": "integer", "description": "Line number (0-based)"},
-			"column": map[string]interface{}{"type": "integer", "description": "Column number (0-based)"},
-		},
-		"required": []string{"file", "line", "column"},
-	}
+	return filePositionParameters()
 }
 
 func (t *HoverInfoTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -133,7 +109,7 @@ func (t *HoverInfoTool) Execute(ctx context.Context, args map[string]interface{}
 	}
 
 	if text == "" {
-		return "No hover information available.", nil
+		return tr(keyLSPResultNoHover), nil
 	}
 	return text, nil
 }
@@ -151,14 +127,14 @@ func NewDiagnosticsTool(client LSPProvider) *DiagnosticsTool {
 
 func (t *DiagnosticsTool) Name() string { return "diagnostics" }
 func (t *DiagnosticsTool) Description() string {
-	return "Get compiler and linter diagnostics for a file reported by the language server"
+	return tr(keyDiagnosticsDesc)
 }
 
 func (t *DiagnosticsTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"file": map[string]interface{}{"type": "string", "description": "Absolute file path"},
+			"file": map[string]interface{}{"type": "string", "description": tr(keyLSPParamFile)},
 		},
 		"required": []string{"file"},
 	}
@@ -184,12 +160,29 @@ func (t *DiagnosticsTool) Execute(ctx context.Context, args map[string]interface
 	}
 
 	if len(diags) == 0 {
-		return "No diagnostics reported.", nil
+		return tr(keyLSPResultNoDiagnostics), nil
 	}
 	return formatDiagnostics(diags), nil
 }
 
 // --- shared helpers -----------------------------------------------------------
+
+// filePositionParameters returns the JSON-schema parameter map shared by
+// the goto_definition, find_references, and hover_info LSP tools. The
+// file/line/column parameter descriptions resolve through the package
+// i18n seam (tr) so they localise per CONST-046 rather than living as
+// hardcoded English literals.
+func filePositionParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"file":   map[string]interface{}{"type": "string", "description": tr(keyLSPParamFile)},
+			"line":   map[string]interface{}{"type": "integer", "description": tr(keyLSPParamLine)},
+			"column": map[string]interface{}{"type": "integer", "description": tr(keyLSPParamColumn)},
+		},
+		"required": []string{"file", "line", "column"},
+	}
+}
 
 // extractFilePosition pulls file, line, and column out of an args map with
 // consistent validation and error messages.
