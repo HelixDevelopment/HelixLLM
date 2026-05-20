@@ -24,7 +24,7 @@ func NewExecutePythonTool(sandbox *Sandbox) *ExecutePythonTool {
 
 func (e *ExecutePythonTool) Name() string { return "execute_python" }
 func (e *ExecutePythonTool) Description() string {
-	return "Execute Python code. The code is written to a temporary file and run with python3. Returns stdout/stderr."
+	return tr(keyExecPythonDesc)
 }
 
 func (e *ExecutePythonTool) Parameters() map[string]interface{} {
@@ -33,7 +33,7 @@ func (e *ExecutePythonTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"code": map[string]interface{}{
 				"type":        "string",
-				"description": "Python code to execute",
+				"description": tr(keyExecPythonParamCode),
 			},
 		},
 		"required": []string{"code"},
@@ -92,7 +92,7 @@ func NewExecuteShellTool(sandbox *Sandbox) *ExecuteShellTool {
 
 func (e *ExecuteShellTool) Name() string { return "execute_shell" }
 func (e *ExecuteShellTool) Description() string {
-	return "Execute a shell command. The command is validated against the security sandbox before execution."
+	return tr(keyExecShellDesc)
 }
 
 func (e *ExecuteShellTool) Parameters() map[string]interface{} {
@@ -101,7 +101,7 @@ func (e *ExecuteShellTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"command": map[string]interface{}{
 				"type":        "string",
-				"description": "Shell command to execute",
+				"description": tr(keyExecShellParamCmd),
 			},
 		},
 		"required": []string{"command"},

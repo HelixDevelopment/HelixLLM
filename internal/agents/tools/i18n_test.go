@@ -159,3 +159,127 @@ func TestToolsI18n_ExecuteResultMessagesLocalised(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+// TestToolsI18n_NonGitToolsSeamConsulted is the round-417 anti-bluff
+// core: it wires a fake translator and asserts every NON-git tool's
+// description + parameter descriptions carry the fake's marker. If any
+// echo/code-exec/analysis/filesystem call site regressed to a hardcoded
+// English literal, the marker would be absent and this test FAILs —
+// that is the paired mutation per §1.1 for the round-417 migration.
+func TestToolsI18n_NonGitToolsSeamConsulted(t *testing.T) {
+	restoreToolsI18n(t)
+	const marker = "XLATED::"
+	SetTranslator(fakeToolsTranslator{prefix: marker})
+
+	sandbox := NewSandbox(SandboxConfig{AllowedPaths: []string{"/tmp"}})
+	tools := []interface {
+		Description() string
+		Parameters() map[string]interface{}
+	}{
+		NewEchoTool(),
+		NewExecutePythonTool(sandbox),
+		NewExecuteShellTool(sandbox),
+		NewAnalyzeCodeTool(sandbox),
+		NewRunTestsTool(sandbox),
+		NewGetDependenciesTool(sandbox),
+		NewCalculateComplexityTool(sandbox),
+		NewReadFileTool(sandbox),
+		NewWriteFileTool(sandbox),
+		NewListDirectoryTool(sandbox),
+		NewSearchFilesTool(sandbox),
+	}
+
+	for _, tool := range tools {
+		desc := tool.Description()
+		if !strings.HasPrefix(desc, marker) {
+			t.Errorf("Description() = %q did NOT route through translator seam (missing %q) — CONST-046 hardcoded-literal regression", desc, marker)
+		}
+		params := tool.Parameters()
+		props, ok := params["properties"].(map[string]interface{})
+		if !ok {
+			// EchoTool exposes a flat parameter map (no nested
+			// "properties" key); inspect it directly.
+			props = params
+		}
+		for pname, raw := range props {
+			pmap, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			pdesc, has := pmap["description"].(string)
+			if !has {
+				continue
+			}
+			if !strings.HasPrefix(pdesc, marker) {
+				t.Errorf("param %q description = %q did NOT route through translator seam — CONST-046 regression", pname, pdesc)
+			}
+		}
+	}
+}
+
+// TestToolsI18n_NonGitDefaultFallbackIsEnglish verifies that with no
+// translator wired every round-417-migrated non-git tool resolves to
+// its bundled English fallback — sensible standalone default per
+// CONST-046 / CONST-051(B).
+func TestToolsI18n_NonGitDefaultFallbackIsEnglish(t *testing.T) {
+	restoreToolsI18n(t)
+	SetTranslator(nil)
+
+	sandbox := NewSandbox(SandboxConfig{AllowedPaths: []string{"/tmp"}})
+	cases := []struct {
+		name string
+		desc string
+		want string
+	}{
+		{"echo", NewEchoTool().Description(), "input message unchanged"},
+		{"execute_python", NewExecutePythonTool(sandbox).Description(), "Execute Python code"},
+		{"execute_shell", NewExecuteShellTool(sandbox).Description(), "Execute a shell command"},
+		{"analyze_code", NewAnalyzeCodeTool(sandbox).Description(), "Analyze code"},
+		{"run_tests", NewRunTestsTool(sandbox).Description(), "Detect and run tests"},
+		{"get_dependencies", NewGetDependenciesTool(sandbox).Description(), "List project dependencies"},
+		{"complexity", NewCalculateComplexityTool(sandbox).Description(), "cyclomatic complexity"},
+		{"read_file", NewReadFileTool(sandbox).Description(), "Read the contents of a file"},
+		{"write_file", NewWriteFileTool(sandbox).Description(), "Write content to a file"},
+		{"list_directory", NewListDirectoryTool(sandbox).Description(), "List the contents of a directory"},
+		{"search_files", NewSearchFilesTool(sandbox).Description(), "Search for files"},
+	}
+	for _, c := range cases {
+		if !strings.Contains(c.desc, c.want) {
+			t.Errorf("%s description = %q, want substring %q", c.name, c.desc, c.want)
+		}
+	}
+}
+
+// TestToolsI18n_WriteFileResultPlaceholders verifies the write-file
+// result message substitutes both {{bytes}} and {{path}} placeholders
+// so the user sees a complete sentence, not raw tokens.
+func TestToolsI18n_WriteFileResultPlaceholders(t *testing.T) {
+	restoreToolsI18n(t)
+	SetTranslator(nil)
+
+	got := tr(keyWriteFileResult, map[string]string{"bytes": "42", "path": "/tmp/out.txt"})
+	if !strings.Contains(got, "42") || !strings.Contains(got, "/tmp/out.txt") {
+		t.Errorf("write-file result did not substitute placeholders: %q", got)
+	}
+	if strings.Contains(got, "{{") {
+		t.Errorf("write-file result left raw placeholder token: %q", got)
+	}
+}
+
+// TestToolsI18n_NonGitRealTranslatorLocalisation proves the round-417
+// non-git keys localise through the real shared/i18n Translator.
+func TestToolsI18n_NonGitRealTranslatorLocalisation(t *testing.T) {
+	restoreToolsI18n(t)
+	real := i18n.New("en")
+	real.LoadMessages("de", map[string]string{
+		keyReadFileDesc: "Lies den Inhalt einer Datei.",
+	})
+	SetTranslator(real)
+	SetLang("de")
+
+	sandbox := NewSandbox(SandboxConfig{AllowedPaths: []string{"/tmp"}})
+	desc := NewReadFileTool(sandbox).Description()
+	if !strings.Contains(desc, "Inhalt einer Datei") {
+		t.Errorf("expected German description, got %q", desc)
+	}
+}

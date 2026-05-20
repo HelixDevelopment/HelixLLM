@@ -26,7 +26,7 @@ func NewReadFileTool(sandbox *Sandbox) *ReadFileTool {
 
 func (r *ReadFileTool) Name() string { return "read_file" }
 func (r *ReadFileTool) Description() string {
-	return "Read the contents of a file. Supports optional line offset and limit."
+	return tr(keyReadFileDesc)
 }
 
 func (r *ReadFileTool) Parameters() map[string]interface{} {
@@ -35,15 +35,15 @@ func (r *ReadFileTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Absolute path to the file to read",
+				"description": tr(keyReadFileParamPath),
 			},
 			"offset": map[string]interface{}{
 				"type":        "integer",
-				"description": "Line number to start reading from (0-based, default 0)",
+				"description": tr(keyReadFileParamOffset),
 			},
 			"limit": map[string]interface{}{
 				"type":        "integer",
-				"description": "Maximum number of lines to return (default: all)",
+				"description": tr(keyReadFileParamLimit),
 			},
 		},
 		"required": []string{"path"},
@@ -105,7 +105,7 @@ func NewWriteFileTool(sandbox *Sandbox) *WriteFileTool {
 
 func (w *WriteFileTool) Name() string { return "write_file" }
 func (w *WriteFileTool) Description() string {
-	return "Write content to a file. Creates the file and parent directories if they do not exist."
+	return tr(keyWriteFileDesc)
 }
 
 func (w *WriteFileTool) Parameters() map[string]interface{} {
@@ -114,11 +114,11 @@ func (w *WriteFileTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Absolute path to the file to write",
+				"description": tr(keyWriteFileParamPath),
 			},
 			"content": map[string]interface{}{
 				"type":        "string",
-				"description": "Content to write to the file",
+				"description": tr(keyWriteFileParamData),
 			},
 		},
 		"required": []string{"path", "content"},
@@ -161,7 +161,10 @@ func (w *WriteFileTool) Execute(_ context.Context, args map[string]interface{}) 
 		return "", fmt.Errorf("write_file: %w", err)
 	}
 
-	return fmt.Sprintf("Wrote %d bytes to %s", len(content), path), nil
+	return tr(keyWriteFileResult, map[string]string{
+		"bytes": fmt.Sprintf("%d", len(content)),
+		"path":  path,
+	}), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +183,7 @@ func NewListDirectoryTool(sandbox *Sandbox) *ListDirectoryTool {
 
 func (l *ListDirectoryTool) Name() string { return "list_directory" }
 func (l *ListDirectoryTool) Description() string {
-	return "List the contents of a directory. Optionally recurse into subdirectories."
+	return tr(keyListDirDesc)
 }
 
 func (l *ListDirectoryTool) Parameters() map[string]interface{} {
@@ -189,11 +192,11 @@ func (l *ListDirectoryTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Absolute path to the directory to list",
+				"description": tr(keyListDirParamPath),
 			},
 			"recursive": map[string]interface{}{
 				"type":        "boolean",
-				"description": "Whether to recurse into subdirectories (default false)",
+				"description": tr(keyListDirParamRecurse),
 			},
 		},
 		"required": []string{"path"},
@@ -276,7 +279,7 @@ func NewSearchFilesTool(sandbox *Sandbox) *SearchFilesTool {
 
 func (s *SearchFilesTool) Name() string { return "search_files" }
 func (s *SearchFilesTool) Description() string {
-	return "Search for files by glob pattern or grep for content within files under a directory."
+	return tr(keySearchFilesDesc)
 }
 
 func (s *SearchFilesTool) Parameters() map[string]interface{} {
@@ -285,11 +288,11 @@ func (s *SearchFilesTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"pattern": map[string]interface{}{
 				"type":        "string",
-				"description": "Glob pattern (e.g. '*.go') or text to search for in file contents",
+				"description": tr(keySearchFilesParamQ),
 			},
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Directory to search in (default: current directory)",
+				"description": tr(keySearchFilesParamDir),
 			},
 		},
 		"required": []string{"pattern"},
@@ -364,7 +367,7 @@ func (s *SearchFilesTool) Execute(_ context.Context, args map[string]interface{}
 	})
 
 	if len(results) == 0 {
-		return "No matches found.", nil
+		return tr(keySearchFilesNoMatch), nil
 	}
 	return truncate(strings.Join(results, "\n"), 10240), nil
 }

@@ -26,7 +26,7 @@ func NewAnalyzeCodeTool(sandbox *Sandbox) *AnalyzeCodeTool {
 
 func (a *AnalyzeCodeTool) Name() string { return "analyze_code" }
 func (a *AnalyzeCodeTool) Description() string {
-	return "Analyze code in a directory or file: count files, lines, and functions."
+	return tr(keyAnalyzeCodeDesc)
 }
 
 func (a *AnalyzeCodeTool) Parameters() map[string]interface{} {
@@ -35,7 +35,7 @@ func (a *AnalyzeCodeTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to a file or directory to analyze",
+				"description": tr(keyAnalyzeCodeParamPath),
 			},
 		},
 		"required": []string{"path"},
@@ -144,7 +144,7 @@ func NewRunTestsTool(sandbox *Sandbox) *RunTestsTool {
 
 func (r *RunTestsTool) Name() string { return "run_tests" }
 func (r *RunTestsTool) Description() string {
-	return "Detect and run tests in a project. Auto-detects Go, Python (pytest), and Node.js (jest/npm test)."
+	return tr(keyRunTestsDesc)
 }
 
 func (r *RunTestsTool) Parameters() map[string]interface{} {
@@ -153,11 +153,11 @@ func (r *RunTestsTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the project directory (default: current directory)",
+				"description": tr(keyRunTestsParamPath),
 			},
 			"framework": map[string]interface{}{
 				"type":        "string",
-				"description": "Test framework to use: 'go', 'pytest', 'jest', 'npm'. Auto-detected if omitted.",
+				"description": tr(keyRunTestsParamFramework),
 			},
 		},
 		"required": []string{},
@@ -234,7 +234,7 @@ func NewGetDependenciesTool(sandbox *Sandbox) *GetDependenciesTool {
 
 func (g *GetDependenciesTool) Name() string { return "get_dependencies" }
 func (g *GetDependenciesTool) Description() string {
-	return "List project dependencies by parsing go.mod, package.json, or requirements.txt."
+	return tr(keyDepsDesc)
 }
 
 func (g *GetDependenciesTool) Parameters() map[string]interface{} {
@@ -243,7 +243,7 @@ func (g *GetDependenciesTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to the project directory",
+				"description": tr(keyDepsParamPath),
 			},
 		},
 		"required": []string{"path"},
@@ -282,7 +282,7 @@ func (g *GetDependenciesTool) Execute(_ context.Context, args map[string]interfa
 		return truncate(fmt.Sprintf("requirements.txt:\n%s", string(data)), 10240), nil
 	}
 
-	return "No dependency manifest found (go.mod, package.json, or requirements.txt).", nil
+	return tr(keyDepsResultNoManifest), nil
 }
 
 // parseDeps extracts require blocks from Go module files.
@@ -335,7 +335,7 @@ func NewCalculateComplexityTool(sandbox *Sandbox) *CalculateComplexityTool {
 
 func (c *CalculateComplexityTool) Name() string { return "calculate_complexity" }
 func (c *CalculateComplexityTool) Description() string {
-	return "Estimate cyclomatic complexity of Go source files by counting branching statements (if, for, switch, case, &&, ||) per function."
+	return tr(keyComplexityDesc)
 }
 
 func (c *CalculateComplexityTool) Parameters() map[string]interface{} {
@@ -344,7 +344,7 @@ func (c *CalculateComplexityTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Path to a Go source file or directory",
+				"description": tr(keyComplexityParamPath),
 			},
 		},
 		"required": []string{"path"},
@@ -438,7 +438,7 @@ func (c *CalculateComplexityTool) Execute(_ context.Context, args map[string]int
 	}
 
 	if len(results) == 0 {
-		return "No functions found.", nil
+		return tr(keyComplexityResultNoFns), nil
 	}
 
 	var sb strings.Builder

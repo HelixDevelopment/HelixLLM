@@ -56,6 +56,46 @@ const (
 	keyGitResultPullDone       = "tool_git_result_pull_done"
 	keyGitResultSwitchedBranch = "tool_git_result_switched_branch"
 	keyGitResultBranchCreated  = "tool_git_result_branch_created"
+
+	// Echo tool.
+	keyEchoDesc     = "tool_echo_description"
+	keyEchoParamMsg = "tool_echo_param_message"
+
+	// Code-execution tool descriptions and parameter descriptions.
+	keyExecPythonDesc      = "tool_exec_python_description"
+	keyExecPythonParamCode = "tool_exec_python_param_code"
+	keyExecShellDesc       = "tool_exec_shell_description"
+	keyExecShellParamCmd   = "tool_exec_shell_param_command"
+
+	// Code-analysis tool descriptions, parameter descriptions, results.
+	keyAnalyzeCodeDesc        = "tool_analyze_code_description"
+	keyAnalyzeCodeParamPath   = "tool_analyze_code_param_path"
+	keyRunTestsDesc           = "tool_run_tests_description"
+	keyRunTestsParamPath      = "tool_run_tests_param_path"
+	keyRunTestsParamFramework = "tool_run_tests_param_framework"
+	keyDepsDesc               = "tool_dependencies_description"
+	keyDepsParamPath          = "tool_dependencies_param_path"
+	keyDepsResultNoManifest   = "tool_dependencies_result_no_manifest"
+	keyComplexityDesc         = "tool_complexity_description"
+	keyComplexityParamPath    = "tool_complexity_param_path"
+	keyComplexityResultNoFns  = "tool_complexity_result_no_functions"
+
+	// Filesystem tool descriptions, parameter descriptions, results.
+	keyReadFileDesc        = "tool_read_file_description"
+	keyReadFileParamPath   = "tool_read_file_param_path"
+	keyReadFileParamOffset = "tool_read_file_param_offset"
+	keyReadFileParamLimit  = "tool_read_file_param_limit"
+	keyWriteFileDesc       = "tool_write_file_description"
+	keyWriteFileParamPath  = "tool_write_file_param_path"
+	keyWriteFileParamData  = "tool_write_file_param_content"
+	keyWriteFileResult     = "tool_write_file_result"
+	keyListDirDesc         = "tool_list_directory_description"
+	keyListDirParamPath    = "tool_list_directory_param_path"
+	keyListDirParamRecurse = "tool_list_directory_param_recursive"
+	keySearchFilesDesc     = "tool_search_files_description"
+	keySearchFilesParamQ   = "tool_search_files_param_query"
+	keySearchFilesParamDir = "tool_search_files_param_dir"
+	keySearchFilesNoMatch  = "tool_search_files_result_no_matches"
 )
 
 // englishFallbacks maps every tools-package i18n key to its bundled
@@ -90,6 +130,42 @@ var englishFallbacks = map[string]string{
 	keyGitResultPullDone:       "Pull completed successfully.",
 	keyGitResultSwitchedBranch: "Switched to a new branch '{{name}}'.",
 	keyGitResultBranchCreated:  "Branch '{{name}}' created.",
+
+	keyEchoDesc:     "Returns the input message unchanged. Useful for testing.",
+	keyEchoParamMsg: "The message to echo back",
+
+	keyExecPythonDesc:      "Execute Python code. The code is written to a temporary file and run with python3. Returns stdout/stderr.",
+	keyExecPythonParamCode: "Python code to execute",
+	keyExecShellDesc:       "Execute a shell command. The command is validated against the security sandbox before execution.",
+	keyExecShellParamCmd:   "Shell command to execute",
+
+	keyAnalyzeCodeDesc:        "Analyze code in a directory or file: count files, lines, and functions.",
+	keyAnalyzeCodeParamPath:   "Path to a file or directory to analyze",
+	keyRunTestsDesc:           "Detect and run tests in a project. Auto-detects Go, Python (pytest), and Node.js (jest/npm test).",
+	keyRunTestsParamPath:      "Path to the project directory (default: current directory)",
+	keyRunTestsParamFramework: "Test framework to use: 'go', 'pytest', 'jest', 'npm'. Auto-detected if omitted.",
+	keyDepsDesc:               "List project dependencies by parsing go.mod, package.json, or requirements.txt.",
+	keyDepsParamPath:          "Path to the project directory",
+	keyDepsResultNoManifest:   "No dependency manifest found (go.mod, package.json, or requirements.txt).",
+	keyComplexityDesc:         "Estimate cyclomatic complexity of Go source files by counting branching statements (if, for, switch, case, &&, ||) per function.",
+	keyComplexityParamPath:    "Path to a Go source file or directory",
+	keyComplexityResultNoFns:  "No functions found.",
+
+	keyReadFileDesc:        "Read the contents of a file. Supports optional line offset and limit.",
+	keyReadFileParamPath:   "Absolute path to the file to read",
+	keyReadFileParamOffset: "Line number to start reading from (0-based, default 0)",
+	keyReadFileParamLimit:  "Maximum number of lines to return (default: all)",
+	keyWriteFileDesc:       "Write content to a file. Creates the file and parent directories if they do not exist.",
+	keyWriteFileParamPath:  "Absolute path to the file to write",
+	keyWriteFileParamData:  "Content to write to the file",
+	keyWriteFileResult:     "Wrote {{bytes}} bytes to {{path}}",
+	keyListDirDesc:         "List the contents of a directory. Optionally recurse into subdirectories.",
+	keyListDirParamPath:    "Absolute path to the directory to list",
+	keyListDirParamRecurse: "Whether to recurse into subdirectories (default false)",
+	keySearchFilesDesc:     "Search for files by glob pattern or grep for content within files under a directory.",
+	keySearchFilesParamQ:   "Glob pattern (e.g. '*.go') or text to search for in file contents",
+	keySearchFilesParamDir: "Directory to search in (default: current directory)",
+	keySearchFilesNoMatch:  "No matches found.",
 }
 
 // pkgTranslator is the package-level Translator used by tool

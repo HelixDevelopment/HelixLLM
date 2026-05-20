@@ -14,13 +14,13 @@ func NewEchoTool() *EchoTool {
 }
 
 func (e *EchoTool) Name() string        { return "echo" }
-func (e *EchoTool) Description() string { return "Returns the input message unchanged. Useful for testing." }
+func (e *EchoTool) Description() string { return tr(keyEchoDesc) }
 
 func (e *EchoTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"message": map[string]interface{}{
 			"type":        "string",
-			"description": "The message to echo back",
+			"description": tr(keyEchoParamMsg),
 			"required":    true,
 		},
 	}
