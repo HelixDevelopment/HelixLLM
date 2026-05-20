@@ -24,19 +24,19 @@ func NewKnowledgeQueryTool(pipeline *knowledge.Pipeline, defaultCollection strin
 
 func (k *KnowledgeQueryTool) Name() string { return "knowledge_query" }
 func (k *KnowledgeQueryTool) Description() string {
-	return "Searches the knowledge base for relevant information. Use this when you need to look up facts, documentation, or previously ingested content."
+	return tr(keyKnowledgeQueryDesc)
 }
 
 func (k *KnowledgeQueryTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"query": map[string]interface{}{
 			"type":        "string",
-			"description": "The search query to find relevant knowledge",
+			"description": tr(keyKnowledgeQueryParamQuery),
 			"required":    true,
 		},
 		"collection": map[string]interface{}{
 			"type":        "string",
-			"description": "The knowledge collection to search. Defaults to the configured collection.",
+			"description": tr(keyKnowledgeQueryParamColl),
 			"required":    false,
 		},
 	}
@@ -77,7 +77,7 @@ func (k *KnowledgeQueryTool) Execute(ctx context.Context, args map[string]interf
 	}
 
 	if result.Context == "" {
-		return "No relevant information found.", nil
+		return tr(keyKnowledgeQueryNoInfo), nil
 	}
 	return result.Context, nil
 }

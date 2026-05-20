@@ -113,6 +113,29 @@ const (
 	keyLSPResultNoReferences  = "tool_lsp_result_no_references"
 	keyLSPResultNoHover       = "tool_lsp_result_no_hover"
 	keyLSPResultNoDiagnostics = "tool_lsp_result_no_diagnostics"
+
+	// CONST-046 round-429 — web, time, knowledge_query, and file_info
+	// tool descriptions / parameter descriptions / result messages
+	// migrated from hardcoded literals in web.go, time.go,
+	// knowledge.go, and filesystem.go.
+	keyWebSearchDesc       = "tool_web_search_description"
+	keyWebSearchParamQuery = "tool_web_search_param_query"
+	keyWebSearchUnavail    = "tool_web_search_result_unavailable"
+	keyFetchURLDesc        = "tool_fetch_url_description"
+	keyFetchURLParamURL    = "tool_fetch_url_param_url"
+	keyFetchURLTruncated   = "tool_fetch_url_result_truncated"
+
+	keyTimeDesc    = "tool_time_description"
+	keyTimeParamTZ = "tool_time_param_timezone"
+
+	keyKnowledgeQueryDesc       = "tool_knowledge_query_description"
+	keyKnowledgeQueryParamQuery = "tool_knowledge_query_param_query"
+	keyKnowledgeQueryParamColl  = "tool_knowledge_query_param_collection"
+	keyKnowledgeQueryNoInfo     = "tool_knowledge_query_result_no_info"
+
+	keyFileInfoDesc      = "tool_file_info_description"
+	keyFileInfoParamPath = "tool_file_info_param_path"
+	keyFileInfoResult    = "tool_file_info_result"
 )
 
 // englishFallbacks maps every tools-package i18n key to its bundled
@@ -197,6 +220,25 @@ var englishFallbacks = map[string]string{
 	keyLSPResultNoReferences:  "No references found.",
 	keyLSPResultNoHover:       "No hover information available.",
 	keyLSPResultNoDiagnostics: "No diagnostics reported.",
+
+	keyWebSearchDesc:       "Search the web for information. Currently a placeholder in local mode.",
+	keyWebSearchParamQuery: "The search query",
+	keyWebSearchUnavail:    "Web search is not available in local mode. Query was: {{query}}. Use fetch_url to retrieve a specific URL instead.",
+	keyFetchURLDesc:        "Fetch the content of a URL via HTTP GET. Returns the response body truncated to 10KB.",
+	keyFetchURLParamURL:    "The URL to fetch",
+	keyFetchURLTruncated:   "\n...[response truncated to 10KB]",
+
+	keyTimeDesc:    "Returns the current date and time. Optionally accepts a 'timezone' parameter (e.g. 'UTC', 'America/New_York').",
+	keyTimeParamTZ: "IANA timezone name (e.g. 'UTC', 'America/New_York'). Defaults to local time.",
+
+	keyKnowledgeQueryDesc:       "Searches the knowledge base for relevant information. Use this when you need to look up facts, documentation, or previously ingested content.",
+	keyKnowledgeQueryParamQuery: "The search query to find relevant knowledge",
+	keyKnowledgeQueryParamColl:  "The knowledge collection to search. Defaults to the configured collection.",
+	keyKnowledgeQueryNoInfo:     "No relevant information found.",
+
+	keyFileInfoDesc:      "Get metadata about a file: size, permissions, modification time, and type.",
+	keyFileInfoParamPath: "Absolute path to the file",
+	keyFileInfoResult:    "Name: {{name}}\nType: {{kind}}\nSize: {{size}} bytes\nPermissions: {{perms}}\nModified: {{modified}}",
 }
 
 // pkgTranslator is the package-level Translator used by tool

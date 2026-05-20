@@ -23,7 +23,7 @@ func NewWebSearchTool() *WebSearchTool {
 
 func (w *WebSearchTool) Name() string { return "web_search" }
 func (w *WebSearchTool) Description() string {
-	return "Search the web for information. Currently a placeholder in local mode."
+	return tr(keyWebSearchDesc)
 }
 
 func (w *WebSearchTool) Parameters() map[string]interface{} {
@@ -32,7 +32,7 @@ func (w *WebSearchTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"query": map[string]interface{}{
 				"type":        "string",
-				"description": "The search query",
+				"description": tr(keyWebSearchParamQuery),
 			},
 		},
 		"required": []string{"query"},
@@ -49,8 +49,7 @@ func (w *WebSearchTool) Execute(_ context.Context, args map[string]interface{}) 
 		return "", fmt.Errorf("web_search: %w", err)
 	}
 
-	return fmt.Sprintf("Web search is not available in local mode. Query was: %q. "+
-		"Use fetch_url to retrieve a specific URL instead.", query), nil
+	return tr(keyWebSearchUnavail, map[string]string{"query": fmt.Sprintf("%q", query)}), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +66,7 @@ func NewFetchURLTool() *FetchURLTool {
 
 func (f *FetchURLTool) Name() string { return "fetch_url" }
 func (f *FetchURLTool) Description() string {
-	return "Fetch the content of a URL via HTTP GET. Returns the response body truncated to 10KB."
+	return tr(keyFetchURLDesc)
 }
 
 func (f *FetchURLTool) Parameters() map[string]interface{} {
@@ -76,7 +75,7 @@ func (f *FetchURLTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"url": map[string]interface{}{
 				"type":        "string",
-				"description": "The URL to fetch",
+				"description": tr(keyFetchURLParamURL),
 			},
 		},
 		"required": []string{"url"},
@@ -122,7 +121,7 @@ func (f *FetchURLTool) Execute(ctx context.Context, args map[string]interface{})
 
 	result := string(body)
 	if len(body) >= 10240 {
-		result += "\n...[response truncated to 10KB]"
+		result += tr(keyFetchURLTruncated)
 	}
 
 	return result, nil

@@ -388,7 +388,7 @@ func NewFileInfoTool(sandbox *Sandbox) *FileInfoTool {
 
 func (f *FileInfoTool) Name() string { return "file_info" }
 func (f *FileInfoTool) Description() string {
-	return "Get metadata about a file: size, permissions, modification time, and type."
+	return tr(keyFileInfoDesc)
 }
 
 func (f *FileInfoTool) Parameters() map[string]interface{} {
@@ -397,7 +397,7 @@ func (f *FileInfoTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Absolute path to the file",
+				"description": tr(keyFileInfoParamPath),
 			},
 		},
 		"required": []string{"path"},
@@ -428,13 +428,13 @@ func (f *FileInfoTool) Execute(_ context.Context, args map[string]interface{}) (
 		kind = "directory"
 	}
 
-	return fmt.Sprintf("Name: %s\nType: %s\nSize: %d bytes\nPermissions: %s\nModified: %s",
-		info.Name(),
-		kind,
-		info.Size(),
-		info.Mode().String(),
-		info.ModTime().Format(time.RFC3339),
-	), nil
+	return tr(keyFileInfoResult, map[string]string{
+		"name":     info.Name(),
+		"kind":     kind,
+		"size":     fmt.Sprintf("%d", info.Size()),
+		"perms":    info.Mode().String(),
+		"modified": info.ModTime().Format(time.RFC3339),
+	}), nil
 }
 
 // ---------------------------------------------------------------------------

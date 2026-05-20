@@ -398,3 +398,120 @@ func TestToolsI18n_LSPRealTranslatorLocalisation(t *testing.T) {
 		t.Errorf("expected German no-references result, got %q", msg)
 	}
 }
+
+// flatParamDescription extracts a parameter description from a tool
+// Parameters() map that may either nest under "properties" (object
+// schema) or place the parameter at the top level (flat schema, as
+// the time tool does). Returns "" when absent.
+func flatParamDescription(params map[string]interface{}, prop string) string {
+	if props, ok := params["properties"].(map[string]interface{}); ok {
+		if p, ok := props[prop].(map[string]interface{}); ok {
+			desc, _ := p["description"].(string)
+			return desc
+		}
+	}
+	if p, ok := params[prop].(map[string]interface{}); ok {
+		desc, _ := p["description"].(string)
+		return desc
+	}
+	return ""
+}
+
+// TestToolsI18n_Round429SeamMutation is the round-429 paired-mutation
+// guard (CONST-046 Phase 4): with a marker translator wired, every
+// web / time / knowledge_query / file_info description and parameter
+// description MUST carry the marker prefix. A regression that
+// reintroduces a hardcoded English literal at any of these call sites
+// makes the marker absent and fails the test.
+func TestToolsI18n_Round429SeamMutation(t *testing.T) {
+	restoreToolsI18n(t)
+	SetTranslator(fakeToolsTranslator{prefix: "XX::"})
+
+	sandbox := NewSandbox(SandboxConfig{AllowedPaths: []string{"/tmp"}})
+	descs := []struct {
+		name string
+		got  string
+	}{
+		{"web_search", NewWebSearchTool().Description()},
+		{"fetch_url", NewFetchURLTool().Description()},
+		{"time", NewTimeTool().Description()},
+		{"knowledge_query", NewKnowledgeQueryTool(nil, "default").Description()},
+		{"file_info", NewFileInfoTool(sandbox).Description()},
+	}
+	for _, d := range descs {
+		if !strings.HasPrefix(d.got, "XX::") {
+			t.Errorf("%s description %q did not route through the i18n seam (hardcoded literal?)", d.name, d.got)
+		}
+	}
+
+	params := []struct {
+		name string
+		got  string
+	}{
+		{"web_search.query", flatParamDescription(NewWebSearchTool().Parameters(), "query")},
+		{"fetch_url.url", flatParamDescription(NewFetchURLTool().Parameters(), "url")},
+		{"time.timezone", flatParamDescription(NewTimeTool().Parameters(), "timezone")},
+		{"knowledge_query.query", flatParamDescription(NewKnowledgeQueryTool(nil, "default").Parameters(), "query")},
+		{"knowledge_query.collection", flatParamDescription(NewKnowledgeQueryTool(nil, "default").Parameters(), "collection")},
+		{"file_info.path", flatParamDescription(NewFileInfoTool(sandbox).Parameters(), "path")},
+	}
+	for _, p := range params {
+		if !strings.HasPrefix(p.got, "XX::") {
+			t.Errorf("%s param description %q did not route through the i18n seam", p.name, p.got)
+		}
+	}
+}
+
+// TestToolsI18n_Round429DefaultFallbackIsEnglish verifies that with no
+// translator wired, the round-429 keys resolve to their bundled
+// English fallbacks — the standalone default per CONST-051(B).
+func TestToolsI18n_Round429DefaultFallbackIsEnglish(t *testing.T) {
+	restoreToolsI18n(t)
+	SetTranslator(nil)
+
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"web_search", NewWebSearchTool().Description(), "Search the web"},
+		{"fetch_url", NewFetchURLTool().Description(), "Fetch the content of a URL"},
+		{"time", NewTimeTool().Description(), "current date and time"},
+		{"knowledge_query", NewKnowledgeQueryTool(nil, "d").Description(), "knowledge base"},
+		{"file_info", NewFileInfoTool(NewSandbox(SandboxConfig{})).Description(), "metadata about a file"},
+		{"web_search_unavail", tr(keyWebSearchUnavail, map[string]string{"query": `"q"`}), "not available in local mode"},
+		{"knowledge_no_info", tr(keyKnowledgeQueryNoInfo), "No relevant information found."},
+	}
+	for _, c := range cases {
+		if !strings.Contains(c.got, c.want) {
+			t.Errorf("%s: expected English fallback containing %q, got %q", c.name, c.want, c.got)
+		}
+	}
+}
+
+// TestToolsI18n_Round429RealTranslatorLocalisation proves the round-429
+// keys localise through the real shared/i18n Translator with
+// placeholder substitution — the genuine end-user usability guarantee
+// behind CONST-046.
+func TestToolsI18n_Round429RealTranslatorLocalisation(t *testing.T) {
+	restoreToolsI18n(t)
+	real := i18n.New("en")
+	real.LoadMessages("de", map[string]string{
+		keyWebSearchDesc:        "Durchsuche das Web nach Informationen.",
+		keyKnowledgeQueryNoInfo: "Keine relevanten Informationen gefunden.",
+		keyFileInfoResult:       "Name: {{name}}\nTyp: {{kind}}",
+	})
+	SetTranslator(real)
+	SetLang("de")
+
+	if desc := NewWebSearchTool().Description(); !strings.Contains(desc, "Durchsuche das Web") {
+		t.Errorf("expected German web_search description, got %q", desc)
+	}
+	if msg := tr(keyKnowledgeQueryNoInfo); !strings.Contains(msg, "Keine relevanten") {
+		t.Errorf("expected German no-info result, got %q", msg)
+	}
+	got := tr(keyFileInfoResult, map[string]string{"name": "go.mod", "kind": "Datei"})
+	if !strings.Contains(got, "Name: go.mod") || !strings.Contains(got, "Typ: Datei") {
+		t.Errorf("expected localised file_info result with substituted placeholders, got %q", got)
+	}
+}

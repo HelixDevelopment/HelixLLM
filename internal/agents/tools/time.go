@@ -16,14 +16,14 @@ func NewTimeTool() *TimeTool {
 
 func (t *TimeTool) Name() string { return "time" }
 func (t *TimeTool) Description() string {
-	return "Returns the current date and time. Optionally accepts a 'timezone' parameter (e.g. 'UTC', 'America/New_York')."
+	return tr(keyTimeDesc)
 }
 
 func (t *TimeTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"timezone": map[string]interface{}{
 			"type":        "string",
-			"description": "IANA timezone name (e.g. 'UTC', 'America/New_York'). Defaults to local time.",
+			"description": tr(keyTimeParamTZ),
 			"required":    false,
 		},
 	}
