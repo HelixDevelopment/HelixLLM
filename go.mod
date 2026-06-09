@@ -70,6 +70,7 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/toon-format/toon-go v0.0.0-20251202084852-7ca0e27c4e8c // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
@@ -95,40 +96,40 @@ require (
 )
 
 replace (
-	dev.helix.agent/skillregistry => ../../vasic-digital/SkillRegistry
-	digital.vasic.agentic => ../../vasic-digital/Agentic
-	digital.vasic.auth => ../../vasic-digital/Auth
-	digital.vasic.background => ../../vasic-digital/BackgroundTasks
-	digital.vasic.cache => ../../vasic-digital/Cache
-	digital.vasic.challenges => ../../../../challenges
-	digital.vasic.concurrency => ../../vasic-digital/Concurrency
-	digital.vasic.config => ../../vasic-digital/Config
-	digital.vasic.containers => ../../../../containers
-	digital.vasic.conversation => ../../vasic-digital/conversation
-	digital.vasic.database => ../../vasic-digital/Database
-	digital.vasic.document => ../../vasic-digital/Document
-	digital.vasic.embeddings => ../../vasic-digital/Embeddings
-	digital.vasic.eventbus => ../../vasic-digital/EventBus
-	digital.vasic.filesystem => ../../vasic-digital/Filesystem
-	digital.vasic.formatters => ../../vasic-digital/Formatters
-	digital.vasic.helixqa => ../../../../helix_qa
-	digital.vasic.i18n => ../../vasic-digital/I18n
-	digital.vasic.lazy => ../../vasic-digital/Lazy
-	digital.vasic.llmorchestrator => ../../vasic-digital/LLMOrchestrator
-	digital.vasic.llmprovider => ../../vasic-digital/LLMProvider
-	digital.vasic.mcp => ../../vasic-digital/MCP_Module
-	digital.vasic.memory => ../../vasic-digital/Memory
-	digital.vasic.middleware => ../../vasic-digital/Middleware
-	digital.vasic.observability => ../../vasic-digital/Observability
-	digital.vasic.optimization => ../../vasic-digital/Optimization
-	digital.vasic.planning => ../../vasic-digital/Planning
-	digital.vasic.rag => ../../vasic-digital/RAG
-	digital.vasic.ratelimiter => ../../vasic-digital/RateLimiter
-	digital.vasic.recovery => ../../vasic-digital/Recovery
-	digital.vasic.security => ../../../../security
-	digital.vasic.streaming => ../../vasic-digital/Streaming
-	digital.vasic.toolschema => ../../vasic-digital/ToolSchema
-	digital.vasic.toon => ../../vasic-digital/TOON // TOON: Token-Oriented Object Notation — compact serialization for LLM token efficiency. Used by gateway ContentNegotiation middleware.
-	digital.vasic.vectordb => ../../vasic-digital/VectorDB
-	digital.vasic.watcher => ../../vasic-digital/Watcher
+	dev.helix.agent/skillregistry => ../skill_registry
+	digital.vasic.agentic => ../agentic
+	digital.vasic.auth => ../auth
+	digital.vasic.background => ../background_tasks
+	digital.vasic.cache => ../cache
+	digital.vasic.challenges => ../challenges
+	digital.vasic.concurrency => ../concurrency
+	digital.vasic.config => ../config
+	digital.vasic.containers => ../containers
+	digital.vasic.conversation => ../conversation
+	digital.vasic.database => ../database
+	digital.vasic.document => ../document
+	digital.vasic.embeddings => ../embeddings
+	digital.vasic.eventbus => ../event_bus
+	digital.vasic.filesystem => ../filesystem
+	digital.vasic.formatters => ../formatters
+	digital.vasic.helixqa => ../helix_qa
+	digital.vasic.i18n => ../i18n
+	digital.vasic.lazy => ../lazy
+	digital.vasic.llmorchestrator => ../llm_orchestrator
+	digital.vasic.llmprovider => ../llm_provider
+	digital.vasic.mcp => ../mcp_module
+	digital.vasic.memory => ../memory
+	digital.vasic.middleware => ../middleware
+	digital.vasic.observability => ../observability
+	digital.vasic.optimization => ../optimization
+	digital.vasic.planning => ../planning
+	digital.vasic.rag => ../rag
+	digital.vasic.ratelimiter => ../rate_limiter
+	digital.vasic.recovery => ../recovery
+	digital.vasic.security => ../security
+	digital.vasic.streaming => ../streaming
+	digital.vasic.toolschema => ../tool_schema
+	digital.vasic.toon => ../toon // TOON: Token-Oriented Object Notation — compact serialization for LLM token efficiency. Used by gateway ContentNegotiation middleware.
+	digital.vasic.vectordb => ../vector_db
+	digital.vasic.watcher => ../watcher
 )
