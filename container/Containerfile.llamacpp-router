@@ -33,7 +33,11 @@ RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git .
 # -DCMAKE_CUDA_ARCHITECTURES=120    native Blackwell sm_120 SASS (no PTX JIT) — REQUIRED for RTX 5090
 # -DGGML_CUDA_F16=ON                half-precision CUDA compute path (faster on modern GPUs)
 # -DGGML_CUDA_FA_ALL_QUANTS=ON      Flash Attention kernels for all quantization types
-# -DGGML_LTO=ON                     link-time optimization
+# -DGGML_LTO=ON                     link-time optimization (verified as a real, wired
+#                                    CMake option: ggml/CMakeLists.txt:124 `option(GGML_LTO ...)`,
+#                                    consumed at ggml/src/CMakeLists.txt:58 `if (GGML_LTO)` —
+#                                    not a no-op flag; checked against the pinned local
+#                                    dependencies/LLama_CPP mirror 2026-07-06)
 # -DGGML_RPC=ON                     RPC backend for multi-host distributed inference
 # -DGGML_NATIVE=OFF                 portable CPU binary (container may move hosts)
 # -DLLAMA_CURL=ON -DLLAMA_OPENSSL=ON  HTTPS GGUF download (-hf) — requires libssl-dev above
@@ -65,10 +69,16 @@ RUN cmake --build build --config Release \
 # at runtime by CDI via `podman run --device nvidia.com/gpu=all`.
 FROM docker.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
 
-# Install minimal runtime dependencies (libgomp1 for OpenMP; curl for healthcheck).
+# Install minimal runtime dependencies: libgomp1 for OpenMP; curl for healthcheck;
+# libcurl4 + libssl3 explicitly (belt-and-suspenders alongside the `curl` package —
+# the binary was linked against libcurl/libssl at build time via -DLLAMA_CURL=ON
+# -DLLAMA_OPENSSL=ON, so the runtime image must ship matching shared libs even
+# though `curl` usually pulls them in transitively).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    libcurl4 \
+    libssl3 \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -76,12 +86,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /src/build/bin/llama-server /usr/local/bin/llama-server
 COPY --from=builder /src/build/bin/llama-cli /usr/local/bin/llama-cli
 
-# Copy RPC server binary (name varies by llama.cpp version)
+# Copy the RPC server binary. The builder stage above ONLY builds `ggml-rpc-server`
+# (tools/rpc/CMakeLists.txt: set(TARGET ggml-rpc-server), gated on GGML_RPC=ON) —
+# `llama-rpc-server` / `rpc-server` are stale names from older llama.cpp releases and
+# will never exist in this build's output. Hard-fail (not `2>/dev/null || echo warn`)
+# if the binary is missing so a future upstream rename never SILENTLY drops RPC worker
+# mode from the shipped image (§11.4.108 artifact-layer verification / §11.4.122
+# no-silent-capability-loss) — the previous three-way fallback + warning-only echo
+# masked exactly this failure mode.
 RUN --mount=from=builder,source=/src/build/bin,target=/builder-bin \
-    cp /builder-bin/llama-rpc-server /usr/local/bin/rpc-server 2>/dev/null || \
-    cp /builder-bin/rpc-server /usr/local/bin/rpc-server 2>/dev/null || \
-    cp /builder-bin/ggml-rpc-server /usr/local/bin/rpc-server 2>/dev/null || \
-    echo "RPC server binary not found — RPC worker mode unavailable"
+    cp /builder-bin/ggml-rpc-server /usr/local/bin/rpc-server || \
+    { echo "FATAL: ggml-rpc-server not found in build output — RPC worker mode would be silently missing from the shipped image"; exit 1; }
 
 # Create models and config directories
 RUN mkdir -p /models /config

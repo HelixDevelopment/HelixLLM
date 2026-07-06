@@ -5,7 +5,7 @@
 | **Status** | DESIGN (spike before implementation, §11.4.6 — do not code the broker until this is agreed) |
 | **Owns risk** | DZ-04 (new component), DZ-03 (32 GB VRAM contention), CX-02 |
 | **Created** | 2026-07-06 · Revision 1 · Track `(T1/main)` |
-| **Grounding** | `docs/research/07.2026/00_master/02_cross_cutting_foundations_ADR.md` Decision 3; streams 01/02/04; the router image capability `--models-max N --models-autoload` (verified 2026-07-06) |
+| **Grounding** | `docs/research/07.2026/00_master/02_cross_cutting_foundations_ADR.md` Decision 3; streams 01/02/04; the router image capability `--models-max N --models-autoload` (observed in the built router image `CMD` — parent meta-repo `docs/qa/phase0_router_build/router_build.log:740`; not yet exercised at runtime against ≥2 concurrent models, §11.4.5/§11.4.6) |
 
 > Anti-bluff (§11.4.6): every VRAM figure here is a **budget estimate** to be replaced by
 > on-card measurement (`nvidia-smi` deltas) once each service runs. The broker's admission

@@ -1,0 +1,15 @@
+=== §11.4.108 RUNTIME SIGNATURE: -hf HTTPS download works in the router image ===
+date(host UTC-ish via container): Mon Jul  6 16:05:37 UTC 2026
+--- Proof 1: runtime image TLS+CA stack reaches HuggingFace over HTTPS ---
+HTTP/2 200 
+content-type: application/json; charset=utf-8
+content-length: 7093
+date: Mon, 06 Jul 2026 16:05:37 GMT
+etag: W/"1bb5-BNBEPL8Dz4hICOk914ozfZDXeUc"
+--- Proof 2: llama.cpp built-in -hf downloader uses HTTPS (not 'HTTPS not supported') ---
+Error: statfs /home/milos/.cache/llama_hf_proof: no such file or directory
+EXIT_MARKER done
+--- Proof 2 (rerun): llama.cpp -hf downloader over HTTPS ---
+PROOF2_EXIT=127
+--- Proof 2 (GPU-passthrough): -hf HTTPS download + real inference (§11.4.108) ---
+=== [§11.4.108] -hf HTTPS download + inference — BACKGROUND (appends to docs/qa/phase1_fleet/hf_https_proof_20260706.log) ===
