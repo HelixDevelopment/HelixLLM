@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>OPERATOR_GUIDE</title>
+  <style>
+
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+  <style type="text/css">
+table {
+border-collapse: collapse;
+}
+table td,
+table th {
+border: 1px solid #cccccc;
+padding: 4px 8px;
+vertical-align: top;
+}
+
+tr.cell-status-obsolete > td {
+background-color: #E0E0E0;
+}
+
+tr.cell-status-obsolete > td:nth-child(2),
+tr.cell-status-obsolete > td:last-child {
+text-decoration: line-through;
+}
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">OPERATOR_GUIDE</h1>
+</header>
+<h1 id="helixllm-operator-guide-local-llm-stack-on-the-rtx-5090">HelixLLM
+Operator Guide — Local LLM Stack on the RTX 5090</h1>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr>
+<td><strong>Status</strong></td>
+<td>ACTIVE · Revision 1 · Track <code>(T1/main)</code></td>
+</tr>
+<tr>
+<td><strong>Date</strong></td>
+<td>2026-07-06</td>
+</tr>
+<tr>
+<td><strong>Branch</strong></td>
+<td><code>feature/helixllm-full-extension</code></td>
+</tr>
+<tr>
+<td><strong>Scope</strong></td>
+<td>Running the local HelixLLM inference stack (llama.cpp CUDA router
+image + Qwen3-Coder-30B fleet) on a single RTX 5090, and pointing CLI
+agents / HelixAgent at it.</td>
+</tr>
+<tr>
+<td><strong>Grounding (§11.4.6)</strong></td>
+<td>Every capability claim below cites captured evidence from this
+session. Nothing here is aspirational. Where a feature is design-only or
+planned, it is labelled as such.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Anti-bluff boundary (§11.4 / §11.4.6).</strong> This guide
+documents ONLY what was proven at runtime in this session with captured
+evidence. The VRAM residency broker is <strong>design-only</strong>
+(§9); vision / image / video are <strong>planned, not shipped</strong>
+(§10). Both are called out explicitly so an operator is never
+misled.</p>
+</blockquote>
+<hr />
+<h2 id="prerequisites">1. Prerequisites</h2>
+<p>The stack was proven on this exact host
+(<code>docs/research/07.2026/00_master/RESUME.md</code> live-state
+anchors):</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Proven value</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPU</td>
+<td><strong>NVIDIA RTX 5090, 32 GB</strong> (Blackwell,
+<code>sm_120</code>)</td>
+<td>The router image is compiled for native <code>sm_120</code> SASS —
+see §2.</td>
+</tr>
+<tr>
+<td>NVIDIA driver</td>
+<td><strong>570.169</strong> (CUDA 12.8)</td>
+<td>CUDA 12.8 is the first CUDA branch with Blackwell
+<code>sm_120</code> support; 12.6.x does <strong>not</strong> build
+native <code>sm_120</code> kernels
+(<code>container/Containerfile.llamacpp-router:5-6</code>).</td>
+</tr>
+<tr>
+<td>Container runtime</td>
+<td><strong>podman 5.7.1, rootless</strong></td>
+<td>Rootful Docker / <code>sudo</code> for containers is forbidden
+(§11.4.161).</td>
+</tr>
+<tr>
+<td><code>nvidia-container-toolkit</code> + CDI</td>
+<td>Installed; CDI spec at <code>~/.config/cdi/nvidia.yaml</code></td>
+<td>Rootless podman wired via
+<code>~/.config/containers/containers.conf</code> →
+<code>cdi_spec_dirs = [&quot;~/.config/cdi&quot;]</code>. GPU passthrough proven
+(<code>docs/qa/phase0_gpu/</code>).</td>
+</tr>
+<tr>
+<td>Host CPU / RAM</td>
+<td>64 cores / 251 GiB (ALT Workstation 11.1)</td>
+<td>The run line pins 14 inference threads; adjust for your host.</td>
+</tr>
+<tr>
+<td>Models directory</td>
+<td><code>~/models/</code> on the host</td>
+<td>Mounted read-only into the container at <code>/models</code> (see
+§3).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>GPU passthrough smoke test</strong> (proves the toolkit + CDI
+wiring before you run any model):</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> run <span class="at">--rm</span> <span class="at">--device</span> nvidia.com/gpu=all <span class="at">--security-opt</span><span class="op">=</span>label=disable <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  localhost/helixllm/llamacpp-router:cuda12.8-sm120 nvidia-smi</span></code></pre></div>
+<p>This must print the RTX 5090. If it does not, the CDI wiring is the
+blocker, not the model.</p>
+<hr />
+<h2 id="build-the-router-image">2. Build the router image</h2>
+<p>The router image is the single build artefact this stack runs on. It
+was <strong>built and proven</strong> in this session (image
+<code>localhost/helixllm/llamacpp-router:cuda12.8-sm120</code>;
+Containerfile <code>container/Containerfile.llamacpp-router</code>).</p>
+<p>What the image contains (all verified in the Containerfile, cited
+inline there):</p>
+<ul>
+<li><strong>Latest llama.cpp</strong> from upstream
+<code>ggml-org/llama.cpp</code> (bleeding edge, per operator mandate)
+built as static, self-contained binaries.</li>
+<li><strong>Native Blackwell <code>sm_120</code></strong> SASS —
+<code>-DCMAKE_CUDA_ARCHITECTURES=120</code> (no PTX JIT fallback),
+required for the RTX 5090.</li>
+<li><strong>OpenSSL + curl</strong>
+(<code>-DLLAMA_CURL=ON -DLLAMA_OPENSSL=ON</code>,
+<code>libcurl4-openssl-dev</code> + <code>libssl-dev</code>) — enables
+HTTPS GGUF download via <code>-hf</code> (§5). Without OpenSSL,
+<code>-hf</code> fails at runtime with <em>“HTTPS is not supported”</em>
+(verified 2026-07-06).</li>
+<li><strong>RPC server</strong> (<code>ggml-rpc-server</code>, gated on
+<code>-DGGML_RPC=ON</code>) shipped at
+<code>/usr/local/bin/rpc-server</code> for future multi-host distributed
+inference. The copy step <strong>hard-fails</strong> the build if the
+binary is missing, so RPC can never be silently dropped (§11.4.108 /
+§11.4.122).</li>
+<li>Flash-Attention kernels for all quant types, F16 CUDA path, and
+LTO.</li>
+</ul>
+<p>Build it:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> submodules/helix_llm</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> build <span class="at">-f</span> container/Containerfile.llamacpp-router <span class="dt">\</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-t</span> localhost/helixllm/llamacpp-router:cuda12.8-sm120 .</span></code></pre></div>
+<blockquote>
+<p><strong>Note (build-time libcuda stub).</strong> The
+<code>-devel</code> base image ships only a stub
+<code>libcuda.so</code>; the real <code>libcuda.so.1</code> is injected
+at <strong>runtime</strong> by the GPU driver via CDI. The Containerfile
+symlinks the stub to its SONAME and puts the stubs dir on the linker
+path so the static link resolves — do not remove those lines
+(<code>Containerfile.llamacpp-router:20-25,57</code>).</p>
+</blockquote>
+<p><strong>Build-layer evidence:</strong>
+<code>docs/qa/phase0_build/p0t3_llamacpp_buildproof.log</code> (via
+RESUME.md). <strong>Real GPU inference proven</strong> on this image:
+“2+2”→“4”, 495 tok/s, 1008 MiB VRAM (RESUME.md live-state).</p>
+<hr />
+<h2 id="run-the-coder-fleet">3. Run the coder fleet</h2>
+<p>This is the <strong>live, operator-testable</strong> service.
+Qwen3-Coder-30B-A3B serves an OpenAI-compatible API at
+<code>http://localhost:18434/v1</code>.</p>
+<p><strong>Model file required on the host:</strong>
+<code>~/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf</code> (download
+via <code>-hf</code> — see §5 — or place it manually).</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> run <span class="at">-d</span> <span class="at">--name</span> helixllm-coder <span class="dt">\</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--device</span> nvidia.com/gpu=all <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--security-opt</span><span class="op">=</span>label=disable <span class="dt">\</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--network</span><span class="op">=</span>host <span class="dt">\</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">-v</span> <span class="st">&quot;</span><span class="va">$HOME</span><span class="st">/models:/models:ro&quot;</span> <span class="dt">\</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  localhost/helixllm/llamacpp-router:cuda12.8-sm120 <span class="dt">\</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">-m</span> /models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf <span class="dt">\</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">-ngl</span> 99 <span class="dt">\</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">-c</span> 24576 <span class="dt">\</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">--parallel</span> 8 <span class="dt">\</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cont-batching</span> <span class="dt">\</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">-fa</span> on <span class="dt">\</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-type-k</span> q8_0 <span class="dt">\</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-type-v</span> q8_0 <span class="dt">\</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">--host</span> 0.0.0.0 <span class="dt">\</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">--port</span> 18434 <span class="dt">\</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">--jinja</span></span></code></pre></div>
+<p>Flag-by-flag:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-d --name helixllm-coder</code></td>
+<td>Detached; the container name used by
+<code>podman start/stop/ps</code>.</td>
+</tr>
+<tr>
+<td><code>--device nvidia.com/gpu=all</code></td>
+<td>CDI GPU passthrough (rootless). The whole card is offered.</td>
+</tr>
+<tr>
+<td><code>--security-opt=label=disable</code></td>
+<td>Required for rootless CDI GPU access on this host (SELinux label
+relabel off for the device nodes).</td>
+</tr>
+<tr>
+<td><code>--network=host</code></td>
+<td>Publishes port <code>18434</code> directly on the host so
+<code>localhost:18434</code> is reachable. (Without host networking, the
+port stays inside the container’s netns.)</td>
+</tr>
+<tr>
+<td><code>-v &quot;$HOME/models:/models:ro&quot;</code></td>
+<td>Mounts the host models dir read-only at <code>/models</code>.</td>
+</tr>
+<tr>
+<td><code>-m /models/…Q4_K_M.gguf</code></td>
+<td>The GGUF to load.</td>
+</tr>
+<tr>
+<td><code>-ngl 99</code></td>
+<td>Offload all layers to the GPU.</td>
+</tr>
+<tr>
+<td><code>-c 24576</code></td>
+<td>24k context window.</td>
+</tr>
+<tr>
+<td><code>--parallel 8</code></td>
+<td>8 concurrent inference slots (see §6).</td>
+</tr>
+<tr>
+<td><code>--cont-batching</code></td>
+<td>Continuous batching across the 8 slots.</td>
+</tr>
+<tr>
+<td><code>-fa on</code></td>
+<td>Flash Attention <strong>on</strong>. <strong>GOTCHA:</strong> in the
+latest llama.cpp <code>-fa</code> takes a <em>value</em> —
+<code>-fa on</code>, not a bare <code>-fa</code>.</td>
+</tr>
+<tr>
+<td><code>--cache-type-k q8_0</code> /
+<code>--cache-type-v q8_0</code></td>
+<td>q8_0-quantized KV cache (smaller VRAM footprint).</td>
+</tr>
+<tr>
+<td><code>--host 0.0.0.0 --port 18434</code></td>
+<td>Bind address / port.</td>
+</tr>
+<tr>
+<td><code>--jinja</code></td>
+<td>Use the model’s Jinja chat template for OpenAI-style chat
+formatting.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Measured resident VRAM: ~19.4 GB</strong> (19432 MiB,
+<code>docs/qa/phase2_e2e_20260706/</code>
+<code>01_nvidia_smi_pre.txt</code> /
+<code>03_nvidia_smi_during.txt</code>).</p>
+<p><strong>Lifecycle:</strong></p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> ps                 <span class="co"># confirm helixllm-coder is Up</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> start helixllm-coder   <span class="co"># restart an existing (stopped) container</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> stop  helixllm-coder   <span class="co"># stop it</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> logs <span class="at">-f</span> helixllm-coder <span class="co"># tail server logs</span></span></code></pre></div>
+<hr />
+<h2 id="openai-compatible-endpoints-a-working-curl">4. OpenAI-compatible
+endpoints + a working curl</h2>
+<p>The coder fleet exposes the standard llama-server OpenAI-compatible
+surface at <code>http://localhost:18434</code>. The health check and
+chat endpoint are the two you need day to day.</p>
+<p><strong>Health:</strong></p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> http://localhost:18434/health</span></code></pre></div>
+<p><strong>Real chat completion</strong> (this is the proven end-to-end
+path — a genuine coding task returning genuine code,
+<code>docs/qa/phase1_fleet/coder_live_e2e_20260706.log</code>):</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-sS</span> http://localhost:18434/v1/chat/completions <span class="dt">\</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">-H</span> <span class="st">&quot;Content-Type: application/json&quot;</span> <span class="dt">\</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-d</span> <span class="st">&#39;{</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="st">    &quot;model&quot;: &quot;/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf&quot;,</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="st">    &quot;messages&quot;: [</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="st">      {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;Write a Python function is_palindrome(s) that ignores case and non-alphanumerics.&quot;}</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="st">    ]</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="st">  }&#39;</span></span></code></pre></div>
+<p>Proven response for exactly this class of request
+(<code>coder_live_e2e_20260706.log</code>): a real
+<code>is_palindrome</code> implementation, <code>finish: stop</code>, 59
+completion tokens in 0.27 s (<strong>~220 tok/s single-stream</strong>).
+No stub, no simulation marker.</p>
+<h3 id="the-base-url-v1-gotcha-load-bearing-from-the-phase-2-proof">4.1
+The base-URL <code>/v1</code> gotcha (load-bearing — from the Phase-2
+proof)</h3>
+<p>llama-server’s chat endpoint is
+<code>POST /v1/chat/completions</code>. How you configure a client
+depends on whether the client appends the <code>/v1/...</code> suffix
+itself:</p>
+<ul>
+<li><strong>Raw <code>curl</code> (you write the full path):</strong>
+use <code>http://localhost:18434/v1/chat/completions</code> — the full
+path, as shown above.</li>
+<li><strong>An OpenAI client / library that appends
+<code>/v1/chat/completions</code> to a base URL:</strong> set the base
+URL to <strong><code>http://localhost:18434</code></strong> — the base
+<strong>without</strong> <code>/v1</code>.</li>
+</ul>
+<p>If you give such a client a base URL of
+<code>http://localhost:18434/v1</code>, it becomes
+<code>http://localhost:18434/v1</code> +
+<code>/v1/chat/completions</code> =
+<strong><code>/v1/v1/chat/completions</code> → HTTP 404</strong>. This
+was confirmed both ways (wrong → 404, correct → 200) in
+<code>docs/qa/phase2_e2e_20260706/12_endpoint_finding.txt</code>. This
+is the single most common misconfiguration when wiring an agent to this
+stack.</p>
+<hr />
+<h2 id="downloading-models-with--hf-https">5. Downloading models with
+<code>-hf</code> (HTTPS)</h2>
+<p>The router image can download GGUF models directly from Hugging Face
+over HTTPS using llama.cpp’s built-in <code>-hf</code> downloader. This
+is <strong>proven working</strong> — a 469 MB GGUF was downloaded over
+HTTPS in this session
+(<code>docs/qa/phase1_fleet/hf_https_proof_20260706.log</code>;
+§11.4.108 verdict at the tail of that log). It works because the image
+is built with <code>-DLLAMA_CURL=ON -DLLAMA_OPENSSL=ON</code> and ships
+<code>libssl3</code>/<code>libcurl4</code> (§2); the earlier
+non-<code>-hf</code> P0 image could <strong>not</strong> do this (“HTTPS
+is not supported”).</p>
+<p>Example (downloads on first use into the container’s HF cache, then
+serves):</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">podman</span> run <span class="at">-d</span> <span class="at">--name</span> hx-dl <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--device</span> nvidia.com/gpu=all <span class="at">--security-opt</span><span class="op">=</span>label=disable <span class="at">--network</span><span class="op">=</span>host <span class="dt">\</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-v</span> <span class="st">&quot;</span><span class="va">$HOME</span><span class="st">/models:/models:rw&quot;</span> <span class="dt">\</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  localhost/helixllm/llamacpp-router:cuda12.8-sm120 <span class="dt">\</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">-hf</span> Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M <span class="dt">\</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">-ngl</span> 99 <span class="at">--host</span> 0.0.0.0 <span class="at">--port</span> 18434</span></code></pre></div>
+<blockquote>
+<p><strong>Cache note (from the proof log).</strong> Point each
+<code>-hf</code> invocation at a single-owner cache directory. The proof
+log captured a self-inflicted rename-error when two invocations shared
+one HF cache concurrently — the blob still downloaded over HTTPS, but
+concurrent writers to one cache race. Give distinct download jobs
+distinct caches (or serialise them). For the primary fleet model,
+downloading it once to <code>~/models/</code> and then serving with
+<code>-m</code> (as in §3) avoids the issue entirely.</p>
+</blockquote>
+<hr />
+<h2 id="concurrency-parallel-slots">6. Concurrency (parallel slots)</h2>
+<p>The fleet is configured with
+<code>--parallel 8 --cont-batching</code> (§3) — 8 concurrent inference
+slots with continuous batching.</p>
+<p><strong>Proven throughput:</strong></p>
+<ul>
+<li><strong>Single stream:</strong> ~220 tok/s (59 tokens / 0.27 s,
+<code>coder_live_e2e_20260706.log</code>).</li>
+<li><strong>8 concurrent agents:</strong> <strong>85–96 tok/s each,
+simultaneously</strong> (RESUME.md live-state — 3× the ≥30 tok/s design
+target). Real coding output on every slot.</li>
+</ul>
+<p>So a team of up to 8 CLI agents can share this one server and each
+still gets interactive-grade throughput. To change the slot count,
+adjust <code>--parallel N</code> (more slots = more concurrent KV cache
+= more VRAM; the q8_0 KV cache keeps the footprint at ~19.4 GB for 8
+slots at 24k ctx).</p>
+<hr />
+<h2 id="pointing-a-cli-agent-helixagent-at-the-stack">7. Pointing a CLI
+agent / HelixAgent at the stack</h2>
+<p>Any OpenAI-compatible agent works. Configure it with:</p>
+<ul>
+<li><strong>Base URL:</strong> <code>http://localhost:18434</code> (base
+<strong>without</strong> <code>/v1</code> — see §4.1).</li>
+<li><strong>API key:</strong> any non-empty string; the coder fleet (raw
+llama-server) does not enforce auth on <code>18434</code>.</li>
+<li><strong>Model:</strong>
+<code>/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf</code> (or
+whatever the server reports at <code>GET /v1/models</code>).</li>
+</ul>
+<h3 id="helixagent-proven-end-to-end">HelixAgent (proven
+end-to-end)</h3>
+<p>HelixAgent’s <code>helixllm.Provider</code> was driven against this
+live server in the Phase-2 proof
+(<code>docs/qa/phase2_e2e_20260706/RESULTS.md</code>), returning genuine
+code (a real <code>func Add</code>). The provider is pinned via an
+environment variable:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">HELIX_LLM_LOCAL_OPENAI_ENDPOINT</span><span class="op">=</span>http://localhost:18434   <span class="co"># base, NO /v1</span></span></code></pre></div>
+<p>The provider hardcodes the <code>/v1/chat/completions</code> suffix,
+so the pin <strong>must</strong> be the base without <code>/v1</code>
+(the §4.1 gotcha — pinning <code>.../v1</code> yields
+<code>/v1/v1/...</code> → 404). With the base pin set, HelixAgent issued
+a real generate and received non-empty code,
+<code>tokens_used &gt; 0</code>, no bluff markers (evidence
+<code>11_green_proof.txt</code>; the <code>RED_MODE=1</code> baseline
+with no pin fails with <code>connection refused</code> against the
+unrunning TLS default — <code>10_red_baseline.txt</code>).</p>
+<p>Reproduce (from <code>RESULTS.md</code>):</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> submodules/helix_agent</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="va">HELIX_LLM_LOCAL_OPENAI_ENDPOINT</span><span class="op">=</span>http://localhost:18434 <span class="va">RED_MODE</span><span class="op">=</span>0 <span class="dt">\</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="ex">go</span> test <span class="at">-tags</span><span class="op">=</span>helixllm_e2e <span class="at">-run</span> TestE2E_HelixAgent_To_LiveHelixLLM <span class="at">-v</span> <span class="dt">\</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  ./internal/llm/providers/helixllm/</span></code></pre></div>
+<h3 id="the-full-helixllm-go-gateway-8443-separate-documented-contract">The
+full HelixLLM Go gateway (<code>:8443</code>) — separate, documented
+contract</h3>
+<p>There is also a full HelixLLM Go server
+(<code>cmd/helixllm/main.go</code>) that fronts an
+<strong>embedded</strong> llama.cpp brain behind a TLS-mandatory,
+API-key-authenticated OpenAI + Anthropic gateway on
+<code>https://0.0.0.0:8443</code>. Its complete route inventory, auth
+wiring, and request/response shapes are documented in
+<code>docs/API_CONTRACT.md</code> (source-verified from code). Key facts
+from that contract:</p>
+<ul>
+<li>Base URL <code>https://0.0.0.0:8443</code>; <strong>TLS 1.3 minimum,
+mandatory</strong> (serving fails immediately if cert/key are empty);
+serves HTTP/3 (QUIC) + HTTP/2 on the same port.</li>
+<li>OpenAI endpoints under <code>/v1/*</code>
+(<code>/v1/chat/completions</code>, <code>/v1/completions</code>,
+<code>/v1/models</code>, <code>/v1/embeddings</code>, …) require an
+<strong>API key</strong>; the Anthropic <code>/v1/messages</code>
+endpoint is also there.</li>
+<li>The embedded-llama toggle is <code>LlamaServerEmbed</code>
+(<code>HELIX_LLAMA_SERVER_EMBEDDED</code>, default <code>true</code>) —
+<strong>not</strong> <code>UseLlamaCpp</code> (which does not exist in
+the code).</li>
+<li><strong>Security finding (from the contract):</strong>
+<code>/v1/agents/*</code>, <code>/v1/cache/stats</code>, all
+<code>/internal/*</code>, <code>/metrics</code>, and <code>/ws</code>
+are <strong>unauthenticated</strong> as currently wired — only the 7
+gateway <code>/v1</code> LLM endpoints enforce the API key. Do not
+expose <code>:8443</code> on an untrusted network until this is
+addressed.</li>
+</ul>
+<p>This guide documents the <code>:18434</code> coder fleet as the
+proven operator path; the <code>:8443</code> gateway is presented from
+its verified code contract (<code>API_CONTRACT.md</code>), not from a
+captured live-serving run in this session.</p>
+<hr />
+<h2 id="troubleshooting-the-real-gotchas">8. Troubleshooting (the real
+gotchas)</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-fa</code> rejected / server won’t start on the FA flag</td>
+<td>Latest llama.cpp changed <code>-fa</code> to take a value.</td>
+<td>Use <code>-fa on</code> (not a bare <code>-fa</code>).</td>
+</tr>
+<tr>
+<td>Client gets <strong>HTTP 404</strong> on every chat call</td>
+<td>Base URL includes <code>/v1</code>, and the client also appends
+<code>/v1/chat/completions</code> → <code>/v1/v1/...</code>.</td>
+<td>Set the client base URL to <code>http://localhost:18434</code> (no
+<code>/v1</code>). Raw curl uses the full
+<code>.../v1/chat/completions</code>. (§4.1)</td>
+</tr>
+<tr>
+<td>HelixAgent → <code>connection refused</code></td>
+<td>No endpoint pin set → provider falls back to the (non-running) TLS
+<code>:8443</code> default.</td>
+<td><code>export HELIX_LLM_LOCAL_OPENAI_ENDPOINT=http://localhost:18434</code>
+(base, no <code>/v1</code>).</td>
+</tr>
+<tr>
+<td><code>-hf</code> fails with <em>“HTTPS is not supported”</em></td>
+<td>Using an image built without OpenSSL/curl (the old P0 image).</td>
+<td>Use <code>localhost/helixllm/llamacpp-router:cuda12.8-sm120</code>,
+built with <code>-DLLAMA_CURL=ON -DLLAMA_OPENSSL=ON</code>.</td>
+</tr>
+<tr>
+<td><code>-hf</code> rename / <code>downloadInProgress</code> error</td>
+<td>Two <code>-hf</code> jobs sharing one HF cache concurrently.</td>
+<td>Give each job its own cache dir, or download once to
+<code>~/models/</code> and serve with <code>-m</code>. (§5)</td>
+</tr>
+<tr>
+<td><code>nvidia-smi</code> in container fails / no GPU</td>
+<td>CDI wiring, not the model.</td>
+<td>Run the §1 smoke test; check <code>nvidia-container-toolkit</code>,
+<code>~/.config/cdi/nvidia.yaml</code>, and <code>cdi_spec_dirs</code>
+in <code>containers.conf</code>.</td>
+</tr>
+<tr>
+<td><code>localhost:18434</code> unreachable from host</td>
+<td>Container not on host network.</td>
+<td>Include <code>--network=host</code> in the run line (§3).</td>
+</tr>
+<tr>
+<td>Model runs on CPU / slow</td>
+<td>Layers not offloaded, or a non-<code>sm_120</code> image.</td>
+<td>Ensure <code>-ngl 99</code> and that you built with
+<code>-DCMAKE_CUDA_ARCHITECTURES=120</code> (§2).</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="vram-residency-broker-design-only-not-shipped">9. VRAM residency
+broker — DESIGN ONLY (not shipped)</h2>
+<p>The programme plans a <strong>VRAM residency broker</strong> to
+co-host ~10 GPU services on the single 32 GB card (keep the coder fleet
+resident, swap mid-tier models, run heavy generators single-owner, never
+OOM). This is a <strong>design spike only</strong> — <strong>no broker
+code exists yet.</strong> The design (residency tiers, admission API,
+eviction policy, anti-bluff acceptance criteria) is in <a href="VRAM_BROKER.md"><code>docs/VRAM_BROKER.md</code></a>. Do not
+expect broker behaviour from the current stack: today the coder fleet is
+a single resident model and cross-service VRAM arbitration is
+manual.</p>
+<hr />
+<h2 id="planned-capabilities-not-shipped">10. Planned capabilities — NOT
+shipped</h2>
+<p>Per the programme plan, the following are <strong>planned, not yet
+available</strong> in this stack (documented here so no operator assumes
+they work today):</p>
+<ul>
+<li><strong>Vision / image understanding (VLM)</strong>, <strong>image
+generation</strong>, <strong>video generation</strong> — planned
+warm-swappable / burst tiers in the VRAM broker design
+(<code>VRAM_BROKER.md</code> §2), not implemented.</li>
+<li><strong>Multi-host distributed inference</strong> — the RPC server
+binary ships in the image (<code>/usr/local/bin/rpc-server</code>, §2)
+but multi-host serving is not yet wired or proven at runtime.</li>
+<li><strong>Cognee / vector memory write path</strong> — an honest
+§11.4.3 SKIP in Phase-2 (real upstream Cognee bug + unwired repo path;
+<code>RESULTS.md</code> §3).</li>
+</ul>
+<hr />
+<h2 id="sources-verified">Sources verified</h2>
+<p>Every claim in this guide is grounded in captured evidence from this
+session (2026-07-06), not external memory. Primary sources (paths
+relative to <code>submodules/helix_llm/</code> unless noted):</p>
+<ul>
+<li><code>docs/qa/phase1_fleet/coder_live_e2e_20260706.log</code> — live
+coder end-to-end (is_palindrome, 59 tok / 0.27 s, finish=stop).</li>
+<li><code>docs/qa/phase1_fleet/hf_https_proof_20260706.log</code> —
+<code>-hf</code> HTTPS download proof (469 MB GGUF) + §11.4.108
+verdict.</li>
+<li><code>../../docs/qa/phase2_e2e_20260706/RESULTS.md</code> (main repo
+<code>docs/qa/</code>) — HelixAgent → live HelixLLM real generate;
+Postgres/Redis persistence; the base-URL <code>/v1</code> gotcha
+(<code>12_endpoint_finding.txt</code>); VRAM 19432 MiB
+(<code>01/03_nvidia_smi*</code>).</li>
+<li><code>container/Containerfile.llamacpp-router</code> — the built
+router image (sm_120, OpenSSL <code>-hf</code>, RPC).</li>
+<li><code>docs/API_CONTRACT.md</code> — the <code>:8443</code> Go
+gateway contract (routes, TLS, auth, security finding), source-verified
+from code.</li>
+<li><code>docs/VRAM_BROKER.md</code> — VRAM broker design spike
+(design-only).</li>
+<li><code>../../docs/research/07.2026/00_master/RESUME.md</code> (main
+repo) — live-state anchors: host spec, image id, run line, 8-concurrent
+throughput, GPU stack.</li>
+</ul>
+<p>Honest boundary (§11.4.6 / §11.4.99): external-tool syntax (llama.cpp
+<code>-fa on</code> / <code>-hf</code>, podman CDI flags) is documented
+exactly as it behaved in this session’s captured logs, not re-fetched
+from upstream docs. Throughput figures are the measured values in the
+cited logs; the single-stream ~220 tok/s comes from the Phase-1 e2e log
+(a <code>--jinja</code>/q8_0-KV run recorded ~322 tok/s in RESUME.md —
+both are cited rather than averaged).</p>
+</body>
+</html>
