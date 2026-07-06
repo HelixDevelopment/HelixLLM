@@ -2,43 +2,74 @@
 # Builds llama.cpp from source with CUDA acceleration, RPC support,
 # and router mode for multi-model serving across distributed hosts.
 
-FROM docker.io/nvidia/cuda:12.6.3-devel-ubuntu24.04 AS builder
+# CUDA 12.8 — the first CUDA branch with Blackwell sm_120 support; matches the host
+# driver (570.169 / CUDA 12.8). 12.6.x does NOT build native sm_120 kernels for the RTX 5090.
+FROM docker.io/nvidia/cuda:12.8.1-devel-ubuntu24.04 AS builder
 
-# Install build dependencies
+# Build dependencies. libcurl4-openssl-dev + libssl-dev enable HTTPS GGUF download (-hf);
+# without OpenSSL, `-hf` fails at runtime with "HTTPS is not supported" (verified 2026-07-06).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     git \
     build-essential \
     pkg-config \
+    libcurl4-openssl-dev \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone llama.cpp (shallow clone for speed)
+# CUDA driver STUB for BUILD-time linking of the driver VMM API (cuMemCreate/cuMemMap/…).
+# ggml-cuda links libcuda; the -devel image ships only a stub `libcuda.so` (real libcuda.so.1
+# is injected at RUNTIME by the GPU driver via CDI). Symlink the stub to its SONAME + put the
+# stubs dir on the linker path so the static link resolves (verified fix 2026-07-06).
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
+ENV LIBRARY_PATH=/usr/local/cuda/lib64/stubs
+
+# Clone LATEST llama.cpp from upstream (bleeding edge, per operator mandate).
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git .
 
-# Build with CUDA acceleration, FA all quants, and RPC support for distributed inference
-# -DGGML_CUDA=ON              enables CUDA GPU backend
-# -DGGML_CUDA_FA_ALL_QUANTS=ON enables Flash Attention for all quantization types
-# -DGGML_NATIVE=OFF            disables host-specific CPU optimizations (portable binary)
-# -DGGML_RPC=ON               enables the RPC backend for multi-host distribution
-# -DBUILD_SHARED_LIBS=OFF      static linking for self-contained binaries
+# Max-performance Blackwell sm_120 build (bleeding edge):
+# -DGGML_CUDA=ON                    CUDA GPU backend
+# -DCMAKE_CUDA_ARCHITECTURES=120    native Blackwell sm_120 SASS (no PTX JIT) — REQUIRED for RTX 5090
+# -DGGML_CUDA_F16=ON                half-precision CUDA compute path (faster on modern GPUs)
+# -DGGML_CUDA_FA_ALL_QUANTS=ON      Flash Attention kernels for all quantization types
+# -DGGML_LTO=ON                     link-time optimization
+# -DGGML_RPC=ON                     RPC backend for multi-host distributed inference
+# -DGGML_NATIVE=OFF                 portable CPU binary (container may move hosts)
+# -DLLAMA_CURL=ON -DLLAMA_OPENSSL=ON  HTTPS GGUF download (-hf) — requires libssl-dev above
+# -DBUILD_SHARED_LIBS=OFF           static, self-contained binaries
 RUN cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_ARCHITECTURES=120 \
+    -DGGML_CUDA_F16=ON \
     -DGGML_CUDA_FA_ALL_QUANTS=ON \
-    -DGGML_NATIVE=OFF \
+    -DGGML_LTO=ON \
     -DGGML_RPC=ON \
-    -DBUILD_SHARED_LIBS=OFF
+    -DGGML_NATIVE=OFF \
+    -DLLAMA_CURL=ON \
+    -DLLAMA_OPENSSL=ON \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,/usr/local/cuda/lib64/stubs"
 
-RUN cmake --build build --config Release --target llama-server --target llama-cli --target rpc-server -j$(nproc)
+# NOTE: in latest llama.cpp the RPC server target is `ggml-rpc-server`
+# (tools/rpc/CMakeLists.txt: set(TARGET ggml-rpc-server)), gated on GGML_RPC=ON — NOT the
+# old `rpc-server` name. It produces build/bin/ggml-rpc-server.
+RUN cmake --build build --config Release \
+      --target llama-server --target llama-cli --target ggml-rpc-server -j$(nproc) \
+ && test -x build/bin/llama-server && test -x build/bin/llama-cli && test -x build/bin/ggml-rpc-server \
+ && echo "BUILD OK: sm_120 static llama-server + llama-cli + ggml-rpc-server"
 
 # ── Runtime ─────────────────────────────────────────────
-FROM docker.io/nvidia/cuda:12.6.3-runtime-ubuntu24.04
+# CUDA 12.8 runtime to match the sm_120 build. The real libcuda.so.1 (driver) is injected
+# at runtime by CDI via `podman run --device nvidia.com/gpu=all`.
+FROM docker.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
 
-# Install minimal runtime dependencies
+# Install minimal runtime dependencies (libgomp1 for OpenMP; curl for healthcheck).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy built binaries from builder stage
