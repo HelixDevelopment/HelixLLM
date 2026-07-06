@@ -1,0 +1,14 @@
+=== live 30B coder end-to-end (operator-testable, localhost:18434) — real coding task ===
+--- model: /models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+--- finish: stop
+--- completion_tokens: 59
+--- CONTENT ---
+```python
+def is_palindrome(s):
+    # Convert to lowercase and keep only alphanumeric characters
+    cleaned = ''.join(char.lower() for char in s if char.isalnum())
+    
+    # Check if the cleaned string equals its reverse
+    return cleaned == cleaned[::-1]
+```
+--- wall_s: 0.27
