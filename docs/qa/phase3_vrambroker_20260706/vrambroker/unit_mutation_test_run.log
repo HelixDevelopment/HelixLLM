@@ -1,0 +1,46 @@
+=== RUN   TestAdmit_TruthTable
+=== RUN   TestAdmit_TruthTable/fits_with_room
+=== RUN   TestAdmit_TruthTable/exact_fit_(need+headroom_==_free)
+=== RUN   TestAdmit_TruthTable/one_byte_over_budget
+=== RUN   TestAdmit_TruthTable/far_over_budget_(30GiB_into_12GiB_free)
+=== RUN   TestAdmit_TruthTable/zero_need_still_needs_headroom,_fits
+=== RUN   TestAdmit_TruthTable/zero_need,_only_headroom_free,_fits
+=== RUN   TestAdmit_TruthTable/zero_need,_below_headroom,_refused
+=== RUN   TestAdmit_TruthTable/negative_need_refused
+--- PASS: TestAdmit_TruthTable (0.00s)
+    --- PASS: TestAdmit_TruthTable/fits_with_room (0.00s)
+    --- PASS: TestAdmit_TruthTable/exact_fit_(need+headroom_==_free) (0.00s)
+    --- PASS: TestAdmit_TruthTable/one_byte_over_budget (0.00s)
+    --- PASS: TestAdmit_TruthTable/far_over_budget_(30GiB_into_12GiB_free) (0.00s)
+    --- PASS: TestAdmit_TruthTable/zero_need_still_needs_headroom,_fits (0.00s)
+    --- PASS: TestAdmit_TruthTable/zero_need,_only_headroom_free,_fits (0.00s)
+    --- PASS: TestAdmit_TruthTable/zero_need,_below_headroom,_refused (0.00s)
+    --- PASS: TestAdmit_TruthTable/negative_need_refused (0.00s)
+=== RUN   TestAcquire_Coder_AlwaysGranted_EvenWithZeroFree
+--- PASS: TestAcquire_Coder_AlwaysGranted_EvenWithZeroFree (0.00s)
+=== RUN   TestAcquire_Burst_SingleOwner
+--- PASS: TestAcquire_Burst_SingleOwner (0.00s)
+=== RUN   TestAcquire_Burst_OverBudget_Refused_FailClosed
+--- PASS: TestAcquire_Burst_OverBudget_Refused_FailClosed (0.00s)
+=== RUN   TestAcquire_Warm_AdmissionGated
+--- PASS: TestAcquire_Warm_AdmissionGated (0.00s)
+=== RUN   TestAcquire_BudgetUnavailable_FailsClosed
+--- PASS: TestAcquire_BudgetUnavailable_FailsClosed (0.00s)
+=== RUN   TestAcquire_ThermalGuard_Refuses
+--- PASS: TestAcquire_ThermalGuard_Refuses (0.00s)
+=== RUN   TestLease_Release_Idempotent
+--- PASS: TestLease_Release_Idempotent (0.00s)
+=== RUN   TestBudget_ReturnsParsedBytes
+--- PASS: TestBudget_ReturnsParsedBytes (0.00s)
+=== RUN   TestBudget_ReadError_ReturnsZeros
+--- PASS: TestBudget_ReadError_ReturnsZeros (0.00s)
+=== RUN   TestParseSMICSV
+--- PASS: TestParseSMICSV (0.00s)
+=== RUN   TestAcquire_ConcurrentBurst_ExactlyOneWinner
+--- PASS: TestAcquire_ConcurrentBurst_ExactlyOneWinner (0.00s)
+=== RUN   TestAdmit_PairedMutation
+--- PASS: TestAdmit_PairedMutation (0.00s)
+=== RUN   Example_admissionMath
+--- PASS: Example_admissionMath (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/vrambroker	0.005s

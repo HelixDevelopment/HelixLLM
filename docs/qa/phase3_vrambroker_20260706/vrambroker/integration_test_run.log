@@ -1,0 +1,14 @@
+=== RUN   TestIntegration_Budget_RealNvidiaSMI
+    integration_test.go:104: Budget() live: total=32607 MiB used=19432 MiB free=12689 MiB
+--- PASS: TestIntegration_Budget_RealNvidiaSMI (0.03s)
+=== RUN   TestIntegration_Coder_StaysLive_WhileLeasesMove
+    integration_test.go:123: coder completion (before): "4"
+    integration_test.go:136: over-budget burst refused as expected: vrambroker: request exceeds available VRAM budget (refused, fail-closed to avoid OOM): need=56255053824 free=13305380864 headroom=2147483648
+    integration_test.go:141: coder completion (after refusal): "4"
+--- PASS: TestIntegration_Coder_StaysLive_WhileLeasesMove (0.11s)
+=== RUN   TestIntegration_Burst_SingleOwner_RealBudget
+--- PASS: TestIntegration_Burst_SingleOwner_RealBudget (0.04s)
+=== RUN   TestIntegration_OverBudget_NeverOOM_CoderSurvives
+--- PASS: TestIntegration_OverBudget_NeverOOM_CoderSurvives (0.47s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/vrambroker	0.653s
