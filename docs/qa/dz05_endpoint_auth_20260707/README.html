@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>README</title>
+  <style>
+
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">
+table {
+border-collapse: collapse;
+}
+table td,
+table th {
+border: 1px solid #cccccc;
+padding: 4px 8px;
+vertical-align: top;
+}
+
+tr.cell-status-obsolete > td {
+background-color: #E0E0E0;
+}
+
+tr.cell-status-obsolete > td:nth-child(2),
+tr.cell-status-obsolete > td:last-child {
+text-decoration: line-through;
+}
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">README</h1>
+</header>
+<h1 id="dz-05-authenticate-sensitive-helixllm-api-endpoints">DZ-05 —
+Authenticate sensitive HelixLLM API endpoints</h1>
+<p><strong>Run-id:</strong> <code>dz05_endpoint_auth_20260707</code>
+<strong>Date:</strong> 2026-07-07 <strong>Branch:</strong>
+<code>feature/helixllm-full-extension</code> <strong>Anchors:</strong>
+§11.4.10 (secret/auth), §11.4.108 (runtime signature), §11.4.115
+(RED→GREEN), §11.4.5 (captured evidence), §11.4.74 (reuse existing
+middleware)</p>
+<h2 id="finding">Finding</h2>
+<p>The gateway API-key middleware (<code>gwmw.APIKeyAuth</code>) was
+applied <strong>only</strong> to the gateway’s own <code>/v1</code>
+<code>RouterGroup</code>
+(<code>internal/gateway/router.go:63-64</code>). Four other route groups
+register on <strong>separate</strong> <code>gin.RouterGroup</code>
+instances that do NOT inherit that middleware, so they were reachable
+<strong>unauthenticated</strong> even with
+<code>HELIX_AUTH_API_KEYS</code> configured: - <code>/v1/agents/*</code>
++ <code>/v1/cache/stats</code> — agent control (LLM chat, tool
+execution, coordinate/plan, memory R/W) -
+<code>/internal/cluster/*</code> — control plane (status/probe +
+<strong>SSH deploy/rebalance</strong> across hosts) -
+<code>/internal/knowledge/*</code> — vector-store data plane
+(ingest/query/collections/stats)</p>
+<h2 id="per-route-group-classification">Per-route-group
+classification</h2>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 51%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Group</th>
+<th>Classification</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/internal/cluster/*</code></td>
+<td><strong>real-exposure</strong> (SSH deploy/rebalance)</td>
+<td>FIXED — gated with <code>gwmw.APIKeyAuth</code></td>
+</tr>
+<tr>
+<td><code>/v1/agents/*</code> + <code>/v1/cache/stats</code></td>
+<td><strong>real-exposure</strong> (agent + tool control)</td>
+<td>FIXED — gated with <code>gwmw.APIKeyAuth</code></td>
+</tr>
+<tr>
+<td><code>/internal/knowledge/*</code></td>
+<td><strong>real-exposure</strong> (data ingest/query)</td>
+<td>FIXED — gated with <code>gwmw.APIKeyAuth</code></td>
+</tr>
+<tr>
+<td><code>/ws</code></td>
+<td><strong>design-question</strong></td>
+<td>NOT fixed — header-based auth breaks browser WS clients (§11.4.6);
+operator decision needed on WS credential channel</td>
+</tr>
+<tr>
+<td><code>/metrics</code>, <code>/internal/metrics</code>,
+<code>/internal/health</code></td>
+<td><strong>intentionally-public</strong></td>
+<td>documented, left public (scraper + liveness convention)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="fix">Fix</h2>
+<p>Reused the EXISTING
+<code>internal/gateway/middleware.APIKeyAuth</code> (no new auth scheme,
+§11.4.74). The three registrars gained an optional
+<code>authMW ...gin.HandlerFunc</code> applied via
+<code>group.Use(authMW...)</code>; <code>cmd/helixllm/main.go</code>
+passes <code>gwmw.APIKeyAuth(cfg.Auth.APIKeys)</code> (same value as
+<code>/v1</code>). Empty keys ⇒ open-access (identical to
+<code>/v1</code>); keys configured ⇒ enforced. Variadic keeps all
+existing callers/tests (incl. <code>tests/integration</code>) compiling
+unchanged.</p>
+<h2 id="runtime-signature-11.4.108-see-red_green_evidence.txt">Runtime
+signature (§11.4.108) — see <code>red_green_evidence.txt</code></h2>
+<ul>
+<li><strong>RED_MODE=1</strong> (open wiring, reproduces pre-fix
+exposure): unauth <code>GET /internal/cluster/status</code> →
+<strong>200</strong>, <code>/internal/knowledge/stats</code> →
+<strong>200</strong>, <code>/v1/agents/tools</code> →
+<strong>200</strong> (defect present).</li>
+<li><strong>RED_MODE=0</strong> (fixed wiring): unauth →
+<strong>401</strong>, valid
+<code>Authorization: Bearer &lt;key&gt;</code> → <strong>200</strong>
+(defect absent).</li>
+<li><code>go build ./...</code> EXIT 0; full suites of
+control/knowledge/agents/gateway/gateway-middleware/integration all
+<code>ok</code>.</li>
+</ul>
+<h2 id="standing-regression-guards-11.4.115-polarity-switch">Standing
+regression guards (§11.4.115 polarity switch)</h2>
+<ul>
+<li><code>internal/control/auth_dz05_test.go</code> —
+<code>TestDZ05_ClusterControlRequiresAuth</code></li>
+<li><code>internal/knowledge/auth_dz05_test.go</code> —
+<code>TestDZ05_KnowledgeRequiresAuth</code></li>
+<li><code>internal/agents/auth_dz05_test.go</code> —
+<code>TestDZ05_AgentsRequireAuth</code></li>
+</ul>
+</body>
+</html>
