@@ -1,0 +1,44 @@
+### go build ./... ###
+BUILD_EXIT=0
+
+### RED_MODE=1 (reproduce defect: unauth reaches sensitive routes) ###
+=== RUN   TestDZ05_ClusterControlRequiresAuth
+    auth_dz05_test.go:49: DZ-05 RED reproduced: unauth GET /internal/cluster/status -> HTTP 200 (reachable without a key)
+--- PASS: TestDZ05_ClusterControlRequiresAuth (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/control	0.008s
+=== RUN   TestDZ05_KnowledgeRequiresAuth
+    auth_dz05_test.go:44: DZ-05 RED reproduced: unauth GET /internal/knowledge/stats -> HTTP 200
+--- PASS: TestDZ05_KnowledgeRequiresAuth (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/knowledge	0.009s
+=== RUN   TestDZ05_AgentsRequireAuth
+    auth_dz05_test.go:42: DZ-05 RED reproduced: unauth GET /v1/agents/tools -> HTTP 200
+--- PASS: TestDZ05_AgentsRequireAuth (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/agents	0.010s
+
+### RED_MODE=0 (fixed: unauth->401, auth->200) ###
+=== RUN   TestDZ05_ClusterControlRequiresAuth
+    auth_dz05_test.go:65: DZ-05 GREEN: unauth -> 401, auth(Bearer sk-dz05-cluster) -> HTTP 200
+--- PASS: TestDZ05_ClusterControlRequiresAuth (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/control	0.009s
+=== RUN   TestDZ05_KnowledgeRequiresAuth
+    auth_dz05_test.go:58: DZ-05 GREEN: unauth -> 401, auth -> HTTP 200
+--- PASS: TestDZ05_KnowledgeRequiresAuth (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/knowledge	0.012s
+=== RUN   TestDZ05_AgentsRequireAuth
+    auth_dz05_test.go:56: DZ-05 GREEN: unauth -> 401, auth -> HTTP 200
+--- PASS: TestDZ05_AgentsRequireAuth (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/agents	0.009s
+
+### full suites of touched packages (regression check) ###
+ok  	github.com/HelixDevelopment/HelixLLM/internal/control	0.182s
+ok  	github.com/HelixDevelopment/HelixLLM/internal/knowledge	0.093s
+ok  	github.com/HelixDevelopment/HelixLLM/internal/agents	0.012s
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway	0.043s
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware	0.007s
+ok  	github.com/HelixDevelopment/HelixLLM/tests/integration	0.107s

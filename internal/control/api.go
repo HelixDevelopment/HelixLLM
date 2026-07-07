@@ -108,8 +108,16 @@ func (cp *ControlPlane) Status() *ClusterStatus {
 
 // RegisterRoutes registers the control API routes on the Gin
 // engine.
-func RegisterRoutes(r *gin.Engine, cp *ControlPlane) {
+//
+// DZ-05: the /internal/cluster/* group is a sensitive control plane (probe,
+// deploy, rebalance perform SSH actions across cluster hosts). Any middleware
+// passed in authMW is applied to the whole group so callers can gate it with
+// the SAME gateway API-key middleware the /v1 routes use. When authMW is empty
+// the group is open-access (unchanged legacy behaviour for tests that don't
+// wire auth); production main.go always passes gateway/middleware.APIKeyAuth.
+func RegisterRoutes(r *gin.Engine, cp *ControlPlane, authMW ...gin.HandlerFunc) {
 	g := r.Group("/internal/cluster")
+	g.Use(authMW...)
 	g.GET("/status", cp.handleStatus)
 	g.POST("/probe", cp.handleProbe)
 	g.POST("/deploy", cp.handleDeploy)

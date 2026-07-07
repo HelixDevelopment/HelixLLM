@@ -71,8 +71,8 @@ type MemoryRecallResponse struct {
 //	POST /v1/agents/plan              — decompose a goal into a plan
 //	POST /v1/agents/memory/remember   — store a memory
 //	POST /v1/agents/memory/recall     — recall memories
-func RegisterAgentRoutes(r *gin.Engine, agent *Agent, ctx *ConversationContext) {
-	RegisterAgentRoutesWithExtras(r, agent, ctx, nil, nil, nil, nil)
+func RegisterAgentRoutes(r *gin.Engine, agent *Agent, ctx *ConversationContext, authMW ...gin.HandlerFunc) {
+	RegisterAgentRoutesWithExtras(r, agent, ctx, nil, nil, nil, nil, authMW...)
 }
 
 // ToolExecuteRequest is the request body for POST /v1/agents/tools/execute.
@@ -90,6 +90,14 @@ type ToolExecuteResponse struct {
 // RegisterAgentRoutesWithExtras wires all agent routes including the optional
 // Coordinator, MemoryManager, and KV cache.  Any may be nil, in which case
 // the corresponding endpoints return 501 Not Implemented or degrade gracefully.
+//
+// DZ-05: the /v1/agents/* group and the sibling /v1/cache/stats endpoint are
+// registered on SEPARATE r.Group("/v1/agents") / r.Group("/v1") instances that
+// do NOT inherit the gateway's own /v1 API-key middleware. Any middleware
+// passed in authMW is applied to BOTH groups so callers gate agent control with
+// the SAME gateway API-key middleware the other /v1 routes use. Empty authMW =
+// open-access (legacy behaviour for tests that don't wire auth); production
+// main.go always passes gateway/middleware.APIKeyAuth.
 func RegisterAgentRoutesWithExtras(
 	r *gin.Engine,
 	agent *Agent,
@@ -98,8 +106,10 @@ func RegisterAgentRoutesWithExtras(
 	planner *Planner,
 	memMgr *MemoryManager,
 	kvCache brain.KVCacher,
+	authMW ...gin.HandlerFunc,
 ) {
 	v1 := r.Group("/v1/agents")
+	v1.Use(authMW...)
 	v1.POST("/chat", agentChatHandler(agent, convCtx, kvCache))
 	v1.GET("/tools", agentToolsHandler(agent))
 	v1.POST("/tools/execute", toolExecuteHandler(agent))
@@ -110,6 +120,7 @@ func RegisterAgentRoutesWithExtras(
 
 	// Cache stats — registered under /v1 (sibling of /v1/agents).
 	cacheGroup := r.Group("/v1")
+	cacheGroup.Use(authMW...)
 	cacheGroup.GET("/cache/stats", cacheStatsHandler(kvCache))
 }
 

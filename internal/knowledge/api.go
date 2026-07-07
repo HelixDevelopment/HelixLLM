@@ -16,8 +16,15 @@ import (
 //	POST /internal/knowledge/query       — QueryRequest  → QueryResult
 //	GET  /internal/knowledge/collections — []Collection
 //	GET  /internal/knowledge/stats       — Stats
-func RegisterKnowledgeRoutes(r *gin.Engine, pipeline *Pipeline) {
+//
+// DZ-05: /internal/knowledge/* ingests and queries the vector store (data
+// plane). Any middleware passed in authMW is applied to the whole group so
+// callers can gate it with the SAME gateway API-key middleware the /v1 routes
+// use. Empty authMW = open-access (legacy behaviour for tests that don't wire
+// auth); production main.go always passes gateway/middleware.APIKeyAuth.
+func RegisterKnowledgeRoutes(r *gin.Engine, pipeline *Pipeline, authMW ...gin.HandlerFunc) {
 	g := r.Group("/internal/knowledge")
+	g.Use(authMW...)
 	g.POST("/ingest", handleIngest(pipeline))
 	g.POST("/query", handleQuery(pipeline))
 	g.GET("/collections", handleCollections(pipeline))

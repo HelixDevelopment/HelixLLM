@@ -18,6 +18,7 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/control"
 	"github.com/HelixDevelopment/HelixLLM/internal/fallback"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
+	gwmw "github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
 	"github.com/HelixDevelopment/HelixLLM/internal/mode"
 	"github.com/HelixDevelopment/HelixLLM/internal/server"
@@ -378,7 +379,13 @@ func main() {
 		TOONEnabled:     cfg.Features.TOON,
 		HardwareProfile: hwProfile,
 	})
-	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline)
+	// DZ-05: gate the sensitive control/data/agent route groups with the SAME
+	// API-key middleware the gateway /v1 routes use (gwmw.APIKeyAuth). When
+	// cfg.Auth.APIKeys is empty the middleware runs in open-access mode —
+	// identical semantics to the gateway /v1 group — so behaviour is unchanged
+	// for open deployments and enforced the moment keys are configured.
+	dzAuth := gwmw.APIKeyAuth(cfg.Auth.APIKeys)
+	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline, dzAuth)
 
 	// Auto-ingest codebase if configured.
 	if cfg.Knowledge.IngestDir != "" {
@@ -465,9 +472,9 @@ func main() {
 	planner := agents.NewPlanner(brainSvc)
 
 	// Register agent routes (chat, tools, coordinate, plan, memory/remember, memory/recall, cache/stats).
-	agents.RegisterAgentRoutesWithExtras(srv.Router(), agentSvc, convCtx, coordinator, planner, memMgr, kvCache)
+	agents.RegisterAgentRoutesWithExtras(srv.Router(), agentSvc, convCtx, coordinator, planner, memMgr, kvCache, dzAuth)
 
-	control.RegisterRoutes(srv.Router(), cp)
+	control.RegisterRoutes(srv.Router(), cp, dzAuth)
 
 	bus.Publish(events.TopicServerStarted, "main", m.String())
 	log.WithField("addr", fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)).

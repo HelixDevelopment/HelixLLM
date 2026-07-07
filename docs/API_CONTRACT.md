@@ -87,32 +87,52 @@ Routes are attached in `main.go` in this order: base server routes (in
 | POST | `/v1/embeddings` | `router.go:76` | `HandleEmbeddings` | **API-key** |
 | GET  | `/v1/hardware` | `router.go:79` | inline (returns `HardwareProfile`) | **API-key** |
 | POST | `/v1/messages` | `router.go:84` | `HandleMessages` (Anthropic) | **API-key** |
-| GET  | `/ws` | `router.go:87` | `HandleWebSocket` (outside `/v1` auth) | none |
-| POST | `/internal/knowledge/ingest` | `internal/knowledge/api.go:21` | `handleIngest` | none |
-| POST | `/internal/knowledge/query` | `knowledge/api.go:22` | `handleQuery` | none |
-| GET  | `/internal/knowledge/collections` | `knowledge/api.go:23` | `handleCollections` | none |
-| GET  | `/internal/knowledge/stats` | `knowledge/api.go:24` | `handleStats` | none |
-| POST | `/v1/agents/chat` | `internal/agents/api.go:103` | `agentChatHandler` | none¹ |
-| GET  | `/v1/agents/tools` | `agents/api.go:104` | `agentToolsHandler` | none¹ |
-| POST | `/v1/agents/tools/execute` | `agents/api.go:105` | `toolExecuteHandler` | none¹ |
-| POST | `/v1/agents/coordinate` | `agents/api.go:106` | `coordinateHandler` | none¹ |
-| POST | `/v1/agents/plan` | `agents/api.go:107` | `planHandler` | none¹ |
-| POST | `/v1/agents/memory/remember` | `agents/api.go:108` | `memoryRememberHandler` | none¹ |
-| POST | `/v1/agents/memory/recall` | `agents/api.go:109` | `memoryRecallHandler` | none¹ |
-| GET  | `/v1/cache/stats` | `agents/api.go:113` | `cacheStatsHandler` | none¹ |
-| GET  | `/internal/cluster/status` | `internal/control/api.go:113` | `handleStatus` | none |
-| POST | `/internal/cluster/probe` | `control/api.go:114` | `handleProbe` | none |
-| POST | `/internal/cluster/deploy` | `control/api.go:115` | `handleDeploy` | none |
-| POST | `/internal/cluster/rebalance` | `control/api.go:116` | `handleRebalance` | none |
+| GET  | `/ws` | `router.go:87` | `HandleWebSocket` (outside `/v1` auth) | none² |
+| POST | `/internal/knowledge/ingest` | `internal/knowledge/api.go:28` | `handleIngest` | **API-key**³ |
+| POST | `/internal/knowledge/query` | `knowledge/api.go:29` | `handleQuery` | **API-key**³ |
+| GET  | `/internal/knowledge/collections` | `knowledge/api.go:30` | `handleCollections` | **API-key**³ |
+| GET  | `/internal/knowledge/stats` | `knowledge/api.go:31` | `handleStats` | **API-key**³ |
+| POST | `/v1/agents/chat` | `internal/agents/api.go:113` | `agentChatHandler` | **API-key**³ |
+| GET  | `/v1/agents/tools` | `agents/api.go:114` | `agentToolsHandler` | **API-key**³ |
+| POST | `/v1/agents/tools/execute` | `agents/api.go:115` | `toolExecuteHandler` | **API-key**³ |
+| POST | `/v1/agents/coordinate` | `agents/api.go:116` | `coordinateHandler` | **API-key**³ |
+| POST | `/v1/agents/plan` | `agents/api.go:117` | `planHandler` | **API-key**³ |
+| POST | `/v1/agents/memory/remember` | `agents/api.go:118` | `memoryRememberHandler` | **API-key**³ |
+| POST | `/v1/agents/memory/recall` | `agents/api.go:119` | `memoryRecallHandler` | **API-key**³ |
+| GET  | `/v1/cache/stats` | `agents/api.go:124` | `cacheStatsHandler` | **API-key**³ |
+| GET  | `/internal/cluster/status` | `internal/control/api.go:121` | `handleStatus` | **API-key**³ |
+| POST | `/internal/cluster/probe` | `control/api.go:122` | `handleProbe` | **API-key**³ |
+| POST | `/internal/cluster/deploy` | `control/api.go:123` | `handleDeploy` | **API-key**³ |
+| POST | `/internal/cluster/rebalance` | `control/api.go:124` | `handleRebalance` | **API-key**³ |
 
-**¹ Auth finding (real):** The API-key middleware is applied only to the gateway's
-own `/v1` group (`router.go:63-64`: `v1 := r.Group("/v1"); v1.Use(gwmw.APIKeyAuth(...))`).
-The agent routes are registered on a **separate** `r.Group("/v1/agents")`
-(`agents/api.go:102`) and cache-stats on a separate `r.Group("/v1")`
-(`agents/api.go:112`) — these do NOT inherit the gateway group's middleware, so
-`/v1/agents/*`, `/v1/cache/stats`, all `/internal/*`, `/metrics`, and `/ws` are
-**unauthenticated** in the current wiring. Only the 7 gateway `/v1` LLM endpoints
-enforce the API key.
+**¹ Auth finding (RESOLVED — DZ-05, 2026-07-07):** The gateway API-key middleware
+was originally applied only to the gateway's own `/v1` group (`router.go:63-64`:
+`v1 := r.Group("/v1"); v1.Use(gwmw.APIKeyAuth(...))`). The agent routes
+(`r.Group("/v1/agents")`), the sibling cache-stats route (`r.Group("/v1")`), and
+the `/internal/cluster/*` + `/internal/knowledge/*` groups are registered on
+**separate** `RouterGroup` instances that do NOT inherit the gateway group's
+middleware, so they were **unauthenticated**. DZ-05 remediation: `RegisterRoutes`
+/ `RegisterKnowledgeRoutes` / `RegisterAgentRoutes(WithExtras)` now accept an
+optional `authMW ...gin.HandlerFunc` applied to their group(s) via `.Use()`;
+`main.go` wires the SAME `gwmw.APIKeyAuth(cfg.Auth.APIKeys)` middleware
+(`main.go:387-388,475,477`) — identical semantics to `/v1` (empty `HELIX_AUTH_API_KEYS`
+⇒ open-access; keys configured ⇒ enforced). Proven RED→GREEN: unauth ⇒ **401**,
+valid `Authorization: Bearer <key>` ⇒ **200** (guards
+`internal/{control,knowledge,agents}/auth_dz05_test.go`, evidence
+`docs/qa/dz05_endpoint_auth_20260707/`).
+
+**² `/ws` (open by design decision — DESIGN QUESTION, not fixed):** `/ws` runs the
+Brain over a WebSocket. `gwmw.APIKeyAuth` reads the `Authorization: Bearer` header,
+which browser-native `WebSocket` clients cannot set (only subprotocols / query
+params). Gating `/ws` with the header-based middleware would break browser clients
+— a **client-contract change** that cannot be decided from evidence alone (§11.4.6).
+Left unchanged; requires an operator decision on the WS credential channel (header
+vs `?api_key=` query param vs subprotocol) before it can be authenticated.
+
+**³ Enforced only when `HELIX_AUTH_API_KEYS` is non-empty** — identical to the
+gateway `/v1` group. `/internal/health`, `/internal/metrics`, and `/metrics` remain
+**intentionally public** (liveness probe + Prometheus scraper convention; the
+`/metrics` comment at `router.go:56` documents the intent) and are NOT gated.
 
 ---
 
