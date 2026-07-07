@@ -1,0 +1,38 @@
+# Phase-3 RAG proof — dedicated TEI embeddings service, CPU-only.
+# Booted THROUGH the containers submodule compose.Orchestrator (§11.4.76),
+# rootless podman (§11.4.161). NO GPU device. Runs on its OWN port (18440,
+# config-injected below) — distinct from the coder (:18434) and every
+# sibling Phase-3 lane (:18435-18439), §11.4.119 single-resource-owner.
+#
+# No hardcoded model / host port (§CONST-045 / §CONST-046): every value is
+# injected from the environment by run_proof.sh; the compose file carries no
+# literal. `${VAR}` are always set by the harness before boot.
+#
+# Reuses the SAME external HF-model cache volume the Phase-3 embeddings proof
+# (docs/qa/phase3_embeddings_20260706/) already created and populated with
+# BAAI/bge-small-en-v1.5 weights — no re-download, faster + more reliable
+# boot (§11.4.82 iteration-speedup; the volume is a shared, re-obtainable
+# §11.4.77 artefact, not project-specific state).
+services:
+  tei-rag:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command:
+      - "--model-id"
+      - "${TEI_MODEL_ID}"
+      - "--port"
+      - "80"
+      - "--hostname"
+      - "0.0.0.0"
+    ports:
+      - "${TEI_HOST_PORT}:80"
+    volumes:
+      - helixllm-tei-cache:/data
+    # §12.3 container hygiene — bounded so the embedder never starves the
+    # developer host (§12.6). Config-injected, captured as evidence.
+    mem_limit: "${TEI_MEM_LIMIT}"
+    cpus: ${TEI_CPUS}
+    restart: "no"
+volumes:
+  helixllm-tei-cache:
+    external: true
+    name: helixllm-tei-cache
