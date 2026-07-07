@@ -1,0 +1,91 @@
+# HelixLLM Phase-4 GPU VIDEO-GENERATION capability — WAN 2.2 (TI2V-5B / 14B) +
+# LTX-Video 13B served via diffusers on the host RTX 5090 (Blackwell sm_120 /
+# cc 10.x, CUDA 12.8). Minimal FastAPI HTTP shim (videogen_server.py) exposing a
+# HelixLLM-native `POST /v1/videos/generations` + `GET /health` on 8080 (mapped
+# to host :18443 by the harness compose file, §11.4.119 single-owner).
+#
+# Booted ON-DEMAND through the containers submodule compose.Orchestrator
+# (§11.4.76), rootless podman (§11.4.161) with `--device nvidia.com/gpu=all`
+# via the NVIDIA CDI spec — NEVER a hand-run `podman run` / `docker` command in
+# a workflow. GPU is a BURST reservation admitted by the vrambroker
+# (internal/vrambroker, ClassVideo, §11.4.119) BEFORE this container is booted.
+#
+# ─── Blackwell / sm_120 pinning (§11.4.150 + §11.4.99 deep-research, see the
+#     landed design docs scratchpad/design_gpu_generative*.md + this repo's
+#     docs/qa/phase4_videogen_20260707/README.md for the full citation trail) ───
+#
+#   * PyTorch 2.7.0 (cu128) was the FIRST stable line with native sm_120
+#     kernels; a torch/wheel compiled only up to sm_90 silently PTX-JIT-degrades
+#     ("5090 slower than a 4090" regression) — a PERFORMANCE defect, not a
+#     functional one, but forbidden here. We pin torch >= 2.7 cu128 and set
+#     TORCH_CUDA_ARCH_LIST=12.0 for any from-source op.
+#   * On the 5090 the co-resident (coder-stays-live, peak <= ~10.4 GiB) no-pause
+#     fast paths are: WAN 2.2 TI2V-5B FP8 @480p (~8-10 GB, native offload — the
+#     DEFAULT here), WAN 2.2 14B GGUF-Q4 + T5-CPU (~6-8 GB), LTX-13B GGUF-Q4
+#     (~6-10 GB, 32 GB+ system RAM). The MUST-PAUSE paths (WAN-14B FP8/FP16,
+#     LTX-13B FP8/full = 15.7/28.6 GB) are NOT the default — the vrambroker
+#     refuses them co-resident with the live coder (ErrBudgetExceeded).
+#   * The T5/UMT5 text encoder is CPU-offloaded in the min-mem 480p config
+#     (VIDEOGEN_CPU_OFFLOAD=1) — it is used only in the conditioning pass.
+#
+# NOTE: the base image tag below is a build-arg so the exact pinned artefact is
+# supplied at build time (and cited in the README / .gitignore-meta regen
+# manifest, §11.4.77) rather than floating in this file. This Containerfile is
+# authored as SCAFFOLD — it is NOT built in this pass (a heavy multi-GB GPU image
+# build + first-run VRAM calibration is the operator-authorized runtime-proof
+# step, §11.4.122 / §11.4.6 / §11.4.108).
+
+# CUDA 12.8 runtime base with cuDNN (matches the sm_120 / torch cu128 line).
+# Pinned by digest at build time via --build-arg; the tag is the human-readable
+# anchor. (docker.io/nvidia/cuda 12.8.x-cudnn-runtime-ubuntu24.04 line.)
+ARG CUDA_BASE=docker.io/nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+FROM ${CUDA_BASE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models/hf \
+    # from-source ops target Blackwell only — never a Hopper/Ada fallback arch.
+    TORCH_CUDA_ARCH_LIST=12.0 \
+    # videogen runtime config (all overridable via compose env — no hardcoded
+    # model/precision literal baked in as behaviour, §CONST-046 / §11.4.6):
+    VIDEOGEN_BACKEND=wan \
+    VIDEOGEN_MODEL=Wan-AI/Wan2.2-TI2V-5B-Diffusers \
+    VIDEOGEN_PRECISION=fp8 \
+    VIDEOGEN_CPU_OFFLOAD=1 \
+    VIDEOGEN_MAX_STEPS=30 \
+    VIDEOGEN_NUM_FRAMES=49 \
+    VIDEOGEN_FPS=16 \
+    VIDEOGEN_SIZE=832x480
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        libgl1 libglib2.0-0 \
+        ffmpeg \
+        curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
+# Python deps. torch >= 2.7 cu128 (native sm_120) pulled from the cu128 index;
+# diffusers + transformers + the FastAPI shim stack pinned in requirements.txt.
+COPY requirements.txt /app/requirements.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+        --index-url https://download.pytorch.org/whl/cu128 \
+        --extra-index-url https://pypi.org/simple \
+        -r /app/requirements.txt
+
+RUN useradd -m -u 10001 videogen && mkdir -p /models/hf && chown -R videogen /models
+COPY videogen_server.py /app/videogen_server.py
+WORKDIR /app
+USER videogen
+
+EXPOSE 8080
+# Health probe hits the shim's /health, which reports engine readiness WITHOUT
+# forcing a model load (so an idle-but-up container stays VRAM-cheap between
+# jobs, §11.4.76 on-demand). The vrambroker admission + first-gen load is the
+# runtime-signature step (§11.4.108), not this liveness probe.
+HEALTHCHECK --interval=15s --timeout=5s --retries=20 \
+  CMD curl -fsS http://localhost:8080/health || exit 1
+
+CMD ["python3", "videogen_server.py"]

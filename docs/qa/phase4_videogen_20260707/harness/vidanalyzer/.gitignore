@@ -1,0 +1,5 @@
+# Built analyzer binary + any generated fixtures (regenerable via `gen-golden` /
+# `selfvalidate`, §11.4.77 — the source is committed, the artifacts are not).
+/vidanalyzer
+*.mp4
+*.png

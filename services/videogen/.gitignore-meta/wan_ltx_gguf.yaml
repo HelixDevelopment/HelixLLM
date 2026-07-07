@@ -1,0 +1,33 @@
+# §11.4.77 regeneration-mechanism manifest for the gitignored WAN 2.2 + LTX-Video
+# model weights consumed by the video-gen service. A fresh clone obtains them via
+# `huggingface-cli download` (no in-repo bytes); the harness setup step + the
+# container's HF cache volume make the download one-time.
+schema_version: 1
+entry_slug: wan_ltx_gguf
+pattern: "services/videogen/models/** *.safetensors *.gguf"
+mechanism_type: download            # download from authoritative HF source
+requires_network: true
+requires_credentials: false         # WAN/LTX open repos; set HF_TOKEN only if a
+                                    #   gated variant is selected (§11.4.10, never committed)
+expected_disk_usage: "~18 GiB (WAN 2.2 TI2V-5B FP8 default; +GGUF-Q4 14B / LTX-13B variants on demand)"
+
+sources:
+  - name: wan22_5b_default
+    repo: Wan-AI/Wan2.2-TI2V-5B-Diffusers
+    why: "DEFAULT no-coder-pause path — WAN 2.2 TI2V-5B, FP8 @480p (~8-10 GB peak, native offload)"
+    note: "the co-resident short-clip default; calibrate margin (near the ~10.4 GiB ceiling)"
+  - name: wan22_14b_gguf
+    repo: Wan-AI/Wan2.2-T2V-A14B-Diffusers
+    why: "alt no-pause path — WAN 2.2 14B GGUF-Q4 + T5-CPU (~6-8 GB @480p)"
+    note: "GGUF-Q4 quant asset supplied via env; T5-XXL MUST be CPU-offloaded"
+  - name: ltx_13b
+    repo: Lightricks/LTX-Video
+    why: "alt no-pause path — LTX-Video 13B GGUF-Q4 (~6-10 GB, needs 32 GB+ system RAM)"
+    note: "GGUF-Q4 (Q4_K_S/M) variant; the FP8/full LTX weights are MUST-PAUSE, not the default"
+
+# Verify LATEST asset ids/tags before download (§11.4.99) — the exact WAN FP8 /
+# GGUF-Q4 asset filenames and the LTX GGUF variant move; the README carries the
+# 'Sources verified' footer. integrity-hash intentionally left to first-download
+# capture (the HF repos are the authoritative source; pin the resolved revision
+# hash into this file at runtime-proof time, §11.4.6).
+integrity_hash: "PENDING: capture resolved HF revision sha at first authorized download"

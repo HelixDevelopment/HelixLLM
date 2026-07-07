@@ -1,0 +1,20 @@
+# §11.4.30 / CONST-053 repository hygiene.
+#
+# Model weights (WAN 2.2 5B/14B + LTX-Video 13B transformers + T5/UMT5, tens of
+# GB) are NEVER versioned — they are third-party HuggingFace artefacts pulled on
+# demand. §11.4.77 regeneration mechanism: .gitignore-meta/wan_ltx_gguf.yaml
+# (download from the cited HF repos) + the harness setup step.
+models/
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.pth
+
+# Generated video scratch (never versioned; curated evidence -> docs/qa/<run-id>/).
+*.mp4
+
+# Python caches / build artefacts.
+__pycache__/
+*.pyc
+.venv/
