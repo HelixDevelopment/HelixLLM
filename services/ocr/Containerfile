@@ -1,0 +1,48 @@
+# HelixLLM Phase-3 CPU OCR capability — Tesseract 5 (OEM 1 / LSTM) behind a
+# minimal Go HTTP shim (main.go): POST /v1/render (deterministic known-text
+# PNG generation via ImageMagick, INSIDE this image so fonts/versions never
+# drift between the harness host and the served fixture) + POST /v1/ocr
+# (image -> words[]+conf+bbox+full_text+mean_conf via `tesseract ... tsv`).
+#
+# Booted via the containers submodule compose.Orchestrator (§11.4.76),
+# rootless podman (§11.4.161), CPU-only, no GPU device requested.
+#
+# Debian bookworm ships tesseract-ocr 5.3.0-2 (Tesseract 5.x line, OEM 1/LSTM
+# is the compiled-in default) — https://packages.debian.org/bookworm/tesseract-ocr
+# (verified 2026-07-07). No backports repo needed for the OEM-1/LSTM default;
+# only the *patch* version differs from the upstream-latest 5.5.x line.
+#
+# §11.4.6 honest substitution: this was originally a two-stage build (a
+# `golang:1.25-bookworm` build stage compiling ocr-shim, then copied into a
+# debian:bookworm-slim runtime stage). On this shared host that stage
+# reproducibly FAILED — `podman-compose build` aborted unpacking the golang
+# base image's layers with `runtime/cgo: pthread_create failed: Resource
+# temporarily unavailable` (SIGABRT), because the host's per-user RLIMIT_NPROC
+# (`ulimit -u` = 4096) was already under pressure from concurrent sibling
+# Phase-3 containers/tracks (§11.4.174 — not this build's fault, and not a
+# process this build may kill to "fix"). The single-stage build below removes
+# the heavyweight golang-toolchain image pull/unpack entirely: `ocr-shim` is
+# compiled OUTSIDE the container (by run_proof.sh, `CGO_ENABLED=0 GOOS=linux
+# GOARCH=amd64 go build`, a static binary — see the sibling `.gitignore` +
+# README §"Build" for the §11.4.77 regeneration mechanism) and simply COPYed
+# in. This cuts the build to one small debian:bookworm-slim base + apt
+# packages, which succeeded where the two-stage build did not.
+FROM docker.io/library/debian:bookworm-slim
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        imagemagick \
+        fonts-dejavu-core \
+        ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+RUN useradd -m -u 10001 ocr
+# Pre-built static binary (host-compiled, §11.4.77 regen mechanism: see
+# README "Build the shim binary"). NOT compiled inside this image.
+COPY ocr-shim /usr/local/bin/ocr-shim
+RUN chmod 0755 /usr/local/bin/ocr-shim
+USER ocr
+WORKDIR /home/ocr
+EXPOSE 8080
+CMD ["/usr/local/bin/ocr-shim"]

@@ -1,0 +1,4 @@
+# Build artifact (§11.4.30 / CONST-053). Regeneration mechanism (§11.4.77):
+# CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ocr-shim .
+# (the harness's run_proof.sh does this automatically before every boot).
+ocr-shim
