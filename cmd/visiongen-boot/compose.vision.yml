@@ -1,0 +1,73 @@
+# VISION (VLM) — Qwen2.5-VL multimodal server (GGUF + mmproj / libmtmd) served on
+# its OWN port (:18439, config-injected). Booted THROUGH the containers submodule
+# compose.Orchestrator (§11.4.76), rootless podman (§11.4.161) with GPU access via
+# the NVIDIA CDI spec. Distinct from the coder (:18434) + every sibling capability
+# lane (:18435-18443) — §11.4.119 single-resource-owner.
+#
+# REUSES the already-built router image — NO `build:` directive, NO rebuild
+# (§11.4.74 reuse-don't-reimplement). The router image ships the CUDA
+# sm120 llama-server + libmtmd multimodal projector loader; the `command:` below
+# runs it as a multimodal server (the phase3 3B proof used the exact same image
+# + flags via ad-hoc podman; this compose promotes that into the on-demand-infra
+# boot path, §11.4.76).
+#
+# Model SELECTION is env-parameterized (§CONST-045 / §11.4.28 no-hardcoded-path):
+# VISIONGEN_MODEL_GGUF / VISIONGEN_MMPROJ default to the DEFAULT PROVISIONED
+# model — Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf + mmproj-Qwen2.5-VL-3B-Instruct-
+# Q8_0.gguf (the exact pair the phase3 proof measured, ~4.1 GiB actual peak) —
+# so `boot` works out-of-the-box on a fresh clone. Overriding BOTH vars (plus
+# VISIONGEN_NEED_BYTES in cmd/visiongen-boot, ~9 GiB) selects the larger 7B
+# variant once its GGUF+mmproj are downloaded — 7B capability is PRESERVED,
+# just env-selectable, never removed (§11.4.122).
+#
+# Model artefacts (GGUF + mmproj) live OUTSIDE the repo (gitignored, §11.4.30) at
+# the host dir injected via ${VISIONGEN_MODEL_DIR} (defaults to ~/models/vlm_cache
+# — the phase3 harness's cache dir — injected by cmd/visiongen-boot at boot time,
+# never hardcoded here; §11.4.77 regeneration = the router-image HTTPS pull). The
+# reservation is admitted by the vrambroker BEFORE this file is `up`'d
+# (cmd/visiongen-boot, ClassVLM warm tier).
+services:
+  visiongen:
+    image: localhost/helixllm/llamacpp-router:cuda12.8-sm120
+    # Multimodal llama-server: default 3B Q4_K_M weights + Q8_0 mmproj (env-
+    # overridable to 7B, see header note), 16K context, all layers on GPU
+    # (-ngl 99). Health/OpenAI API on :18439 inside + published.
+    #
+    # NOTE (§11.4.108 SOURCE->ARTIFACT->RUNTIME finding, captured
+    # docs/qa/helixllm_vision_boot_*/router_image_entrypoint.txt): the router
+    # image's ENTRYPOINT is already ["llama-server"] (podman inspect
+    # .Config.Entrypoint) — the `command:` list below is passed as ARGV to
+    # that entrypoint, NOT a fresh shell invocation. A leading "llama-server"
+    # token here duplicates the entrypoint binary name as argv[1] and llama-
+    # server rejects it ("invalid argument: llama-server"). Do NOT re-add it.
+    command:
+      - -m
+      - /models/${VISIONGEN_MODEL_GGUF:-Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf}
+      - --mmproj
+      - /models/${VISIONGEN_MMPROJ:-mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "18439"
+      - -ngl
+      - "99"
+      - -c
+      - "16384"
+      - --jinja
+    ports:
+      - "18439:18439"
+    volumes:
+      # GGUF + mmproj model cache — host dir injected, never a hardcoded path
+      # (§CONST-045 / §11.4.28 decoupling). Read-only into the container.
+      - "${VISIONGEN_MODEL_DIR}:/models:ro"
+    # Rootless-podman GPU access via CDI (§11.4.161). The NVIDIA container toolkit
+    # must have generated the CDI spec (nvidia.com/gpu=all).
+    devices:
+      - "nvidia.com/gpu=all"
+    # §12.3 container hygiene + §12.6 host-safety — bounded so a first-run OOM
+    # cannot starve the developer host. The default 3B Q4 + Q8_0 mmproj + 16K KV
+    # measured ~4.1 GiB actual (phase3 proof); a 7B override still fits well
+    # under this cap on the 32 GB RTX 5090.
+    mem_limit: "${VISIONGEN_MEM_LIMIT:-16g}"
+    shm_size: "${VISIONGEN_SHM_SIZE:-2g}"
+    restart: "no"

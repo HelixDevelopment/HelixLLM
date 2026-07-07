@@ -39,3 +39,10 @@ Thumbs.db
 # `challenges/runner/` remains trackable; only the root binary
 # named `runner` is ignored (anchored).
 /runner
+
+# Phase-4 vision (VLM) boot harness — `go build ./cmd/visiongen-boot/`
+# without -o (or the vision_boot_test.sh helper) drops the built binary
+# at the repo root as `./visiongen-boot`. Source under
+# `cmd/visiongen-boot/` remains trackable; only the root-level binary
+# is ignored (anchored), per §11.4.30 no-versioned-build-artifacts.
+/visiongen-boot
