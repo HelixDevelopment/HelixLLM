@@ -1,0 +1,5 @@
+# Phase-3 vision harness — never commit model weights / large binaries (§11.4.30)
+*.gguf
+*.bin
+*.safetensors
+*.tmp

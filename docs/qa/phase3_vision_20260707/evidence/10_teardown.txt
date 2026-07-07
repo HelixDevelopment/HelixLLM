@@ -1,0 +1,5 @@
+helixllm-vlm-phase3
+--- podman ps after teardown ---
+helixllm-coder Up 17 hours
+--- VRAM after teardown ---
+12689

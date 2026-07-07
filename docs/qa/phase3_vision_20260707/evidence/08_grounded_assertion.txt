@@ -1,0 +1,38 @@
+{
+  "model": "/cache/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
+  "vlm_url": "http://localhost:18500",
+  "image": "test_image.png",
+  "known_content": "RED CIRCLE on WHITE background, text 'HELIX'",
+  "latency_seconds": 0.29,
+  "description": "The image features a simple and clean design. The main object is a large, solid red circle positioned centrally against a white background. Below the circle, the word \"HELIX\" is written in uppercase black letters. The text is straightforward and unembellished, with no additional graphics or embellishments. The overall design is minimalistic and modern.",
+  "grounded_assertion": {
+    "tokens_required_all_of": [
+      [
+        "red"
+      ],
+      [
+        "circle",
+        "round",
+        "disc",
+        "dot"
+      ]
+    ],
+    "result": "PASS"
+  },
+  "golden_bad_assertion": {
+    "tokens_required_all_of": [
+      [
+        "blue"
+      ],
+      [
+        "square",
+        "rectangle",
+        "triangle"
+      ]
+    ],
+    "must_be": "FAIL",
+    "result": "FAIL(as-required)"
+  },
+  "ocr_helix_bonus": true,
+  "overall": "PASS"
+}

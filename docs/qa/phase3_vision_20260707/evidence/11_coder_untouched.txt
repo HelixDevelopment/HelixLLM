@@ -1,0 +1,4 @@
+--- coder container ---
+helixllm-coder Up 17 hours 8080/tcp, 50052/tcp
+--- coder health ---
+{"status":"ok"}
