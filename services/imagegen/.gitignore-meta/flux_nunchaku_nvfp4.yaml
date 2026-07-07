@@ -1,0 +1,29 @@
+# §11.4.77 regeneration-mechanism manifest for the gitignored FLUX + Nunchaku
+# NVFP4 + T5 model weights consumed by the image-gen service. A fresh clone
+# obtains them via `huggingface-cli download` (no in-repo bytes); the harness
+# setup step + the container's HF cache volume make the download one-time.
+schema_version: 1
+entry_slug: flux_nunchaku_nvfp4
+pattern: "services/imagegen/models/** *.safetensors *.gguf"
+mechanism_type: download            # download from authoritative HF source
+requires_network: true
+requires_credentials: true          # FLUX.1-dev is a gated HF repo — HF_TOKEN
+                                    #   (§11.4.10, never committed) accepts the licence
+expected_disk_usage: "~24 GiB (FLUX.1-dev bf16 base + NVFP4 transformer + T5-XXL)"
+
+sources:
+  - name: flux_base
+    repo: black-forest-labs/FLUX.1-dev
+    why: "base FLUX pipeline (VAE, scheduler, tokenizers, T5-XXL text encoder)"
+    note: "gated repo — accept licence + HF_TOKEN"
+  - name: flux_nvfp4_transformer
+    repo: nunchaku-tech/nunchaku-flux.1-dev
+    why: "Nunchaku SVDQuant NVFP4 transformer (6.1 GiB) — the Blackwell (cc10.x) co-resident path"
+    note: "MUST be the NVFP4 asset, NOT INT4, on the 5090 (§11.4.150 research)"
+
+# Verify LATEST asset ids/tags before download (§11.4.99) — the exact NVFP4
+# transformer repo/filename and the Nunchaku wheel move; the README carries the
+# 'Sources verified' footer. integrity-hash intentionally left to first-download
+# capture (the HF repos are the authoritative source; pin the resolved revision
+# hash into this file at runtime-proof time, §11.4.6).
+integrity_hash: "PENDING: capture resolved HF revision sha at first authorized download"

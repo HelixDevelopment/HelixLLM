@@ -1,0 +1,103 @@
+# HelixLLM Phase-4 GPU IMAGE-GENERATION capability — FLUX.1-dev served via
+# diffusers + Nunchaku SVDQuant on the host RTX 5090 (Blackwell sm_120 / cc
+# 10.x, CUDA 12.8). Minimal FastAPI HTTP shim (imagegen_server.py) exposing an
+# OpenAI-images-style `POST /v1/images/generations` + `GET /health` on 8080
+# (mapped to host :18442 by the harness compose file, §11.4.119 single-owner).
+#
+# Booted ON-DEMAND through the containers submodule compose.Orchestrator
+# (§11.4.76), rootless podman (§11.4.161) with `--device nvidia.com/gpu=all`
+# via the NVIDIA CDI spec — NEVER a hand-run `podman run` / `docker` command in
+# a workflow. GPU is a BURST reservation admitted by the vrambroker
+# (internal/vrambroker, ClassImage, §11.4.119) BEFORE this container is booted.
+#
+# ─── Blackwell / sm_120 pinning (§11.4.150 + §11.4.99 deep-research, see the
+#     landed design docs scratchpad/design_gpu_generative*.md + this repo's
+#     docs/qa/phase4_imagegen_20260707/README.md for the full citation trail) ───
+#
+#   * PyTorch 2.7.0 (cu128) was the FIRST stable line with native sm_120
+#     kernels; a torch/wheel compiled only up to sm_90 silently PTX-JIT-degrades
+#     ("5090 slower than a 4090" regression) — a PERFORMANCE defect, not a
+#     functional one, but forbidden here. We pin torch >= 2.7 cu128 and set
+#     TORCH_CUDA_ARCH_LIST=12.0 for any from-source op.
+#   * On the 5090 the co-resident (coder-stays-live, peak <= 10.4 GiB) FLUX
+#     config MUST use **NVFP4**, NOT INT4 — Nunchaku's precision selector
+#     returns 'fp4' for cc 10.x (Blackwell) and 'int4' only for cc 7.5-8.9.
+#     The min-memory config (NVFP4 transformer 6.1 GiB + INT4-AWQ quantized T5
+#     + T5 CPU-offload) has a ~6 GB PEAK — the no-coder-pause fast path.
+#   * Nunchaku MUST be the **Blackwell wheel built against torch >= 2.7 / cu128**
+#     (NUNCHAKU_WHEEL build-arg below). A wheel/torch mispin drops to the
+#     PTX-JIT compatibility path. Pin, do not float.
+#
+# NOTE: the base image tag + Nunchaku wheel URL below are build-args so the
+# exact pinned artefacts are supplied at build time (and cited in the README /
+# .gitignore-meta regen manifest, §11.4.77) rather than floating in this file.
+# This Containerfile is authored as SCAFFOLD — it is NOT built in this pass
+# (a heavy multi-GB GPU image build + first-run VRAM calibration is the
+# operator-authorized runtime-proof step, §11.4.122 / §11.4.6 / §11.4.108).
+
+# CUDA 12.8 runtime base with cuDNN (matches the sm_120 / torch cu128 line).
+# Pinned by digest at build time via --build-arg; the tag is the human-readable
+# anchor. (docker.io/nvidia/cuda 12.8.x-cudnn-runtime-ubuntu24.04 line.)
+ARG CUDA_BASE=docker.io/nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+FROM ${CUDA_BASE}
+
+# The Nunchaku Blackwell wheel is a build-arg (NO floating install): it MUST be
+# the cu128 / torch>=2.7 / cp311 Blackwell build. Supplied at build time, e.g.
+#   --build-arg NUNCHAKU_WHEEL=https://github.com/nunchaku-tech/nunchaku/releases/download/<ver>/nunchaku-<ver>+torch2.8-cp311-cp311-linux_x86_64.whl
+# (verify the LATEST asset per §11.4.99 before building; see README "Sources verified").
+ARG NUNCHAKU_WHEEL=""
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models/hf \
+    # from-source ops target Blackwell only — never a Hopper/Ada fallback arch.
+    TORCH_CUDA_ARCH_LIST=12.0 \
+    # imagegen runtime config (all overridable via compose env — no hardcoded
+    # model/precision literal baked in as behaviour, §CONST-046 / §11.4.6):
+    IMAGEGEN_MODEL=black-forest-labs/FLUX.1-dev \
+    IMAGEGEN_PRECISION=nvfp4 \
+    IMAGEGEN_QUANTIZE_T5=1 \
+    IMAGEGEN_CPU_OFFLOAD=1 \
+    IMAGEGEN_MAX_STEPS=28
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        libgl1 libglib2.0-0 \
+        curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
+# Python deps. torch >= 2.7 cu128 (native sm_120) pulled from the cu128 index;
+# diffusers + transformers + the FastAPI shim stack pinned in requirements.txt.
+COPY requirements.txt /app/requirements.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+        --index-url https://download.pytorch.org/whl/cu128 \
+        --extra-index-url https://pypi.org/simple \
+        -r /app/requirements.txt
+
+# Nunchaku Blackwell wheel (NVFP4 FLUX transformer + quantized-T5 encoder).
+# Installed ONLY when the wheel build-arg is supplied — a build without it fails
+# loudly at import time (the server /health reports engine_ready=false with the
+# exact reason) rather than silently PTX-JIT-degrading (§11.4.6 honest boundary).
+RUN if [ -n "${NUNCHAKU_WHEEL}" ]; then \
+        python3 -m pip install --no-cache-dir --break-system-packages "${NUNCHAKU_WHEEL}"; \
+    else \
+        echo "WARN: NUNCHAKU_WHEEL build-arg empty — Nunchaku NVFP4 path NOT installed. Supply the Blackwell cu128 wheel to build the co-resident FLUX path."; \
+    fi
+
+RUN useradd -m -u 10001 imagegen && mkdir -p /models/hf && chown -R imagegen /models
+COPY imagegen_server.py /app/imagegen_server.py
+WORKDIR /app
+USER imagegen
+
+EXPOSE 8080
+# Health probe hits the shim's /health, which reports engine readiness WITHOUT
+# forcing a model load (so an idle-but-up container stays VRAM-cheap between
+# jobs, §11.4.76 on-demand). The vrambroker admission + first-gen load is the
+# runtime-signature step (§11.4.108), not this liveness probe.
+HEALTHCHECK --interval=15s --timeout=5s --retries=20 \
+  CMD curl -fsS http://localhost:8080/health || exit 1
+
+CMD ["python3", "imagegen_server.py"]

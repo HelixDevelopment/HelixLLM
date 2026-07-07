@@ -1,0 +1,45 @@
+# Phase-4 GPU image-gen — FLUX + Nunchaku NVFP4, served on its OWN port
+# (:18442, config-injected). Booted THROUGH the containers submodule
+# compose.Orchestrator (§11.4.76), rootless podman (§11.4.161) with GPU access
+# via the NVIDIA CDI spec. Distinct from the coder (:18434) and every sibling
+# capability lane (:18435-18441) — §11.4.119 single-resource-owner.
+#
+# NO hardcoded model / precision / host-port literal (§CONST-045 / §CONST-046):
+# every value is injected from the environment by run_proof.sh; the ${VAR}
+# forms are always set by the harness before boot. The GPU reservation is
+# admitted by the vrambroker BEFORE this file is `up`'d (cmd/imagegen-boot).
+services:
+  imagegen:
+    build:
+      context: ../../services/imagegen
+      dockerfile: Containerfile
+      args:
+        # The Blackwell cu128 Nunchaku wheel URL — supplied at build time,
+        # verify LATEST per §11.4.99 (see services/imagegen/README.md).
+        NUNCHAKU_WHEEL: "${NUNCHAKU_WHEEL}"
+    image: helixllm-imagegen:nvfp4
+    environment:
+      IMAGEGEN_MODEL: "${IMAGEGEN_MODEL}"
+      IMAGEGEN_PRECISION: "${IMAGEGEN_PRECISION}"     # Blackwell -> nvfp4
+      IMAGEGEN_QUANTIZE_T5: "${IMAGEGEN_QUANTIZE_T5}"
+      IMAGEGEN_CPU_OFFLOAD: "${IMAGEGEN_CPU_OFFLOAD}"
+      IMAGEGEN_MAX_STEPS: "${IMAGEGEN_MAX_STEPS}"
+      HF_HOME: /models/hf
+      HF_TOKEN: "${HF_TOKEN}"                          # §11.4.10 — from .env, never committed/logged
+    ports:
+      - "${IMAGEGEN_HOST_PORT}:8080"
+    volumes:
+      - helixllm-imagegen-cache:/models/hf
+    # Rootless-podman GPU access via CDI (§11.4.161). The NVIDIA container
+    # toolkit must have generated the CDI spec (nvidia.com/gpu=all).
+    devices:
+      - "nvidia.com/gpu=all"
+    # §12.3 container hygiene + §12.6 host-safety — bounded so a first-run OOM
+    # cannot starve the developer host. Config-injected, captured as evidence.
+    mem_limit: "${IMAGEGEN_MEM_LIMIT}"
+    shm_size: "${IMAGEGEN_SHM_SIZE}"
+    restart: "no"
+volumes:
+  helixllm-imagegen-cache:
+    external: true
+    name: helixllm-imagegen-cache

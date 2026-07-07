@@ -1,0 +1,25 @@
+# HelixLLM Phase-4 image-gen service Python deps — PINNED (§11.4.6 no-float).
+#
+# torch/torchvision are pulled from the cu128 index (see Containerfile
+# --index-url); the cu128 wheels carry native Blackwell sm_120 kernels
+# (torch >= 2.7.0 was the first stable line with them — §11.4.150 research).
+# Target the current line; NEVER downgrade below 2.7 (sm_120 would PTX-JIT).
+torch==2.8.0
+torchvision==0.23.0
+
+# FLUX serving stack. diffusers exposes FluxPipeline + the Nunchaku
+# NunchakuFluxTransformer2dModel integration; transformers hosts the T5-XXL
+# text encoder (quantized + CPU-offloaded in the min-mem config).
+diffusers==0.35.1
+transformers==4.57.1
+accelerate==1.11.0
+safetensors==0.6.2
+sentencepiece==0.2.0
+protobuf==6.32.1
+huggingface-hub==0.35.3
+Pillow==11.4.0
+
+# Minimal HTTP shim.
+fastapi==0.121.1
+uvicorn==0.38.0
+pydantic==2.12.3

@@ -1,0 +1,4 @@
+# Generated proof outputs — regenerable via run_proof.sh generate (§11.4.77);
+# curated evidence is committed under docs/qa/<run-id>/ per §11.4.83, not here.
+out/
+*.png

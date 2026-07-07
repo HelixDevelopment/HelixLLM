@@ -1,0 +1,17 @@
+# §11.4.30 / CONST-053 repository hygiene.
+#
+# Model weights (FLUX.1-dev transformer + Nunchaku NVFP4 + T5-XXL, tens of GB)
+# are NEVER versioned — they are third-party HuggingFace artefacts pulled on
+# demand. §11.4.77 regeneration mechanism: .gitignore-meta/flux_nunchaku_nvfp4.yaml
+# (download from the cited HF repos) + the harness setup step.
+models/
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.pth
+
+# Python caches / build artefacts.
+__pycache__/
+*.pyc
+.venv/
