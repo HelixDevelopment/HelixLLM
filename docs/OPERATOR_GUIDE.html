@@ -517,6 +517,119 @@ unrunning TLS default — <code>10_red_baseline.txt</code>).</p>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="va">HELIX_LLM_LOCAL_OPENAI_ENDPOINT</span><span class="op">=</span>http://localhost:18434 <span class="va">RED_MODE</span><span class="op">=</span>0 <span class="dt">\</span></span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="ex">go</span> test <span class="at">-tags</span><span class="op">=</span>helixllm_e2e <span class="at">-run</span> TestE2E_HelixAgent_To_LiveHelixLLM <span class="at">-v</span> <span class="dt">\</span></span>
 <span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  ./internal/llm/providers/helixllm/</span></code></pre></div>
+<h3 id="helixagent-over-the-lan-vpn-env-var-parameterized-host-ip-auth">HelixAgent
+over the LAN / VPN (env-var parameterized, host IP + auth)</h3>
+<p>The <code>helixllm.Provider</code> works as an OpenAI-compatible
+provider alias <strong>not only on <code>localhost</code> but anywhere
+on the LAN or VPN</strong>, parameterized entirely by environment
+variables — no code change, no hardcoded host (CONST-045). The coder
+fleet already binds <code>0.0.0.0:18434</code> (see §4 / §6), so it is
+reachable at the host’s LAN IP the moment the port is open.</p>
+<p><strong>Client-target env vars</strong> (read by
+<code>helixllm.Provider.resolveEndpoint</code>):</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Var</th>
+<th>Meaning</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HELIX_LLM_HOST</code></td>
+<td>host/IP of the OpenAI-compatible router to connect to</td>
+<td><code>localhost</code></td>
+</tr>
+<tr>
+<td><code>HELIX_LLM_PORT</code></td>
+<td>port of that router</td>
+<td><code>18434</code></td>
+</tr>
+<tr>
+<td><code>HELIX_LLM_API_KEY</code></td>
+<td>optional Bearer key sent as
+<code>Authorization: Bearer &lt;key&gt;</code></td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>HELIX_LLM_LOCAL_OPENAI_ENDPOINT</code></td>
+<td>explicit base URL seam (wins over HOST/PORT)</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>HELIX_LLM_ENDPOINT</code></td>
+<td>general base URL override</td>
+<td><em>(none)</em></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Endpoint precedence</strong> (first non-empty wins): explicit
+<code>cfg.Endpoint</code> → <code>HELIX_LLM_LOCAL_OPENAI_ENDPOINT</code>
+→ <code>HELIX_LLM_ENDPOINT</code> →
+<code>HELIX_LLM_HOST</code>/<code>HELIX_LLM_PORT</code> composition
+(<code>http://${HELIX_LLM_HOST}:${HELIX_LLM_PORT}</code>) → the TLS
+<code>:8443</code> gateway default. Setting only
+<code>HELIX_LLM_HOST</code> inherits port <code>18434</code>; a
+server-bind <code>0.0.0.0</code> is mapped to <code>localhost</code> for
+the client target.</p>
+<p><strong>Point HelixAgent at the host over the LAN</strong> — pick
+ONE:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># (a) HOST/PORT composition — the LAN case, host defaults port 18434</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">HELIX_LLM_HOST</span><span class="op">=</span>10.6.100.221      <span class="co"># the host&#39;s LAN/VPN IP (NOT localhost)</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">HELIX_LLM_PORT</span><span class="op">=</span>18434</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="co"># (b) or the explicit base-URL seam (equivalent; wins over HOST/PORT)</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">HELIX_LLM_LOCAL_OPENAI_ENDPOINT</span><span class="op">=</span>http://10.6.100.221:18434   <span class="co"># base, NO /v1</span></span></code></pre></div>
+<blockquote>
+<p><strong>The <code>/v1</code> gotcha (load-bearing — see
+§4.1):</strong> the endpoint MUST be the BASE
+<code>http://&lt;HOST&gt;:18434</code> <strong>without</strong>
+<code>/v1</code>. The provider appends <code>/v1/chat/completions</code>
+itself; a trailing <code>/v1</code> would double to <code>/v1/v1</code>
+→ 404. As a guard, <code>normalizeBase</code> now strips a trailing
+<code>/v1</code> so both <code>.../18434</code> and
+<code>.../18434/v1</code> resolve to the base — but write the base to be
+safe.</p>
+</blockquote>
+<p><strong>API-key auth.</strong> When <code>HELIX_LLM_API_KEY</code> is
+set the provider sends <code>Authorization: Bearer &lt;key&gt;</code> on
+every request. The raw coder fleet on <code>18434</code> does
+<strong>not</strong> enforce auth (any/no key is accepted); to require
+auth, front the model with a key-checking OpenAI server —
+e.g. <code>llama-server --host 0.0.0.0 --port 18439 --api-key &lt;key&gt;</code>
+(llama.cpp <code>--api-key</code> does a byte-for-byte Bearer compare →
+<strong>401</strong> on a missing/wrong key, <strong>200</strong> with
+the correct key), or the full HelixLLM gateway on <code>:8443</code>.
+Proven matrix (evidence
+<code>docs/qa/helixagent_network_provider_20260707/</code>): no key →
+401, wrong key → 401, correct key → 200 + real completion.</p>
+<p><strong>Where to put the exports.</strong> Export the vars however
+your host manages secrets: a gitignored <code>api_keys.sh</code> sourced
+from your shell rc (host-local, never committed — see
+<code>api_keys.sh.example</code>), OR the project <code>.env</code>. The
+API key is a secret: never commit it (CONST-042 / §11.4.10).
+<code>.env</code> / <code>api_keys.sh</code> are gitignored.</p>
+<p><strong>Firewall / reachability.</strong> LAN/VPN use requires the
+coder port reachable from the client host (open <code>18434</code> on
+the server’s firewall, or route it over the VPN). Verify with a raw curl
+before wiring the agent:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-sS</span> <span class="at">-X</span> POST http://10.6.100.221:18434/v1/chat/completions <span class="dt">\</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">-H</span> <span class="st">&#39;Content-Type: application/json&#39;</span> <span class="dt">\</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">-d</span> <span class="st">&#39;{&quot;model&quot;:&quot;default&quot;,&quot;messages&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;Reply: LANPROOF-OK&quot;}],&quot;max_tokens&quot;:16}&#39;</span></span></code></pre></div>
+<p><strong>Live LAN proof (reproduce).</strong> The provider was driven
+over the LAN interface (<code>10.6.100.221</code>, not localhost) via
+the HOST/PORT composition, returning genuine code
+(<code>func Add</code>):</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> submodules/helix_agent</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="va">HELIX_LLM_HOST</span><span class="op">=</span>10.6.100.221 <span class="va">HELIX_LLM_PORT</span><span class="op">=</span>18434 <span class="dt">\</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="ex">go</span> test <span class="at">-tags</span><span class="op">=</span>helixllm_e2e <span class="at">-run</span> TestE2E_HelixAgent_To_LiveHelixLLM_ViaHostPort <span class="at">-v</span> <span class="dt">\</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  ./internal/llm/providers/helixllm/</span></code></pre></div>
 <h3 id="the-full-helixllm-go-gateway-8443-separate-documented-contract">The
 full HelixLLM Go gateway (<code>:8443</code>) — separate, documented
 contract</h3>
@@ -679,6 +792,22 @@ from code.</li>
 repo) — live-state anchors: host spec, image id, run line, 8-concurrent
 throughput, GPU stack.</li>
 </ul>
+<p>LAN/VPN + auth section (added 2026-07-07) — evidence in main repo
+<code>docs/qa/helixagent_network_provider_20260707/</code>:
+<code>30_live_lan_hostport.txt</code> (provider driven via
+<code>HELIX_LLM_HOST=10.6.100.221</code> → real <code>func Add</code>
+over the LAN), <code>20_auth_matrix_ephemeral.txt</code> (no-key → 401,
+wrong-key → 401, correct-key → 200),
+<code>21_provider_keyed_lan.txt</code> (provider +
+<code>HELIX_LLM_API_KEY</code> → keyed server over LAN → 200). llama.cpp
+<code>--api-key</code>/<code>--host</code> behaviour cross-referenced
+against the official server docs: - <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" class="uri">https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md</a>
+(verified 2026-07-07) — <code>--api-key</code> (Bearer auth, 401 on
+missing/wrong), <code>--host</code> default <code>127.0.0.1</code>,
+<code>0.0.0.0</code> binds all interfaces, <code>--port</code> default
+8080. - <a href="https://markaicode.com/errors/llamacpp-api-key-invalid-fix-production/" class="uri">https://markaicode.com/errors/llamacpp-api-key-invalid-fix-production/</a>
+(verified 2026-07-07) — <code>Authorization: Bearer &lt;key&gt;</code>
+byte-for-byte compare → 401 on any mismatch.</p>
 <p>Honest boundary (§11.4.6 / §11.4.99): external-tool syntax (llama.cpp
 <code>-fa on</code> / <code>-hf</code>, podman CDI flags) is documented
 exactly as it behaved in this session’s captured logs, not re-fetched
