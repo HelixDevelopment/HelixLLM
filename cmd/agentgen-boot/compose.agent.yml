@@ -1,0 +1,79 @@
+# AGENT (Lane B) — a SECOND coder/agent llama-server instance, served on its
+# OWN port (:18435, config-injected). Booted THROUGH the containers submodule
+# compose.Orchestrator (§11.4.76), rootless podman (§11.4.161) with GPU access
+# via the NVIDIA CDI spec. Distinct from the resident coder (:18434, NEVER
+# touched) + every sibling capability lane (:18436-18443) — §11.4.119
+# single-resource-owner. This is the Serving-plan Task 2.1 benchmark-spike
+# harness (docs/research/07.2026/01_local_models_serving/IMPLEMENTATION_PLAN_v2.md
+# §1(c)/Task 2.1, master plan §6.1/§6.2) proving Lane B co-residence.
+#
+# REUSES the already-built router image — NO `build:` directive, NO rebuild
+# (§11.4.74 reuse-don't-reimplement). Same image the resident coder and the
+# vision (VLM) lane already use.
+#
+# Model SELECTION is env-parameterized (§CONST-045 / §11.4.28 no-hardcoded-
+# path): AGENTGEN_MODEL_GGUF defaults to the plan's #1 Lane-B candidate —
+# Mistral-Nemo-Instruct-2407-Q4_K_M.gguf (bartowski GGUF, ~6.96 GiB weights) —
+# so `boot` works out-of-the-box once the model artefact is present. Overriding
+# the var (plus AGENTGEN_NEED_BYTES in cmd/agentgen-boot, see main.go) selects
+# a different Lane-B candidate (GLM-4.7-Flash smallest quant, DeepSeek-Coder-
+# V2-Lite Q4_K_M, ...) — never removed, just env-selectable (§11.4.122).
+#
+# Model artefacts live OUTSIDE the repo (gitignored, §11.4.30) at the host dir
+# injected via ${AGENTGEN_MODEL_DIR} (defaults to ~/models — the same cache dir
+# the resident coder model lives in — injected by cmd/agentgen-boot at boot
+# time, never hardcoded here; §11.4.77 regeneration = the router-image HTTPS
+# pull / `hf`/curl resumable download documented in the Task 2.1 spike report).
+# The reservation is admitted by the vrambroker BEFORE this file is `up`'d
+# (cmd/agentgen-boot, ClassAgent warm tier, §11.4.119/D5 — a distinct class
+# from ClassVLM on purpose).
+services:
+  agentgen:
+    image: localhost/helixllm/llamacpp-router:cuda12.8-sm120
+    # Text-only llama-server (no --mmproj): default Mistral-Nemo-12B Q4_K_M
+    # weights, all layers on GPU (-ngl 99), modest unified KV budget sized for
+    # the benchmark spike (single-stream + a few concurrent sequences), Jinja
+    # chat template enabled for tool-calling/structured-output correctness
+    # sampling. OpenAI API + /health on :18435 inside + published.
+    #
+    # NOTE (mirrors cmd/visiongen-boot/compose.vision.yml, same router image):
+    # the image's ENTRYPOINT is already ["llama-server"] — `command:` below is
+    # ARGV to that entrypoint. Do NOT re-add a leading "llama-server" token.
+    command:
+      - -m
+      - /models/${AGENTGEN_MODEL_GGUF:-Mistral-Nemo-Instruct-2407-Q4_K_M.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "18435"
+      - -ngl
+      - "99"
+      - -c
+      - "${AGENTGEN_CTX_SIZE:-16384}"
+      - --parallel
+      - "${AGENTGEN_PARALLEL:-4}"
+      - --cont-batching
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -fa
+      - "on"
+      - --jinja
+    ports:
+      - "18435:18435"
+    volumes:
+      # GGUF model cache — host dir injected, never a hardcoded path
+      # (§CONST-045 / §11.4.28 decoupling). Read-only into the container.
+      - "${AGENTGEN_MODEL_DIR}:/models:ro"
+    # Rootless-podman GPU access via CDI (§11.4.161). The NVIDIA container
+    # toolkit must have generated the CDI spec (nvidia.com/gpu=all).
+    devices:
+      - "nvidia.com/gpu=all"
+    # §12.3 container hygiene + §12.6 host-safety — bounded so a first-run OOM
+    # cannot starve the developer host. Mistral-Nemo-12B Q4_K_M + modest KV
+    # measured well under this cap on the 32 GB RTX 5090 (see admit-check
+    # accounting in cmd/agentgen-boot/main.go).
+    mem_limit: "${AGENTGEN_MEM_LIMIT:-16g}"
+    shm_size: "${AGENTGEN_SHM_SIZE:-2g}"
+    restart: "no"
