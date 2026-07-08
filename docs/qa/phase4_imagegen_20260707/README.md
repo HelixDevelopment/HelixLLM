@@ -1,15 +1,32 @@
 # Phase-4 GPU image-generation harness — FLUX + Nunchaku NVFP4 (SCAFFOLD)
 
 **Status:** SCAFFOLD — ready-to-run harness, NOT yet a captured runtime proof.
-**Revision:** 1
-**Last modified:** 2026-07-07
+**Revision:** 2
+**Last modified:** 2026-07-08
 **Host target:** RTX 5090 (Blackwell, sm_120 / cc 10.x), 32 GB VRAM, CUDA 12.8, rootless podman.
 
 This directory is the ready-to-run harness for HelixLLM's GPU image-generation
-capability (FLUX.1-dev served through the Nunchaku **NVFP4** SVDQuant transformer,
-the Blackwell co-resident path). It is authored so the eventual runtime proof is a
+capability (**FLUX.1-schnell** served through the Nunchaku **NVFP4** SVDQuant
+transformer, the Blackwell co-resident path — FLUX.1-dev remains available as an
+explicit `IMAGEGEN_MODEL` opt-in). It is authored so the eventual runtime proof is a
 single authorized operator step — it does **not** itself run a GPU workload, build
 the heavy image, or pause the live coder.
+
+> **2026-07-08 finding (§11.4.6/§11.4.150 — corrects the original design
+> assumption).** The scaffold now defaults to `black-forest-labs/FLUX.1-schnell`
+> instead of `black-forest-labs/FLUX.1-dev` because schnell carries an
+> **Apache-2.0** licence (verified via the HF API — `license: apache-2.0`,
+> "can be used for personal, scientific, and commercial purposes") vs dev's
+> restrictive `flux-1-dev-non-commercial-license`. **This switch does NOT
+> remove the `HF_TOKEN` requirement** — the HF API
+> (`https://huggingface.co/api/models/black-forest-labs/FLUX.1-schnell`)
+> reports `"gated": "auto"` for BOTH schnell and dev: an HF account that has
+> clicked "Agree" is still required for the base-pipeline download. "auto"
+> gating is instant self-serve (no manual review queue), so the operator
+> friction is unchanged vs dev — only the licence permissiveness improves.
+> The Nunchaku NVFP4 **transformer** repo (`nunchaku-ai/nunchaku-flux.1-schnell`)
+> is separately confirmed **fully public** (`"gated": false`) — no token needed
+> for that specific asset.
 
 > **What is proven NOW (no GPU):** the anti-bluff **image analyzer** self-validates
 > for real — see [Analyzer self-validation](#analyzer-self-validation-real-now).
@@ -94,7 +111,7 @@ ceiling minus a safety headroom — a **min-mem co-resident** configuration:
 
 | Component | Footprint | Note |
 |---|---|---|
-| FLUX.1-dev **NVFP4** transformer (Nunchaku SVDQuant) | **~6.1 GiB** | cc10.x → **fp4** (NOT int4) on the 5090 |
+| FLUX.1-schnell **NVFP4** transformer (Nunchaku SVDQuant) | **~6.1 GiB** | cc10.x → **fp4** (NOT int4) on the 5090; same 12B-parameter architecture as dev's transformer (schnell is a step-distilled variant of dev, not a smaller model), so the footprint estimate is unchanged from the dev-targeted design |
 | T5-XXL text encoder (quantized) + VAE | folds into peak | `IMAGEGEN_QUANTIZE_T5=1` |
 | CPU-offload of idle stages | keeps GPU peak low | `enable_model_cpu_offload()` |
 | **Estimated co-resident peak** | **~6 GB** | placeholder `IMAGEGEN_NEED_BYTES` default **7 GiB** (rounded margin) |
@@ -186,11 +203,21 @@ analyze <solid>` exits 1.
 
 Verified 2026-07-07 (design-session research, to be re-verified per §11.4.99
 before the runtime-proof commit — messenger/vendor/AI-stack docs carry a 90-day
-staleness bound):
+staleness bound); the FLUX.1-schnell switch was re-verified 2026-07-08:
 
 - Nunchaku (SVDQuant, NVFP4 on Blackwell) — https://github.com/nunchaku-tech/nunchaku
-- Nunchaku FLUX.1-dev NVFP4 assets — https://huggingface.co/nunchaku-tech/nunchaku-flux.1-dev
-- FLUX.1-dev (gated base model) — https://huggingface.co/black-forest-labs/FLUX.1-dev
+- Nunchaku FLUX.1-schnell NVFP4 assets — https://huggingface.co/nunchaku-ai/nunchaku-flux.1-schnell
+  (org renamed from `nunchaku-tech`; `nunchaku-tech/nunchaku-flux.1-schnell`
+  still redirects) — HF API confirms `"gated": false` (public), 2026-07-08.
+- Nunchaku FLUX.1-dev NVFP4 assets (opt-in) — https://huggingface.co/nunchaku-ai/nunchaku-flux.1-dev — also `"gated": false`.
+- FLUX.1-schnell (default base model, Apache-2.0) — https://huggingface.co/black-forest-labs/FLUX.1-schnell
+  — HF API (`https://huggingface.co/api/models/black-forest-labs/FLUX.1-schnell`)
+  confirms `"cardData":{"license":"apache-2.0"}` and `"gated":"auto"`, 2026-07-08.
+  Recommended inference params per the model card: `num_inference_steps=4`,
+  `guidance_scale=0.0`, `max_sequence_length=256`.
+- FLUX.1-dev (opt-in base model, restrictive licence) — https://huggingface.co/black-forest-labs/FLUX.1-dev
+  — HF API confirms `"cardData":{"license":"other","license_name":"flux-1-dev-non-commercial-license"}`
+  and `"gated":"auto"`, 2026-07-08.
 - diffusers `FluxPipeline` — https://huggingface.co/docs/diffusers/en/api/pipelines/flux
 - PyTorch cu128 (sm_120 / Blackwell) wheels — https://pytorch.org/get-started/locally/
 

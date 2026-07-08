@@ -24,6 +24,7 @@ services:
       IMAGEGEN_QUANTIZE_T5: "${IMAGEGEN_QUANTIZE_T5}"
       IMAGEGEN_CPU_OFFLOAD: "${IMAGEGEN_CPU_OFFLOAD}"
       IMAGEGEN_MAX_STEPS: "${IMAGEGEN_MAX_STEPS}"
+      IMAGEGEN_GUIDANCE_SCALE: "${IMAGEGEN_GUIDANCE_SCALE}"
       HF_HOME: /models/hf
       HF_TOKEN: "${HF_TOKEN}"                          # §11.4.10 — from .env, never committed/logged
     ports:

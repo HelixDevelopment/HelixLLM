@@ -30,11 +30,20 @@ PROJECT_NAME="${IMAGEGEN_PROJECT:-helixllm_imagegen}"
 ANALYZER_DIR="${HERE}/imganalyzer"
 
 # ---- config-injected service parameters (Blackwell NVFP4 min-mem path) ----
-export IMAGEGEN_MODEL="${IMAGEGEN_MODEL:-black-forest-labs/FLUX.1-dev}"
+# Default model: FLUX.1-schnell (Apache-2.0, §11.4.150 research 2026-07-08 —
+# HF API confirms license: apache-2.0). HONEST NOTE (§11.4.6): schnell is
+# STILL an HF "auto"-gated repo (same as dev) — HF_TOKEN is still required
+# for the base pipeline download; the win is the permissive licence + the
+# instant/no-review gate class, not token-freedom. Set
+# IMAGEGEN_MODEL=black-forest-labs/FLUX.1-dev to opt back into dev.
+export IMAGEGEN_MODEL="${IMAGEGEN_MODEL:-black-forest-labs/FLUX.1-schnell}"
 export IMAGEGEN_PRECISION="${IMAGEGEN_PRECISION:-nvfp4}"     # RTX 5090 cc10.x -> NVFP4
 export IMAGEGEN_QUANTIZE_T5="${IMAGEGEN_QUANTIZE_T5:-1}"
 export IMAGEGEN_CPU_OFFLOAD="${IMAGEGEN_CPU_OFFLOAD:-1}"
-export IMAGEGEN_MAX_STEPS="${IMAGEGEN_MAX_STEPS:-28}"
+# schnell model card (verified 2026-07-08): num_inference_steps=4,
+# guidance_scale=0.0. Override both for a dev opt-in (e.g. steps=28, guidance=3.5).
+export IMAGEGEN_MAX_STEPS="${IMAGEGEN_MAX_STEPS:-4}"
+export IMAGEGEN_GUIDANCE_SCALE="${IMAGEGEN_GUIDANCE_SCALE:-0.0}"
 export IMAGEGEN_HOST_PORT="${IMAGEGEN_HOST_PORT:-18442}"     # OWN port — coder is :18434
 export IMAGEGEN_MEM_LIMIT="${IMAGEGEN_MEM_LIMIT:-24g}"
 export IMAGEGEN_SHM_SIZE="${IMAGEGEN_SHM_SIZE:-2g}"

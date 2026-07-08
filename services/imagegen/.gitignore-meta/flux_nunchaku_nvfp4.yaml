@@ -7,19 +7,38 @@ entry_slug: flux_nunchaku_nvfp4
 pattern: "services/imagegen/models/** *.safetensors *.gguf"
 mechanism_type: download            # download from authoritative HF source
 requires_network: true
-requires_credentials: true          # FLUX.1-dev is a gated HF repo — HF_TOKEN
-                                    #   (§11.4.10, never committed) accepts the licence
-expected_disk_usage: "~24 GiB (FLUX.1-dev bf16 base + NVFP4 transformer + T5-XXL)"
+requires_credentials: true          # base FLUX pipeline is an "auto"-gated HF repo
+                                    #   (verified via HF API 2026-07-08 — TRUE for
+                                    #   BOTH FLUX.1-schnell and FLUX.1-dev, §11.4.6);
+                                    #   HF_TOKEN (§11.4.10, never committed) accepts
+                                    #   the licence. The NVFP4 transformer repo below
+                                    #   is separately PUBLIC ("gated": false) and
+                                    #   needs no credential of its own.
+expected_disk_usage: "~24 GiB (FLUX.1-schnell bf16 base + NVFP4 transformer + T5-XXL)"
 
 sources:
   - name: flux_base
-    repo: black-forest-labs/FLUX.1-dev
+    repo: black-forest-labs/FLUX.1-schnell
     why: "base FLUX pipeline (VAE, scheduler, tokenizers, T5-XXL text encoder)"
-    note: "gated repo — accept licence + HF_TOKEN"
+    note: >-
+      HF "auto"-gated repo (license: apache-2.0, verified via
+      https://huggingface.co/api/models/black-forest-labs/FLUX.1-schnell on
+      2026-07-08) — accept the one-click Apache-2.0 agreement + HF_TOKEN.
+      "auto" gating is INSTANT self-serve (no manual review), the same class
+      as FLUX.1-dev; unlike dev, the licence itself is fully permissive
+      (personal/scientific/commercial use). Set IMAGEGEN_MODEL=
+      black-forest-labs/FLUX.1-dev for the restrictive non-commercial-license
+      opt-in.
   - name: flux_nvfp4_transformer
-    repo: nunchaku-tech/nunchaku-flux.1-dev
-    why: "Nunchaku SVDQuant NVFP4 transformer (6.1 GiB) — the Blackwell (cc10.x) co-resident path"
-    note: "MUST be the NVFP4 asset, NOT INT4, on the 5090 (§11.4.150 research)"
+    repo: nunchaku-ai/nunchaku-flux.1-schnell
+    why: "Nunchaku SVDQuant NVFP4 transformer (svdq-fp4_r32-flux.1-schnell.safetensors) — the Blackwell (cc10.x) co-resident path"
+    note: >-
+      MUST be the NVFP4 asset, NOT INT4, on the 5090 (§11.4.150 research).
+      This repo is fully PUBLIC ("gated": false, verified via the HF API
+      2026-07-08) — no HF_TOKEN needed for this specific download. The dev
+      opt-in counterpart is nunchaku-ai/nunchaku-flux.1-dev (also public).
+      (Org renamed from nunchaku-tech -> nunchaku-ai; nunchaku-tech/* still
+      redirects.)
 
 # Verify LATEST asset ids/tags before download (§11.4.99) — the exact NVFP4
 # transformer repo/filename and the Nunchaku wheel move; the README carries the
