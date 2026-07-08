@@ -1,0 +1,4 @@
+# Build artefact — regenerate via `go build .` or by re-running run_proof.sh
+# (§11.4.30 / §11.4.77 regeneration mechanism: the tracked go.mod + main.go
+# are the source; the binary is never versioned).
+phase1helixmemory.bin

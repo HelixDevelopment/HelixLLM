@@ -1,0 +1,57 @@
+# Phase-1 HelixMemory bring-up proof — dedicated Postgres+pgvector store and a
+# dedicated CPU TEI embeddings service. Booted THROUGH the containers
+# submodule compose.Orchestrator (§11.4.76), rootless podman (§11.4.161).
+# Own ports (18450 postgres, 18451 tei-memory) — distinct from the coder
+# (:18434), the sibling Phase-3 lanes (:18435-18441), and the currently-running
+# vision container (:18439), §11.4.119 single-resource-owner.
+#
+# This is a REFERENCE implementation of the mem0-style "extraction layer"
+# mechanism (embed -> persist vector+text -> embed query -> similarity search
+# -> ground generation) using the SAME class of building blocks (Postgres +
+# pgvector, per the mem0 self-hosted OSS server's own vector-store choice) that
+# a literal mem0 OSS server deployment would use. It does NOT install the
+# upstream mem0 Python package or the Graphiti library — see
+# HELIXMEMORY_PROVIDER.md for the honest scope note.
+#
+# No hardcoded model / host port / credential (§CONST-045 / §CONST-046): every
+# value is injected from the environment by run_proof.sh; the compose file
+# carries no literal.
+#
+# Reuses the SAME external HF-model cache volume the Phase-3 embeddings +
+# Phase-3 RAG proofs already created and populated with BAAI/bge-small-en-v1.5
+# weights — no re-download (§11.4.82 iteration-speedup; the volume is a
+# shared, re-obtainable §11.4.77 artefact, not project-specific state).
+services:
+  pg-helixmemory:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: "${PGHM_USER}"
+      POSTGRES_PASSWORD: "${PGHM_PASSWORD}"
+      POSTGRES_DB: "${PGHM_DB}"
+    ports:
+      - "${PGHM_HOST_PORT}:5432"
+    # §12.3 container hygiene — bounded so the DB never starves the developer
+    # host (§12.6). Config-injected, captured as evidence.
+    mem_limit: "${PGHM_MEM_LIMIT}"
+    cpus: ${PGHM_CPUS}
+    restart: "no"
+  tei-helixmemory:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command:
+      - "--model-id"
+      - "${TEI_MODEL_ID}"
+      - "--port"
+      - "80"
+      - "--hostname"
+      - "0.0.0.0"
+    ports:
+      - "${TEI_HOST_PORT}:80"
+    volumes:
+      - helixllm-tei-cache:/data
+    mem_limit: "${TEI_MEM_LIMIT}"
+    cpus: ${TEI_CPUS}
+    restart: "no"
+volumes:
+  helixllm-tei-cache:
+    external: true
+    name: helixllm-tei-cache
