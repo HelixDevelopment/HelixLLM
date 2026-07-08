@@ -29,6 +29,14 @@ require (
 )
 
 require (
+	github.com/google/jsonschema-go v0.4.3 // indirect
+	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	golang.org/x/oauth2 v0.35.0 // indirect
+)
+
+require (
 	digital.vasic.containers v0.0.0-00010101000000-000000000000
 	github.com/ClickHouse/ch-go v0.65.1 // indirect
 	github.com/ClickHouse/clickhouse-go/v2 v2.34.0 // indirect
