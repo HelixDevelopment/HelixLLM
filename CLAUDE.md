@@ -1,3 +1,8 @@
+## INHERITED FROM Helix Constitution — find_constitution.sh resolves path
+
+All rules in the Helix Constitution apply unconditionally.
+Module-specific rules below extend; never weaken universal clauses.
+
 # CLAUDE.md - HelixCode AI Agent Manual
 
 ## HelixCode - AI Agent Operating Manual
