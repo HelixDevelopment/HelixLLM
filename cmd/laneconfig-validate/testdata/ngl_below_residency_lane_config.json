@@ -1,0 +1,16 @@
+{
+  "port": 18447,
+  "container_name": "helixllm-agent-ngl-test",
+  "model_path": "testdata/fake-model.gguf",
+  "weight_bytes": 6442450944,
+  "n_layers": 32,
+  "n_kv_heads": 8,
+  "head_dim": 128,
+  "full_layers": 32,
+  "kv_quant": "q8_0",
+  "ctx_size": 16384,
+  "parallel": 4,
+  "ngl": 20,
+  "budget_bytes": 34359738368,
+  "headroom_bytes": 2147483648
+}

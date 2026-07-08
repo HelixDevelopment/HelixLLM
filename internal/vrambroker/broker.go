@@ -16,7 +16,18 @@ const HeadroomBytes int64 = 2 * 1024 * MiB
 type Class string
 
 const (
-	ClassCoder     Class = "coder"     // resident tier — the pinned hot path
+	ClassCoder Class = "coder" // resident tier — the pinned hot path
+
+	// ClassAgent is the warm tier for a SECOND coder/agent instance (Lane B —
+	// Serving-plan Task 1.4, master plan §6.2). Semantics are IDENTICAL to
+	// ClassVLM: IsResident()==false, IsBurst()==false, admission-gated by the
+	// measured Budget().free (see Acquire's warm-tier fall-through path
+	// below). ClassAgent is a DISTINCT class from ClassVLM ON PURPOSE — danger
+	// zone D5: reusing ClassVLM for a second coding lane would let a future
+	// genuine vision-serving workload collide with Lane B for the same
+	// broker class, since the broker doesn't single-owner-enforce warm
+	// classes. Do NOT fold ClassAgent back into ClassVLM.
+	ClassAgent     Class = "agent"     // warm tier — 2nd coder/agent instance (Lane B, §11.4.119/D5)
 	ClassVLM       Class = "vlm"       // warm tier
 	ClassImage     Class = "image"     // burst tier — single-owner (§11.4.119)
 	ClassVideo     Class = "video"     // burst tier — single-owner (§11.4.119)

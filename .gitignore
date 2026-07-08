@@ -46,3 +46,10 @@ Thumbs.db
 # `cmd/visiongen-boot/` remains trackable; only the root-level binary
 # is ignored (anchored), per §11.4.30 no-versioned-build-artifacts.
 /visiongen-boot
+
+# Serving Phase-1 pre-boot config validator — `go build
+# ./cmd/laneconfig-validate/...` without -o drops the built binary at
+# the repo root as `./laneconfig-validate`. Source under
+# `cmd/laneconfig-validate/` remains trackable; only the root-level
+# binary is ignored (anchored), per §11.4.30 no-versioned-build-artifacts.
+/laneconfig-validate

@@ -1,0 +1,3 @@
+# Built validator binary (regenerable via `go build ./cmd/laneconfig-validate`,
+# §11.4.77) — never versioned (§11.4.30 / §11.4.53).
+/laneconfig-validate

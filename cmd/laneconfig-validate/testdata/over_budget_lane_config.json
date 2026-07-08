@@ -1,0 +1,16 @@
+{
+  "port": 18446,
+  "container_name": "helixllm-agent-overbudget-test",
+  "model_path": "testdata/fake-model.gguf",
+  "weight_bytes": 6442450944,
+  "n_layers": 32,
+  "n_kv_heads": 8,
+  "head_dim": 128,
+  "full_layers": 32,
+  "kv_quant": "q8_0",
+  "ctx_size": 32768,
+  "parallel": 16,
+  "ngl": 99,
+  "budget_bytes": 34359738368,
+  "headroom_bytes": 2147483648
+}
