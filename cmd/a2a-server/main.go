@@ -56,6 +56,7 @@ func main() {
 
 	card := a2a.BuildAgentCard(a2a.CardConfig{
 		PublicURL:         publicURL,
+		BasePath:          basePath,
 		DownstreamModelID: modelID,
 		BearerConfigured:  bearerKeys != "",
 	})

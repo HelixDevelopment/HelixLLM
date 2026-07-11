@@ -20,6 +20,8 @@
 // §11.4.122). This is a documented, non-silent choice, not a guess.
 package a2a
 
+import "encoding/json"
+
 // AgentCard is the public discovery document served at
 // /.well-known/agent-card.json (A2A spec §4.4.1 / v0.3.0 binding, cited
 // 2026-07-07 — NOT the older /.well-known/agent.json path some pre-1.0
@@ -171,4 +173,26 @@ type Task struct {
 	History   []Message  `json:"history,omitempty"`
 	Artifacts []Artifact `json:"artifacts,omitempty"`
 	Error     string     `json:"error,omitempty"`
+}
+
+// MarshalJSON injects the top-level "kind":"task" discriminator the real
+// a2a-go SDK's polymorphic result decoder requires to type this object as a
+// Task rather than a Message (a2a-go@v0.3.15 a2a/core.go:87-124
+// UnmarshalEventJSON reads "kind" first; the real SDK's own Task.MarshalJSON
+// always injects it — this method mirrors that exact pattern per the
+// bluff-audit fix direction in docs/qa/a2a_live_e2e_20260711T134958Z/RESULTS.md
+// §2.4 Finding B).
+//
+// A type alias (not embedding) is used so this method is never invoked
+// recursively by json.Marshal (embedding Task directly would re-select
+// Task.MarshalJSON and infinite-loop / stack-overflow).
+func (t Task) MarshalJSON() ([]byte, error) {
+	type taskAlias Task
+	return json.Marshal(struct {
+		Kind string `json:"kind"`
+		taskAlias
+	}{
+		Kind:      "task",
+		taskAlias: taskAlias(t),
+	})
 }

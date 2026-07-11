@@ -56,6 +56,7 @@ func newTestServer(t *testing.T, replyText string) (*gin.Engine, *a2a.Server) {
 
 	card := a2a.BuildAgentCard(a2a.CardConfig{
 		PublicURL:         "http://localhost:18441",
+		BasePath:          "/a2a",
 		DownstreamModelID: modelID,
 		BearerConfigured:  true,
 	})
@@ -87,6 +88,17 @@ func TestAgentCardHasRequiredFields(t *testing.T) {
 	if len(skills) == 0 {
 		t.Errorf("agent card skills[] must be non-empty")
 	}
+
+	// Bluff-audit regression guard (docs/qa/a2a_live_e2e_20260711T134958Z
+	// §2.4 Finding A / RED-baseline evidence in
+	// docs/qa/a2a_wireshape_fix_*): the real a2a-go SDK's a2aclient.NewFromCard
+	// dispatches JSON-RPC directly to card.URL literally, so card.URL MUST
+	// include the actual JSON-RPC dispatch mount path RegisterRoutes uses
+	// below ("/a2a") -- never just the bare public host:port.
+	url, _ := card["url"].(string)
+	if !strings.HasSuffix(url, "/a2a") {
+		t.Errorf("agent card url = %q, want suffix %q (must include the JSON-RPC dispatch base path so a spec-faithful client that trusts card.URL literally does not 404)", url, "/a2a")
+	}
 }
 
 func TestMessageSendHappyPath(t *testing.T) {
@@ -111,6 +123,16 @@ func TestMessageSendHappyPath(t *testing.T) {
 	status, _ := result["status"].(map[string]any)
 	if state, _ := status["state"].(string); state != "completed" {
 		t.Errorf("task state = %q, want completed", state)
+	}
+
+	// Bluff-audit regression guard (docs/qa/a2a_live_e2e_20260711T134958Z
+	// §2.4 Finding B): the real a2a-go SDK's polymorphic result decoder
+	// (a2a.UnmarshalEventJSON) requires a top-level "kind" discriminator to
+	// type this object as a Task rather than a Message. Without it, a
+	// spec-faithful client's typed SendMessage() call fails to decode even
+	// though the HTTP transaction itself succeeded.
+	if kind, _ := result["kind"].(string); kind != "task" {
+		t.Errorf("message/send result[\"kind\"] = %q, want %q (required for the real a2a-go SDK's polymorphic Task/Message decode)", kind, "task")
 	}
 }
 
@@ -184,5 +206,8 @@ func TestTasksGetRoundTrip(t *testing.T) {
 	}
 	if result2["id"] != taskID {
 		t.Errorf("tasks/get id mismatch: got %v want %v", result2["id"], taskID)
+	}
+	if kind, _ := result2["kind"].(string); kind != "task" {
+		t.Errorf("tasks/get result[\"kind\"] = %q, want %q (kind discriminator regression guard)", kind, "task")
 	}
 }
