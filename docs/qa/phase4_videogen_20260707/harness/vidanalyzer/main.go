@@ -66,10 +66,38 @@ import (
 // ---- oracle thresholds. Calibrated on THIS harness's own deterministic ffmpeg
 // fixtures (§11.4.6 — never blindly from literature). A real generated WAN/LTX
 // MP4 at runtime-proof time re-calibrates these against captured outputs. ----
-
+//
+// §11.4.107(13) RECALIBRATION (2026-07-11, docs/qa/videogen_recalibration_20260711*):
+// advanceDiffFloor was originally 1.5, calibrated ONLY on the synthetic
+// ffmpeg `testsrc2` golden-good fixture (a high-contrast, large-block moving
+// test pattern that scores mean_adj_luma_dist=4.19 at 64x64 downscale). The
+// real WAN2.2 TI2V-5B clip analyzed in docs/qa/videogen_analysis_20260711T141601Z
+// (docs/qa/wan2_generation_20260709T0010Z/helix_code_wan2_generation.mp4,
+// 1280x704, 24fps, 121 frames, smoother cinematic AI-generated content) scored
+// mean_adj_luma_dist=1.098228624131945 — genuinely live per an INDEPENDENT
+// full-resolution ffmpeg `freezedetect` cross-check (zero freeze windows at
+// two thresholds) and per distinct_adjacent_frac=1.000 (every single one of
+// its 120 adjacent frame-pairs exceeds distinctEpsilon) — yet 1.098 < 1.5
+// false-flagged it DEGENERATE. Both golden-bad fixtures (`frozen`: one real
+// frame looped; `solid`: blank colour) measure mean_adj_luma_dist EXACTLY
+// 0.000000... (deterministic ffmpeg re-encode of byte-identical source
+// frames — no decode noise). The recalibrated floor (0.55) is set at ~50% of
+// the single captured real-live sample (1.098), giving: (a) ~2x safety
+// margin BELOW the known-live WAN measurement (1.098 vs floor 0.55 — a
+// 0.548 absolute / 100% relative margin), and (b) an unbounded margin ABOVE
+// the exact-zero measured on both golden-bad fixtures (0.55 vs 0.000 — the
+// golden-bads are not "close" to the new floor by any measure). This is a
+// SINGLE real-fixture (n=1) calibration — an HONEST §11.4.6 gap, not
+// resolved here: as more real WAN/LTX outputs are captured, this floor
+// SHOULD be revisited/tightened using a proper distribution rather than one
+// sample. distinctFracLow (0.50) and entropyFloor (3.0) are UNCHANGED — both
+// already comfortably separate the WAN clip (distinctFrac=1.000,
+// entropy=6.789) from the golden-bads (distinctFrac=0.000, entropy 0.000 for
+// `solid`) and needed no adjustment; the false-positive was isolated to the
+// single meanAdjDist signal.
 const (
 	frameCountFloor  = 8    // sampled frames; a too-short clip is not a proof window
-	advanceDiffFloor = 1.5  // mean |Δluma| adjacent frames; frozen/looped ~ 0
+	advanceDiffFloor = 0.55 // mean |Δluma| adjacent frames; frozen/looped ~ 0 (was 1.5 — §11.4.107(13) recalibration, see comment above)
 	advanceDiffCeil  = 80.0 // above -> per-frame pure noise, no temporal coherence
 	distinctFracLow  = 0.50 // fraction of adjacent pairs that meaningfully differ
 	entropyFloor     = 3.0  // mean per-frame luma entropy bits; solid/blank ~ 0
