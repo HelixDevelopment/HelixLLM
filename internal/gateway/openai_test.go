@@ -198,9 +198,16 @@ type mockBrainProvider struct {
 	response  *types.InternalChatResponse
 	chunks    []types.StreamChunk
 	err       error
+
+	// capturedReq records the InternalChatRequest the last Complete() call
+	// received, so tests can assert what the facade under test (e.g.
+	// anthropicToInternal via HandleMessages) actually sent to the brain —
+	// used to prove Tools/ToolChoice reach the provider end-to-end.
+	capturedReq *types.InternalChatRequest
 }
 
-func (m *mockBrainProvider) Complete(_ context.Context, _ *types.InternalChatRequest) (*types.InternalChatResponse, error) {
+func (m *mockBrainProvider) Complete(_ context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error) {
+	m.capturedReq = req
 	if m.err != nil {
 		return nil, m.err
 	}

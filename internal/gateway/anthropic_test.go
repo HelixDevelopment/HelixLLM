@@ -458,3 +458,106 @@ func TestMessages_WithBrain_Streaming_NoFinishReason(t *testing.T) {
 		t.Error("expected default stop reason 'end_turn' in stream output")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// §11.4.135 standing regression guard: ANTHROPIC-WIRE-DROPS-TOOLS.
+//
+// Forensic anchor (V&V finding, 2026-07-11 wave-2): the Anthropic
+// /v1/messages facade accepted tools/tool_choice in its schema
+// (api.MessageRequest.Tools / ToolChoice) but anthropicToInternal silently
+// dropped them — the OpenAI wire (openAIToInternal/internalToOpenAI) did
+// tools end-to-end, the Anthropic wire did not. Unexported-function-level
+// coverage lives in anthropic_internal_test.go (package gateway); this is
+// the full-facade HTTP-level production-path proof: a request with Tools
+// defined reaches the brain with Tools populated, and a brain response
+// carrying ToolCalls comes back out of POST /v1/messages as a real
+// "tool_use" content block with stop_reason "tool_use" (the live-coder
+// proof lives in internal/gateway/anthropic_tools_live_test.go).
+// ---------------------------------------------------------------------------
+
+func TestMessages_WithBrain_ToolCallRoundTrip(t *testing.T) {
+	mock := &mockBrainProvider{
+		name:      "anthropic",
+		available: true,
+		models:    []string{"claude-opus-4-5"},
+		response: &types.InternalChatResponse{
+			ID:    "msg-tool-1",
+			Model: "claude-opus-4-5",
+			Message: types.InternalMessage{
+				Role: types.RoleAssistant,
+				ToolCalls: []types.InternalToolCall{
+					{
+						ID:   "toolu_round_trip",
+						Type: "function",
+						Function: struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						}{Name: "get_weather", Arguments: `{"city":"Paris"}`},
+					},
+				},
+			},
+			FinishReason: "tool_calls",
+		},
+	}
+	b := newTestBrain(mock)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/v1/messages", gateway.HandleMessages(b))
+
+	body, _ := json.Marshal(api.MessageRequest{
+		Model:     "claude-opus-4-5",
+		Messages:  []api.AnthropicMessage{{Role: "user", Content: "What's the weather in Paris? Use the get_weather tool."}},
+		MaxTokens: 512,
+		Tools: []api.AnthropicTool{
+			{
+				Name:        "get_weather",
+				Description: "Get the current weather for a city",
+				InputSchema: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{"city": map[string]interface{}{"type": "string"}},
+				},
+			},
+		},
+		ToolChoice: map[string]interface{}{"type": "any"},
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	// PRODUCTION-PATH PROOF (request direction): the brain must have
+	// received the tools the client sent.
+	if mock.capturedReq == nil {
+		t.Fatal("brain never received a request")
+	}
+	if len(mock.capturedReq.Tools) != 1 {
+		t.Fatalf("brain received %d tools, want 1 — Tools were dropped en route to the brain (ANTHROPIC-WIRE-DROPS-TOOLS)", len(mock.capturedReq.Tools))
+	}
+	if mock.capturedReq.ToolChoice != "required" {
+		t.Errorf("brain received ToolChoice=%v, want %q", mock.capturedReq.ToolChoice, "required")
+	}
+
+	// PRODUCTION-PATH PROOF (response direction): the HTTP response must
+	// carry a real tool_use content block, not silently drop it.
+	var resp api.MessageResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.StopReason == nil || *resp.StopReason != "tool_use" {
+		t.Fatalf("response StopReason = %v, want tool_use", resp.StopReason)
+	}
+	found := false
+	for _, block := range resp.Content {
+		if block.Type == "tool_use" && block.Name == "get_weather" && block.ID == "toolu_round_trip" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no tool_use block for get_weather found in response content=%+v — the tool call did not round-trip through POST /v1/messages", resp.Content)
+	}
+}
