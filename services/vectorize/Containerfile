@@ -1,0 +1,52 @@
+# HelixLLM vectorization capability — vtracer (visioncortex VTracer, Rust,
+# CPU raster-tracing) as the DEFAULT raster->SVG engine, per
+# docs/research/07.2026/02_vision_generative/CAPABILITIES_MASTER_PLAN_v2.md
+# (P3-T4'). Behind a minimal Go HTTP shim (main.go): POST /v1/vectorize
+# (image -> SVG via a real `vtracer` invocation) + POST /v1/rasterize (SVG ->
+# PNG via a real `rsvg-convert` invocation, INSIDE this image so the
+# renderer version never drifts between the fidelity harness and the served
+# round-trip).
+#
+# Booted via the containers submodule compose.Orchestrator (§11.4.76),
+# rootless podman (§11.4.161), CPU-only, no GPU device requested — vtracer is
+# a pure-CPU raster tracer by design, so this capability never contends for
+# GPU with the resident helixllm-coder, RAG-Qdrant (also CPU), or any future
+# StarVector-8B GPU tier (see README "StarVector tier status").
+#
+# §11.4.6 honest substitution (same root cause + same fix as the sibling OCR
+# service's Containerfile, §11.4.174 — NOT this build's fault, and no other
+# process was inspected/touched to "fix" it): a two-stage in-container Rust
+# build (`cargo install vtracer` inside a `rust:bookworm` build stage) risks
+# the same host RLIMIT_NPROC exhaustion documented in
+# submodules/helix_llm/services/ocr/Containerfile under concurrent-track
+# process pressure. `vtracer` is therefore compiled OUTSIDE the container
+# (host `cargo install vtracer --locked`, see README "Build the binaries" for
+# the §11.4.77 regeneration mechanism) and simply COPYed in, exactly like the
+# sibling OCR service's `ocr-shim`. Verified compatible with this image
+# despite being compiled on a different host distribution: the host-built
+# binary's highest required glibc symbol version is GLIBC_2.34
+# (`objdump -T vtracer | grep -oE 'GLIBC_[0-9.]+' | sort -V`, verified
+# 2026-07-11); Debian bookworm ships glibc 2.36
+# (https://packages.debian.org/bookworm/libc6, verified 2026-07-11) —
+# 2.36 >= 2.34, so the binary loads and runs correctly here.
+#
+# `rsvg-convert` (librsvg2-bin) rasterizes the produced SVG back to PNG for
+# the fidelity self-validation — Debian bookworm ships librsvg2-bin
+# (https://packages.debian.org/bookworm/librsvg2-bin, verified 2026-07-11).
+FROM docker.io/library/debian:bookworm-slim
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        librsvg2-bin \
+        ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+RUN useradd -m -u 10001 vectorize
+# Pre-built binaries (host-compiled, §11.4.77 regen mechanism — see README
+# "Build the binaries"). NEITHER is compiled inside this image.
+COPY vectorize-shim /usr/local/bin/vectorize-shim
+COPY vtracer /usr/local/bin/vtracer
+RUN chmod 0755 /usr/local/bin/vectorize-shim /usr/local/bin/vtracer
+USER vectorize
+WORKDIR /home/vectorize
+EXPOSE 8080
+CMD ["/usr/local/bin/vectorize-shim"]

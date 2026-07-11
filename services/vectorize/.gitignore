@@ -1,0 +1,8 @@
+# Build artifacts (§11.4.30 / CONST-053). Regeneration mechanism (§11.4.77):
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o vectorize-shim .
+#   cargo install vtracer --locked --root ./.cargo-install-vtracer
+#   cp ./.cargo-install-vtracer/bin/vtracer ./vtracer
+# (the harness's run_proof.sh does all three automatically before every boot).
+vectorize-shim
+vtracer
+.cargo-install-vtracer/
