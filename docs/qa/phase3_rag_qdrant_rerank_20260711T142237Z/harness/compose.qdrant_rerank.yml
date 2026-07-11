@@ -1,0 +1,68 @@
+# RAG-Qdrant + cross-encoder-reranker fusion — LIVE proof compose.
+#
+# Booted THROUGH the containers submodule compose.Orchestrator (§11.4.76),
+# rootless podman (§11.4.161). CPU-ONLY throughout (§11.4.119 single-resource-
+# owner — the video-analysis stream owns the GPU; this lane never touches it).
+#
+# Three services, each on its OWN new host port, distinct from the live coder
+# (:18434, read-only, never restarted §11.4.122) and every sibling Phase-3/
+# Phase-4 lane (:18435-18443, :18440 phase3rag):
+#   - qdrant      : real vector DB (upsert + ANN cosine search)
+#   - tei-embed   : HF Text Embeddings Inference, CPU, BAAI/bge-small-en-v1.5
+#                   (reuses the SAME proven model + shared cache volume as the
+#                   already-proven phase3_embeddings / phase3rag lanes,
+#                   §11.4.82 iteration-speedup — image already cached locally)
+#   - tei-rerank  : HF Text Embeddings Inference, CPU, BAAI/bge-reranker-base
+#                   (cross-encoder reranker, served via TEI's /rerank endpoint)
+#
+# No hardcoded model/host-port/limit literal beyond this file's own env-var
+# placeholders (§CONST-045/046) — every value is injected by run_proof.sh
+# before boot; ${VAR} are always set by the harness.
+services:
+  qdrant:
+    image: docker.io/qdrant/qdrant:latest
+    ports:
+      - "${QDRANT_HTTP_PORT}:6333"
+      - "${QDRANT_GRPC_PORT}:6334"
+    mem_limit: "${QDRANT_MEM_LIMIT}"
+    cpus: ${QDRANT_CPUS}
+    restart: "no"
+  tei-embed:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command:
+      - "--model-id"
+      - "${TEI_EMBED_MODEL_ID}"
+      - "--port"
+      - "80"
+      - "--hostname"
+      - "0.0.0.0"
+    ports:
+      - "${TEI_EMBED_HOST_PORT}:80"
+    volumes:
+      - helixllm-tei-cache:/data
+    mem_limit: "${TEI_EMBED_MEM_LIMIT}"
+    cpus: ${TEI_EMBED_CPUS}
+    restart: "no"
+  tei-rerank:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command:
+      - "--model-id"
+      - "${TEI_RERANK_MODEL_ID}"
+      - "--port"
+      - "80"
+      - "--hostname"
+      - "0.0.0.0"
+    ports:
+      - "${TEI_RERANK_HOST_PORT}:80"
+    volumes:
+      - helixllm-tei-rerank-cache:/data
+    mem_limit: "${TEI_RERANK_MEM_LIMIT}"
+    cpus: ${TEI_RERANK_CPUS}
+    restart: "no"
+volumes:
+  helixllm-tei-cache:
+    external: true
+    name: helixllm-tei-cache
+  helixllm-tei-rerank-cache:
+    external: true
+    name: helixllm-tei-rerank-cache
