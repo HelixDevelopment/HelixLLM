@@ -59,3 +59,14 @@ Thumbs.db
 # binary in-directory. Source under `cmd/agentgen-boot/` remains trackable;
 # only the compiled binary is ignored (anchored), per §11.4.30.
 /cmd/agentgen-boot/agentgen-boot
+
+# Vectorize service (§11.4.107 vtracer capability) — `go build .` without
+# -o inside services/vectorize/ names the binary after the module
+# (`dev.helix.llm.services.vectorize`, from services/vectorize/go.mod)
+# rather than the directory. Source under `services/vectorize/` remains
+# trackable; only this module-named build artefact is ignored (anchored),
+# per §11.4.30. Regeneration mechanism (§11.4.77): `go build -o
+# dev.helix.llm.services.vectorize .` from services/vectorize/ (same
+# module the sibling vectorize-shim/vtracer .gitignore entries already
+# cover for the other two build outputs of this service).
+/services/vectorize/dev.helix.llm.services.vectorize
