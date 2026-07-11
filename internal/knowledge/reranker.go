@@ -287,6 +287,124 @@ func (r *LLMReranker) scoreChunk(ctx context.Context, query, content string) (fl
 	return score, nil
 }
 
+// TEIReranker calls a HuggingFace Text-Embeddings-Inference (TEI) /rerank
+// endpoint serving a cross-encoder model (e.g. BAAI/bge-reranker-base) to
+// re-score and reorder a set of ScoredChunks against a query in a single
+// batched HTTP request.
+//
+// Unlike LLMReranker (which scores each chunk with a separate chat-
+// completion call and degrades per-chunk on failure), TEI's /rerank API
+// scores the whole candidate set atomically: the request carries the query
+// plus every candidate's text, and the response carries a score per
+// candidate index. A batch failure (unreachable endpoint, non-200 status,
+// malformed response) is therefore returned as a single error rather than
+// silently falling back to the unranked input — when a caller has
+// explicitly configured a reranker, a reranking failure MUST be visible
+// (§11.4.1 / §11.4.6), never masked as "reranking happened" when it did not.
+type TEIReranker struct {
+	baseURL string
+	client  *http.Client
+}
+
+// NewTEIReranker creates a TEIReranker targeting the given TEI /rerank base
+// URL (e.g. "http://localhost:18463" — the reranker appends "/rerank").
+func NewTEIReranker(baseURL string) *TEIReranker {
+	return &TEIReranker{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		client:  &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// WithHTTPClient installs a custom *http.Client (primarily for tests that
+// point the reranker at an httptest.Server).
+func (r *TEIReranker) WithHTTPClient(client *http.Client) *TEIReranker {
+	if client != nil {
+		r.client = client
+	}
+	return r
+}
+
+// teiRerankRequest is the TEI /rerank request body:
+// https://github.com/huggingface/text-embeddings-inference — POST /rerank
+// {"query": "...", "texts": ["...", "..."]}.
+type teiRerankRequest struct {
+	Query string   `json:"query"`
+	Texts []string `json:"texts"`
+}
+
+// teiRerankHit is one element of the TEI /rerank response array:
+// [{"index": 0, "score": 0.987}, ...] — index refers back into the request's
+// Texts slice; TEI does not echo the text itself.
+type teiRerankHit struct {
+	Index int     `json:"index"`
+	Score float64 `json:"score"`
+}
+
+// Rerank sends the query and every chunk's content to the TEI /rerank
+// endpoint in a single batched request, then reorders the chunks by the
+// returned cross-encoder scores (descending) and trims to topK.
+//
+// An empty chunks slice is a no-op. Any HTTP/decode/index-range error is
+// returned to the caller — see the TEIReranker doc comment for why this
+// reranker does not silently degrade to the unranked input on failure.
+func (r *TEIReranker) Rerank(query string, chunks []ScoredChunk, topK int) ([]ScoredChunk, error) {
+	if len(chunks) == 0 {
+		return chunks, nil
+	}
+
+	texts := make([]string, len(chunks))
+	for i, c := range chunks {
+		texts[i] = c.Content
+	}
+
+	body, err := json.Marshal(teiRerankRequest{Query: query, Texts: texts})
+	if err != nil {
+		return nil, fmt.Errorf("tei reranker: marshal request: %w", err)
+	}
+
+	endpoint := r.baseURL + "/rerank"
+	resp, err := r.client.Post(endpoint, "application/json", bytes.NewReader(body)) //nolint:gosec // URL is caller-supplied configuration
+	if err != nil {
+		return nil, fmt.Errorf("tei reranker: http post %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("tei reranker: read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("tei reranker: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var hits []teiRerankHit
+	if err := json.Unmarshal(respBody, &hits); err != nil {
+		return nil, fmt.Errorf("tei reranker: decode response: %w (body=%s)", err, string(respBody))
+	}
+	if len(hits) == 0 {
+		return nil, fmt.Errorf("tei reranker: empty response for %d candidates", len(chunks))
+	}
+
+	// TEI already returns hits sorted by score descending, but the caller
+	// never assumes an unverified ordering (§11.4.6) — sort defensively.
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+
+	result := make([]ScoredChunk, 0, len(hits))
+	for _, h := range hits {
+		if h.Index < 0 || h.Index >= len(chunks) {
+			return nil, fmt.Errorf("tei reranker: response index %d out of range (n=%d)", h.Index, len(chunks))
+		}
+		sc := chunks[h.Index]
+		sc.Score = h.Score
+		result = append(result, sc)
+	}
+
+	if topK > 0 && topK < len(result) {
+		result = result[:topK]
+	}
+	return result, nil
+}
+
 // extractLeadingNumber pulls the first number in 0-10 range out of an LLM
 // response, tolerating surrounding prose.
 func extractLeadingNumber(text string) (string, bool) {

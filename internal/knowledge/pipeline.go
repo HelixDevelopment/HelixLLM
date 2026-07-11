@@ -22,6 +22,12 @@ type Pipeline struct {
 	bm25Index       *BM25Index
 	hybridEnabled   bool
 	mmrLambda       float64
+
+	// Optional cross-encoder reranking stage (embed -> retrieve -> RERANK
+	// -> ground). When reranker is nil (default), Query behaves exactly as
+	// it did before this field existed: no over-fetch, no rerank call.
+	reranker              Reranker
+	rerankFetchMultiplier int
 }
 
 // PipelineConfig holds the dependencies and defaults for a Pipeline.
@@ -37,6 +43,19 @@ type PipelineConfig struct {
 	SemanticWeight float64
 	KeywordWeight  float64
 	MMRLambda      float64
+
+	// Reranker, when non-nil, is applied by Query as the final ordering
+	// step after retrieval (embed -> retrieve -> RERANK -> ground), on
+	// BOTH the hybrid and the plain vector-only retrieval path. Leave nil
+	// to disable reranking entirely (the pre-existing default behaviour).
+	//
+	// RerankFetchMultiplier controls how many candidates Query retrieves
+	// before handing them to Reranker, so the cross-encoder has real
+	// reordering headroom instead of merely re-sorting an already-trimmed
+	// top-K. A value <=1 defaults to 3 (retrieve 3x topK, rerank down to
+	// topK). Ignored when Reranker is nil.
+	Reranker              Reranker
+	RerankFetchMultiplier int
 }
 
 // NewPipeline returns a Pipeline configured with the provided options.
@@ -54,6 +73,14 @@ func NewPipeline(cfg PipelineConfig) *Pipeline {
 		defaultTopK:       topK,
 		hybridEnabled:     cfg.HybridEnabled,
 		mmrLambda:         cfg.MMRLambda,
+		reranker:          cfg.Reranker,
+	}
+
+	if p.reranker != nil {
+		p.rerankFetchMultiplier = cfg.RerankFetchMultiplier
+		if p.rerankFetchMultiplier <= 1 {
+			p.rerankFetchMultiplier = 3
+		}
 	}
 
 	if cfg.HybridEnabled {
@@ -151,6 +178,16 @@ func (p *Pipeline) Query(ctx context.Context, req QueryRequest) (*QueryResult, e
 		topK = p.defaultTopK
 	}
 
+	// When a reranker is configured, retrieve a wider candidate pool than
+	// topK so the cross-encoder has real reordering headroom (embed ->
+	// retrieve MORE -> RERANK -> trim to topK -> ground). Without a
+	// reranker fetchK == topK, so retrieval behaviour is byte-for-byte
+	// unchanged from before this field existed.
+	fetchK := topK
+	if p.reranker != nil {
+		fetchK = topK * p.rerankFetchMultiplier
+	}
+
 	var scored []ScoredChunk
 
 	if p.hybridEnabled && p.hybridRetriever != nil {
@@ -160,7 +197,7 @@ func (p *Pipeline) Query(ctx context.Context, req QueryRequest) (*QueryResult, e
 		// 2. Run hybrid search for each expanded query.
 		seen := make(map[string]ScoredChunk)
 		for _, q := range expandedQueries {
-			results, err := p.hybridRetriever.Search(ctx, req.Collection, q, topK)
+			results, err := p.hybridRetriever.Search(ctx, req.Collection, q, fetchK)
 			if err != nil {
 				return nil, fmt.Errorf("query: hybrid search: %w", err)
 			}
@@ -182,8 +219,9 @@ func (p *Pipeline) Query(ctx context.Context, req QueryRequest) (*QueryResult, e
 			candidates = append(candidates, sc)
 		}
 
-		// 4. Apply MMR for diversity.
-		scored = MMRRerank(candidates, p.mmrLambda, topK)
+		// 4. Apply MMR for diversity (fetchK-wide when reranking follows,
+		// topK-wide otherwise — no behaviour change without a reranker).
+		scored = MMRRerank(candidates, p.mmrLambda, fetchK)
 	} else {
 		// Original vector-only path.
 		vec, err := p.embedder.Embed(req.Query)
@@ -191,10 +229,26 @@ func (p *Pipeline) Query(ctx context.Context, req QueryRequest) (*QueryResult, e
 			return nil, fmt.Errorf("query: embed query: %w", err)
 		}
 
-		scored, err = p.store.Search(req.Collection, vec, topK)
+		scored, err = p.store.Search(req.Collection, vec, fetchK)
 		if err != nil {
 			return nil, fmt.Errorf("query: search store: %w", err)
 		}
+	}
+
+	// 5. Cross-encoder rerank stage (config-gated, §11.4.111): re-scores
+	// and reorders the retrieved candidates against the query, then trims
+	// to topK. A reranker failure is surfaced as an error rather than
+	// silently falling back to unranked retrieval order — a caller that
+	// explicitly configured reranking must be able to tell when it did not
+	// actually happen (§11.4.1 / §11.4.6).
+	if p.reranker != nil {
+		reranked, err := p.reranker.Rerank(req.Query, scored, topK)
+		if err != nil {
+			return nil, fmt.Errorf("query: rerank: %w", err)
+		}
+		scored = reranked
+	} else if topK > 0 && topK < len(scored) {
+		scored = scored[:topK]
 	}
 
 	if req.MinScore > 0 {

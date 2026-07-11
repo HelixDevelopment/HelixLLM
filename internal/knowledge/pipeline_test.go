@@ -516,3 +516,209 @@ func TestPipeline_Query_MinScore_PassingChunks(t *testing.T) {
 		t.Error("expected at least one chunk to pass MinScore=0.0001")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// §11.4.135 standing regression guard: production Pipeline.Query MUST call
+// through to a configured Reranker (embed -> retrieve -> RERANK -> ground).
+//
+// Forensic anchor (V&V finding RERANKER-NOT-WIRED, 2026-07-11 wave-2): the
+// RAG cross-encoder reranker (TEI/bge) was proven only in a standalone QA
+// harness — internal/knowledge.Pipeline.Query never called it, so
+// production RAG queries got NO cross-encoder reranking regardless of
+// configuration. These tests are the reproduce-first RED baseline (§11.4.115)
+// for that gap: with the fix reverted, TestPipeline_Query_AppliesReranker_*
+// FAIL because Query() ignores PipelineConfig.Reranker entirely. With the
+// fix applied they PASS — the SAME test source proves both defect-present
+// and defect-absent (one source, two roles, no separate happy-path test).
+// ---------------------------------------------------------------------------
+
+// fakeReverseReranker is a deterministic Reranker test double that reverses
+// whatever candidate order it is handed and records the query/candidate
+// count it was called with, so tests can assert Pipeline.Query genuinely
+// invokes the configured reranker rather than merely accepting it.
+type fakeReverseReranker struct {
+	calledWithQuery string
+	calledWithN     int
+	calls           int
+	err             error
+}
+
+func (f *fakeReverseReranker) Rerank(query string, chunks []knowledge.ScoredChunk, topK int) ([]knowledge.ScoredChunk, error) {
+	f.calls++
+	f.calledWithQuery = query
+	f.calledWithN = len(chunks)
+	if f.err != nil {
+		return nil, f.err
+	}
+	result := make([]knowledge.ScoredChunk, len(chunks))
+	for i, c := range chunks {
+		result[len(chunks)-1-i] = c
+	}
+	if topK > 0 && topK < len(result) {
+		result = result[:topK]
+	}
+	return result, nil
+}
+
+// seedThreeChunks upserts three distinctly-embedded chunks directly into the
+// store (bypassing Ingest so the exact chunk set + embeddings are known),
+// returning their IDs in insertion order.
+func seedThreeChunks(t *testing.T, store knowledge.VectorStore, embedder knowledge.Embedder, collection string) []string {
+	t.Helper()
+	texts := map[string]string{
+		"chunk-alpha": "alpha content about apples",
+		"chunk-beta":  "beta content about bananas",
+		"chunk-gamma": "gamma content about grapes",
+	}
+	ids := []string{"chunk-alpha", "chunk-beta", "chunk-gamma"}
+	chunks := make([]knowledge.Chunk, 0, len(ids))
+	for _, id := range ids {
+		vec, err := embedder.Embed(texts[id])
+		if err != nil {
+			t.Fatalf("embed %q: %v", id, err)
+		}
+		chunks = append(chunks, knowledge.Chunk{
+			ID:         id,
+			DocumentID: "seed-doc",
+			Content:    texts[id],
+			Embedding:  vec,
+		})
+	}
+	if err := store.Upsert(collection, chunks); err != nil {
+		t.Fatalf("seed upsert: %v", err)
+	}
+	return ids
+}
+
+func TestPipeline_Query_AppliesReranker_NonHybrid(t *testing.T) {
+	store := knowledge.NewMemoryStore()
+	embedder := knowledge.NewHashEmbedder(32)
+	seedThreeChunks(t, store, embedder, "docs")
+
+	plain := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder: embedder, Store: store, Chunker: knowledge.NewFixedSizeChunker(100, 10),
+		DefaultCollection: "docs", DefaultTopK: 3,
+	})
+	plainResult, err := plain.Query(context.Background(), knowledge.QueryRequest{
+		Query: "alpha content about apples", Collection: "docs", TopK: 3,
+	})
+	if err != nil {
+		t.Fatalf("plain query error: %v", err)
+	}
+	if len(plainResult.Chunks) != 3 {
+		t.Fatalf("expected 3 chunks from the unreranked baseline, got %d", len(plainResult.Chunks))
+	}
+
+	reranker := &fakeReverseReranker{}
+	reranked := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder: embedder, Store: store, Chunker: knowledge.NewFixedSizeChunker(100, 10),
+		DefaultCollection: "docs", DefaultTopK: 3, Reranker: reranker,
+	})
+	rerankedResult, err := reranked.Query(context.Background(), knowledge.QueryRequest{
+		Query: "alpha content about apples", Collection: "docs", TopK: 3,
+	})
+	if err != nil {
+		t.Fatalf("reranked query error: %v", err)
+	}
+
+	// PRODUCTION-PATH PROOF: the configured Reranker MUST actually have been
+	// invoked by Pipeline.Query. Before the fix, fakeReverseReranker.calls
+	// stays 0 forever — this is the exact defect (RERANKER-NOT-WIRED).
+	if reranker.calls == 0 {
+		t.Fatal("Pipeline.Query never called the configured Reranker (RERANKER-NOT-WIRED regression)")
+	}
+	if reranker.calledWithQuery != "alpha content about apples" {
+		t.Errorf("reranker called with query %q, want %q", reranker.calledWithQuery, "alpha content about apples")
+	}
+	if reranker.calledWithN == 0 {
+		t.Fatal("reranker was called with zero candidates")
+	}
+
+	if len(rerankedResult.Chunks) != len(plainResult.Chunks) {
+		t.Fatalf("reranked result has %d chunks, want %d", len(rerankedResult.Chunks), len(plainResult.Chunks))
+	}
+	for i := range plainResult.Chunks {
+		want := plainResult.Chunks[len(plainResult.Chunks)-1-i].ID
+		got := rerankedResult.Chunks[i].ID
+		if got != want {
+			t.Errorf("position %d: got chunk %q, want %q (reversed reranker order was not applied — Query() is not using the Reranker's output)",
+				i, got, want)
+		}
+	}
+}
+
+func TestPipeline_Query_AppliesReranker_Hybrid(t *testing.T) {
+	store := knowledge.NewMemoryStore()
+	embedder := knowledge.NewHashEmbedder(32)
+	seedThreeChunks(t, store, embedder, "docs-hybrid")
+
+	// Index the same content into BM25 too so hybrid retrieval finds it —
+	// hybrid Search embeds+keyword-searches independently of Ingest, so we
+	// index by hand exactly like NewPipeline does internally for Ingest.
+	reranker := &fakeReverseReranker{}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder: embedder, Store: store, Chunker: knowledge.NewFixedSizeChunker(100, 10),
+		DefaultCollection: "docs-hybrid", DefaultTopK: 3,
+		HybridEnabled: true, Reranker: reranker,
+	})
+
+	result, err := p.Query(context.Background(), knowledge.QueryRequest{
+		Query: "beta content about bananas", Collection: "docs-hybrid", TopK: 3,
+	})
+	if err != nil {
+		t.Fatalf("hybrid reranked query error: %v", err)
+	}
+	if reranker.calls == 0 {
+		t.Fatal("Pipeline.Query (hybrid path) never called the configured Reranker (RERANKER-NOT-WIRED regression)")
+	}
+	if len(result.Chunks) == 0 {
+		t.Fatal("expected at least one chunk from hybrid+rerank query")
+	}
+}
+
+func TestPipeline_Query_RerankError_Propagates(t *testing.T) {
+	store := knowledge.NewMemoryStore()
+	embedder := knowledge.NewHashEmbedder(32)
+	seedThreeChunks(t, store, embedder, "docs-err")
+
+	reranker := &fakeReverseReranker{err: fmt.Errorf("tei reranker: simulated failure")}
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder: embedder, Store: store, Chunker: knowledge.NewFixedSizeChunker(100, 10),
+		DefaultCollection: "docs-err", DefaultTopK: 3, Reranker: reranker,
+	})
+
+	_, err := p.Query(context.Background(), knowledge.QueryRequest{
+		Query: "alpha content about apples", Collection: "docs-err", TopK: 3,
+	})
+	// ANTI-BLUFF: a reranker failure MUST surface as an error, never a
+	// silent fallback to unranked results (§11.4.1 / §11.4.6) — a caller
+	// that explicitly configured reranking must be able to tell it did not
+	// happen.
+	if err == nil {
+		t.Fatal("expected Query to return an error when the configured Reranker fails, got nil")
+	}
+}
+
+func TestPipeline_Query_NoReranker_BehaviourUnchanged(t *testing.T) {
+	// Regression guard: a Pipeline built WITHOUT a Reranker (the default,
+	// pre-existing configuration used by every caller before this fix)
+	// must retrieve and trim exactly as before — no over-fetch, no rerank
+	// call, byte-identical chunk count to DefaultTopK.
+	store := knowledge.NewMemoryStore()
+	embedder := knowledge.NewHashEmbedder(32)
+	seedThreeChunks(t, store, embedder, "docs-plain")
+
+	p := knowledge.NewPipeline(knowledge.PipelineConfig{
+		Embedder: embedder, Store: store, Chunker: knowledge.NewFixedSizeChunker(100, 10),
+		DefaultCollection: "docs-plain", DefaultTopK: 2,
+	})
+	result, err := p.Query(context.Background(), knowledge.QueryRequest{
+		Query: "gamma content about grapes", Collection: "docs-plain", TopK: 2,
+	})
+	if err != nil {
+		t.Fatalf("query error: %v", err)
+	}
+	if len(result.Chunks) != 2 {
+		t.Errorf("expected exactly 2 chunks (topK, no reranker over-fetch), got %d", len(result.Chunks))
+	}
+}

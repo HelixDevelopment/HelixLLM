@@ -79,6 +79,12 @@ type LLMConfig struct {
 // KnowledgeConfig holds RAG / vector-store settings.
 type KnowledgeConfig struct {
 	VectorDB          string `env:"HELIX_VECTOR_DB" default:"qdrant"`
+	// VectorDBHost/VectorDBPort resolve the Qdrant (or other vector-store
+	// backend) network address (§11.4.111 resolve-by-config, never
+	// hardcoded). Defaults preserve the pre-existing behaviour
+	// (localhost:6333) for zero-config local development.
+	VectorDBHost      string `env:"HELIX_VECTOR_DB_HOST" default:"localhost"`
+	VectorDBPort      int    `env:"HELIX_VECTOR_DB_PORT" default:"6333"`
 	EmbeddingProvider string `env:"HELIX_EMBEDDING_PROVIDER" default:"local"`
 	EmbeddingModel    string `env:"HELIX_EMBEDDING_MODEL" default:"all-mpnet-base-v2"`
 	EmbeddingBaseURL  string `env:"HELIX_EMBEDDING_BASE_URL"`
@@ -86,6 +92,14 @@ type KnowledgeConfig struct {
 	RAGChunkOverlap   int    `env:"HELIX_RAG_CHUNK_OVERLAP" default:"200"`
 	RAGTopK           int    `env:"HELIX_RAG_TOP_K" default:"5"`
 	IngestDir         string `env:"HELIX_INGEST_DIR"`
+	// RerankEnabled/RerankBaseURL/RerankFetchMultiplier configure the
+	// optional cross-encoder reranking stage (embed -> retrieve -> RERANK
+	// -> ground). When RerankEnabled is false (default) or RerankBaseURL
+	// is empty, Pipeline.Query behaves exactly as before this feature was
+	// wired (no reranking, no behaviour change, no extra retrieval cost).
+	RerankEnabled         bool   `env:"HELIX_RAG_RERANK_ENABLED" default:"false"`
+	RerankBaseURL         string `env:"HELIX_RAG_RERANK_BASE_URL"`
+	RerankFetchMultiplier int    `env:"HELIX_RAG_RERANK_FETCH_MULTIPLIER" default:"3"`
 }
 
 // DatabaseConfig holds PostgreSQL settings.

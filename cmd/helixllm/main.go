@@ -310,18 +310,35 @@ func main() {
 	}
 
 	// Create knowledge pipeline BEFORE gateway so RAG hook is available.
-	store, err := knowledge.NewVectorStore(cfg.Knowledge.VectorDB, "localhost", 6333)
+	// Host/port are env-configurable (§11.4.111 resolve-by-config) rather
+	// than hardcoded, defaulting to localhost:6333 for zero-config local dev.
+	store, err := knowledge.NewVectorStore(cfg.Knowledge.VectorDB, cfg.Knowledge.VectorDBHost, cfg.Knowledge.VectorDBPort)
 	if err != nil {
 		log.WithError(err).Error("failed to connect to vector store, falling back to memory store")
 		store = knowledge.NewMemoryStore()
 	}
 	chunker := knowledge.NewFixedSizeChunker(cfg.Knowledge.RAGChunkSize, cfg.Knowledge.RAGChunkOverlap)
+
+	// Cross-encoder reranking stage (embed -> retrieve -> RERANK -> ground),
+	// config-gated per HELIX_RAG_RERANK_ENABLED. Wires a real TEI /rerank
+	// endpoint (e.g. BAAI/bge-reranker-base served by
+	// huggingface/text-embeddings-inference) into the production RAG query
+	// path — previously this was proven only in a standalone QA harness and
+	// never reached Pipeline.Query.
+	var reranker knowledge.Reranker
+	if cfg.Knowledge.RerankEnabled && cfg.Knowledge.RerankBaseURL != "" {
+		reranker = knowledge.NewTEIReranker(cfg.Knowledge.RerankBaseURL)
+		log.WithField("rerank_base_url", cfg.Knowledge.RerankBaseURL).Info("RAG cross-encoder reranking enabled")
+	}
+
 	pipeline := knowledge.NewPipeline(knowledge.PipelineConfig{
-		Embedder:          embedder,
-		Store:             store,
-		Chunker:           chunker,
-		DefaultCollection: "default",
-		DefaultTopK:       cfg.Knowledge.RAGTopK,
+		Embedder:              embedder,
+		Store:                 store,
+		Chunker:               chunker,
+		DefaultCollection:     "default",
+		DefaultTopK:           cfg.Knowledge.RAGTopK,
+		Reranker:              reranker,
+		RerankFetchMultiplier: cfg.Knowledge.RerankFetchMultiplier,
 	})
 
 	// Build the FallbackChain — ordered by LLMsVerifier quality scores with
