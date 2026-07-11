@@ -1,0 +1,2 @@
+INGEST_FAILED: doc=doc_alpha err=ingest: store upsert: qdrant upsert: failed to upsert points: request failed with status 400: {"status":{"error":"Format error in JSON body: value d6cdd29d-f893-4b8d-be1c-4094bfe15350-0 is not a valid point ID, valid values are either an unsigned integer or a UUID"},"time":0.0}
+exit status 1

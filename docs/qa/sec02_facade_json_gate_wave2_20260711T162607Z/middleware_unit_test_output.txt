@@ -1,0 +1,14 @@
+=== RUN   TestRequireValidJSON_MalformedBody_RejectsBeforeNextHandler
+=== RUN   TestRequireValidJSON_MalformedBody_RejectsBeforeNextHandler/truncated_json
+=== RUN   TestRequireValidJSON_MalformedBody_RejectsBeforeNextHandler/unquoted_key_trailing_comma
+--- PASS: TestRequireValidJSON_MalformedBody_RejectsBeforeNextHandler (0.00s)
+    --- PASS: TestRequireValidJSON_MalformedBody_RejectsBeforeNextHandler/truncated_json (0.00s)
+    --- PASS: TestRequireValidJSON_MalformedBody_RejectsBeforeNextHandler/unquoted_key_trailing_comma (0.00s)
+=== RUN   TestRequireValidJSON_WellFormedBody_PassesThrough
+--- PASS: TestRequireValidJSON_WellFormedBody_PassesThrough (0.00s)
+=== RUN   TestRequireValidJSON_NonJSONContentType_PassesThrough
+--- PASS: TestRequireValidJSON_NonJSONContentType_PassesThrough (0.00s)
+=== RUN   TestRequireValidJSON_GETRequest_PassesThrough
+--- PASS: TestRequireValidJSON_GETRequest_PassesThrough (0.00s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware	0.005s

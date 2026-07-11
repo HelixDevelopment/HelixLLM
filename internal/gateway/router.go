@@ -64,6 +64,12 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1.Use(gwmw.APIKeyAuth(opts.APIKeys))
 	v1.Use(gwmw.RateLimit(opts.RateLimit))
 	v1.Use(gwmw.SecurityHeaders())
+	// SEC-02 hardening: reject malformed-JSON request bodies with 400
+	// BEFORE any route handler (and therefore before any brain/provider
+	// proxy call) sees them. See middleware.RequireValidJSON for the full
+	// rationale and the live reproduction that motivated making this an
+	// explicit, centrally-tested gate.
+	v1.Use(gwmw.RequireValidJSON())
 	if opts.TOONEnabled {
 		v1.Use(gwmw.ContentNegotiation())
 	}

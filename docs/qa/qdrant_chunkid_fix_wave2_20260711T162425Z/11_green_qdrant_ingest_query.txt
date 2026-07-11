@@ -1,0 +1,8 @@
+INGEST_OK: ingested 5 docs into collection helixrag_chunkidfix_green_20260711T162431Z
+QUERY_OK: retrieved 5 chunks
+QUERY_DOC_FOUND: doc_alpha
+QUERY_DOC_FOUND: doc_beta
+QUERY_DOC_FOUND: doc_gamma
+QUERY_DOC_FOUND: doc_delta
+QUERY_DOC_FOUND: doc_epsilon
+QUERY_RETRIEVED_ALL_DOCS

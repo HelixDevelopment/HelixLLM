@@ -1,0 +1,49 @@
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/chat/completions/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/chat/completions/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/messages/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/messages/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/completions/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/completions/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/embeddings/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/embeddings/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/chat/completions/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/chat/completions/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/messages/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/messages/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/completions/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/completions/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/embeddings/truncated_json
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/embeddings/unquoted_key_trailing_comma
+=== RUN   TestSEC02_MalformedJSON_RejectedBefore500/well_formed_request_unaffected
+2026/07/11 21:26:30 [HelixLLM] Working directory: /home/milos/Factory/projects/tools_and_research/helix_code/submodules/helix_llm/internal/gateway
+2026/07/11 21:26:30 [HelixLLM] System prompt replaced: 1 original msgs → 2 (stripped 0 system msgs, tools=0)
+2026/07/11 21:26:30 [HelixLLM]   msg[0] role=system content="You are HelixLLM, a helpful AI coding assistant.\nYou HAVE full access to the use..."
+2026/07/11 21:26:30 [HelixLLM]   msg[1] role=user content="Reply with exactly: OK"
+--- PASS: TestSEC02_MalformedJSON_RejectedBefore500 (0.03s)
+    --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/chat/completions/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/chat/completions/unquoted_key_trailing_comma (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/messages/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/messages/unquoted_key_trailing_comma (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/completions/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/completions/unquoted_key_trailing_comma (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/embeddings/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/nil_brain//v1/embeddings/unquoted_key_trailing_comma (0.00s)
+    --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/chat/completions/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/chat/completions/unquoted_key_trailing_comma (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/messages/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/messages/unquoted_key_trailing_comma (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/completions/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/completions/unquoted_key_trailing_comma (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/embeddings/truncated_json (0.00s)
+        --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/real_brain_live_coder//v1/embeddings/unquoted_key_trailing_comma (0.00s)
+    --- PASS: TestSEC02_MalformedJSON_RejectedBefore500/well_formed_request_unaffected (0.03s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway	0.042s
+testing: warning: no tests to run
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware	0.004s [no tests to run]

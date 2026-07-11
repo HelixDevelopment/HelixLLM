@@ -286,28 +286,7 @@ func main() {
 	})
 
 	// Create embedder early so the gateway can use it for /v1/embeddings.
-	// For the "llama" embedding provider, the second argument is the
-	// base URL of the embedding server. Use the dedicated
-	// HELIX_EMBEDDING_BASE_URL when set; fall back to OpenAIBaseURL
-	// for backward compatibility. For "openai" provider, it's the API key.
-	embeddingAPIKeyOrURL := cfg.LLM.OpenAIKey
-	if cfg.Knowledge.EmbeddingProvider == "llama" {
-		if cfg.Knowledge.EmbeddingBaseURL != "" {
-			embeddingAPIKeyOrURL = cfg.Knowledge.EmbeddingBaseURL
-		} else if cfg.LLM.OpenAIBaseURL != "" {
-			embeddingAPIKeyOrURL = cfg.LLM.OpenAIBaseURL
-		}
-	}
-	embedder, err := knowledge.NewEmbedder(
-		cfg.Knowledge.EmbeddingProvider,
-		embeddingAPIKeyOrURL,
-		cfg.Knowledge.EmbeddingModel,
-		768,
-	)
-	if err != nil {
-		log.WithError(err).Error("failed to create embedder, falling back to hash embedder")
-		embedder = knowledge.NewHashEmbedder(768)
-	}
+	embedder := buildEmbedder(cfg, log)
 
 	// Create knowledge pipeline BEFORE gateway so RAG hook is available.
 	// Host/port are env-configurable (§11.4.111 resolve-by-config) rather
@@ -531,6 +510,67 @@ func fetchProviderModels(ctx context.Context, b *brain.Brain) {
 			}
 		}
 	}
+}
+
+// buildEmbedder constructs the knowledge-layer Embedder from cfg.Knowledge,
+// falling back to the deterministic HashEmbedder on construction error
+// (unchanged behaviour from before this function was extracted).
+//
+// F07 (§11.4.146): HELIX_EMBEDDING_PROVIDER defaults to "local", which
+// knowledge.NewEmbedder resolves to knowledge.HashEmbedder — a
+// deterministic, NON-SEMANTIC embedder (SHA-256 bytes mapped into a
+// unit-length vector) that does NOT capture any semantic similarity
+// between texts. RAG retrieval built on it degrades to near-random
+// ranking. That tradeoff was previously silent: an operator running with
+// the (very common, zero-config) default would have no signal that their
+// RAG pipeline is not doing semantic retrieval at all.
+//
+// This function does NOT change the default (that half is intentionally
+// operator-gated per the task scope) — it only makes the choice
+// transparent: whenever the RESOLVED embedder is the HashEmbedder (which
+// covers "local", "hash", an empty value, an unrecognised provider name,
+// AND the error-fallback path below — every path knowledge.NewEmbedder can
+// take that ends in a HashEmbedder), a startup WARNING is logged. A
+// type-assertion on the concrete returned value is used (rather than
+// string-matching cfg.Knowledge.EmbeddingProvider) so the warning fires
+// correctly for every one of those paths uniformly, including the ones
+// that don't literally spell "local".
+func buildEmbedder(cfg *config.HelixConfig, log logging.Logger) knowledge.Embedder {
+	// For the "llama" embedding provider, the second argument is the
+	// base URL of the embedding server. Use the dedicated
+	// HELIX_EMBEDDING_BASE_URL when set; fall back to OpenAIBaseURL
+	// for backward compatibility. For "openai" provider, it's the API key.
+	embeddingAPIKeyOrURL := cfg.LLM.OpenAIKey
+	if cfg.Knowledge.EmbeddingProvider == "llama" {
+		if cfg.Knowledge.EmbeddingBaseURL != "" {
+			embeddingAPIKeyOrURL = cfg.Knowledge.EmbeddingBaseURL
+		} else if cfg.LLM.OpenAIBaseURL != "" {
+			embeddingAPIKeyOrURL = cfg.LLM.OpenAIBaseURL
+		}
+	}
+	embedder, err := knowledge.NewEmbedder(
+		cfg.Knowledge.EmbeddingProvider,
+		embeddingAPIKeyOrURL,
+		cfg.Knowledge.EmbeddingModel,
+		768,
+	)
+	if err != nil {
+		log.WithError(err).Error("failed to create embedder, falling back to hash embedder")
+		embedder = knowledge.NewHashEmbedder(768)
+	}
+
+	if _, isHash := embedder.(*knowledge.HashEmbedder); isHash {
+		log.WithField("embedding_provider", cfg.Knowledge.EmbeddingProvider).
+			Warn("RAG embeddings are using the non-semantic HashEmbedder " +
+				"(HELIX_EMBEDDING_PROVIDER=local/hash, unset, or unrecognised, " +
+				"or embedder construction failed) — embeddings do NOT capture " +
+				"semantic similarity and RAG retrieval quality will be " +
+				"significantly degraded; set HELIX_EMBEDDING_PROVIDER to a real " +
+				"provider (e.g. \"openai\" or \"llama\" pointing at a real " +
+				"embedding-serving endpoint) for production-quality RAG")
+	}
+
+	return embedder
 }
 
 // discoverProviderModels returns a map of provider name → first model ID by
