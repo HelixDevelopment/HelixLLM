@@ -53,3 +53,9 @@ Thumbs.db
 # `cmd/laneconfig-validate/` remains trackable; only the root-level
 # binary is ignored (anchored), per §11.4.30 no-versioned-build-artifacts.
 /laneconfig-validate
+
+# Serving Phase-2 agent-gen (Lane-B / ClassAgent) boot harness — `go build
+# -o cmd/agentgen-boot/agentgen-boot ./cmd/agentgen-boot/` drops the built
+# binary in-directory. Source under `cmd/agentgen-boot/` remains trackable;
+# only the compiled binary is ignored (anchored), per §11.4.30.
+/cmd/agentgen-boot/agentgen-boot
