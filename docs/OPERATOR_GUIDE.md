@@ -98,7 +98,8 @@ podman run -d --name helixllm-coder \
   --cache-type-v q8_0 \
   --host 0.0.0.0 \
   --port 18434 \
-  --jinja
+  --jinja \
+  --metrics
 ```
 
 Flag-by-flag:
@@ -119,6 +120,7 @@ Flag-by-flag:
 | `--cache-type-k q8_0` / `--cache-type-v q8_0` | q8_0-quantized KV cache (smaller VRAM footprint). |
 | `--host 0.0.0.0 --port 18434` | Bind address / port. |
 | `--jinja` | Use the model's Jinja chat template for OpenAI-style chat formatting. |
+| `--metrics` | Expose llama.cpp's Prometheus `/metrics` endpoint. This is part of the current canonical run line — the container the mode switch operates on carries it, and `helixllm-mode.sh` preserves it verbatim across a mode change (see [Modes](#modes)). |
 
 **Measured resident VRAM: ~19.4 GB** (19432 MiB, `docs/qa/phase2_e2e_20260706/`
 `01_nvidia_smi_pre.txt` / `03_nvidia_smi_during.txt`).
@@ -131,6 +133,88 @@ podman start helixllm-coder   # restart an existing (stopped) container
 podman stop  helixllm-coder   # stop it
 podman logs -f helixllm-coder # tail server logs
 ```
+
+---
+
+## Modes
+
+The `helixllm-coder` container runs in **one of two mutually-exclusive modes**,
+flipped by `helixllm-mode.sh` (main repo `scripts/helixllm-mode.sh`). The two
+modes differ **only** in the pair `-c` (total KV context) / `--parallel` (slot
+count); everything else in the run line — image, model path, container name,
+port `18434`, `--metrics`, flag order — is preserved verbatim.
+
+| Mode | `-c` | `--parallel` | Slot layout | Serves | Resident VRAM |
+|---|---|---|---|---|---|
+| **coder** (default) | `24576` | `8` | 8 slots × 3072 tok | HelixCode / HelixAgent — many concurrent sub-requests | ~19.4 GB (§3, measured) |
+| **claude** | `229376` | `1` | one 229376-tok slot | Claude Toolkit `helixagent` alias / Claude Code — one request, system prompt + tool schemas ~67k tok | ~29.5 GB (30244 MiB, ~1.9 GB free, measured live) |
+
+**Why two modes.** In llama.cpp `-c` is the **total** KV context split evenly
+across `--parallel N` slots, so each slot sees `c/N` tokens. HelixCode issues
+many concurrent sub-requests and is well served by 8 × 3072-tok slots. Claude
+Code issues a **single** request whose system prompt + tool schemas (~67k
+tokens) cannot fit a 3072-tok coder slot — it needs the whole window in one
+slot (`229376/1`, sized for the multi-turn agent loop whose tool outputs
+accumulate context well past that first request — not the ~67k first request
+alone).
+
+**Mutual exclusion (the load-bearing constraint).** One 32 GB RTX 5090 (32607
+MiB) cannot hold the 8×3072 coder layout **and** the 229376-token single slot at
+the same time. The two modes are one-at-a-time: each fits the card alone with
+headroom, both together do not. `helixllm-mode.sh` therefore **stops the old
+container before starting the new one**, so VRAM is freed before the new mode's
+KV cache is allocated. Both figures are measured, not estimated: coder-mode
+residency is **~19.4 GB** (19432 MiB, §3), and claude mode's single
+large-context slot is **~29.5 GB** (30244 MiB, `nvidia-smi` at `nctx=229376`
+during the 2026-07-21 claude-mode validation) — higher, as expected for a
+229376-token KV cache vs 8×3072, but still fits with ~1.9 GB (1854 MiB) free on
+the 32607 MiB card. The two together (~49 GB) exceed the card, which is why the
+modes are one-at-a-time.
+
+### Operator commands
+
+```bash
+helixllm-mode.sh coder                 # switch to coder mode (serves HelixCode)
+helixllm-mode.sh claude                # switch to claude mode (serves Claude Code)
+helixllm-mode.sh status                # detected mode + stored -c/--parallel + live /props
+helixllm-mode.sh claude --print-cmd    # PREVIEW the recreate cmd — runs NOTHING
+helixllm-mode.sh coder  --force        # recreate even if already in that mode
+```
+
+| Command / flag | Effect |
+|---|---|
+| `coder` / `claude` | Switch to that mode. A no-op when already in it (unless `--force`). |
+| `status` | Print the detected mode, the stored `-c` / `--parallel`, and the live `/props` `total_slots`; warns on drift. |
+| `--print-cmd` | Print the derived recreate argv and run **nothing** (pure string build; does not even require podman). |
+| `--force` | Recreate even when already in the requested mode. |
+| `--container NAME` | Operate on a container other than `helixllm-coder`. |
+
+### What a switch does (fail-closed)
+
+A mode switch is a stop-before-run recreate:
+
+1. **Derive** the new run line from the existing container's stored
+   `.Config.CreateCommand`, swapping **only** `-c` and `--parallel` — so
+   `--metrics`, the model path, name, port and flag order carry over verbatim
+   (a lost flag would break HelixLLM). With no existing container it falls back
+   to the canonical run line, which itself includes `--metrics`.
+2. **Regenerate the CDI GPU spec** to `~/.config/cdi/nvidia.yaml` (rootless,
+   resolve-by-identity — mirrors `boot_coder_cdi.sh`).
+3. **Stop + remove** the old container (frees VRAM), then `podman run` the new
+   argv under `CDI_SPEC_DIRS`.
+4. **Wait for `:18434` readiness** — polls `GET /v1/models` (up to ~600s).
+5. **Verify** via `GET /props`: the live `total_slots` must resolve back to the
+   requested mode, otherwise the switch **fails** rather than reporting success.
+
+It is **idempotent** (a no-op when already in the requested mode, unless
+`--force`) and **fail-closed**: if the current mode is UNKNOWN (`--parallel` is
+neither 1 nor 8) it refuses to guess without `--force`, and if readiness or the
+`/props` cross-check fails it aborts rather than leaving a half-switched stack.
+
+**Evidence:** `scripts/helixllm-mode.sh` (source) and its hermetic test
+`scripts/tests/test_helixllm_mode.sh` (both main repo) — the test asserts the
+swap touches exactly `-c` and `--parallel`, keeps `--metrics`, and that
+`podman stop` precedes `podman run` (VRAM safety).
 
 ---
 
