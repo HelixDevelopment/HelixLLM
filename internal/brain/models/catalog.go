@@ -21,6 +21,7 @@ type ModelDefinition struct {
 	Parameters      int64     `json:"parameters"`
 	Quantization    string    `json:"quantization"`
 	VRAMRequired    int64     `json:"vram_required"` // bytes
+	RAMRequired     int64     `json:"ram_required"`  // bytes — system RAM for CPU inference
 	ContextLength   int       `json:"context_length"`
 	Tier            ModelTier `json:"tier"`
 	BFCLScore       float64   `json:"bfcl_score"`
@@ -31,6 +32,10 @@ type ModelDefinition struct {
 	Architecture    string    `json:"architecture"`
 	IsEmbedding     bool      `json:"is_embedding"`
 	EmbeddingDims   int       `json:"embedding_dims"`
+	Family          string    `json:"family,omitempty"`
+	MoE             bool      `json:"moe,omitempty"`
+	ActiveParams    int64     `json:"active_params,omitempty"`
+	TotalParams     int64     `json:"total_params,omitempty"`
 }
 
 // Catalog holds the full set of known models.
@@ -118,6 +123,32 @@ func DefaultCatalog() *Catalog {
 				IsEmbedding:     true,
 				EmbeddingDims:   768,
 			},
+			{
+				ID:              "deepseek-v4-flash",
+				Name:            "DeepSeek V4 Flash (284B MoE, IQ4_XS)",
+				HuggingFaceRepo: "unsloth/DeepSeek-V4-Flash-GGUF",
+				Filename:        "DeepSeek-V4-Flash-IQ4_XS.gguf",
+				Quantization:    "IQ4_XS",
+				RAMRequired:     120 * 1024 * 1024 * 1024, // ~120 GB
+				ContextLength:   131072,
+				Family:          "deepseek",
+				MoE:             true,
+				ActiveParams:    13_000_000_000,
+				TotalParams:     284_000_000_000,
+			},
+			{
+				ID:              "deepseek-v4-pro",
+				Name:            "DeepSeek V4 Pro (1.6T MoE, IQ4_XS)",
+				HuggingFaceRepo: "unsloth/DeepSeek-V4-Pro-GGUF",
+				Filename:        "DeepSeek-V4-Pro-IQ4_XS.gguf",
+				Quantization:    "IQ4_XS",
+				RAMRequired:     680 * 1024 * 1024 * 1024, // ~680 GB
+				ContextLength:   131072,
+				Family:          "deepseek",
+				MoE:             true,
+				ActiveParams:    49_000_000_000,
+				TotalParams:     1_600_000_000_000,
+			},
 		},
 	}
 }
@@ -156,15 +187,64 @@ func (c *Catalog) ChatModels() []ModelDefinition {
 }
 
 // FilterByVRAM returns all models (including embeddings) whose VRAMRequired
-// is less than or equal to maxVRAM.
+// is less than or equal to maxVRAM. Models with VRAMRequired==0 are treated
+// as CPU-only (not GPU-loadable).
 func (c *Catalog) FilterByVRAM(maxVRAM int64) []ModelDefinition {
 	var result []ModelDefinition
 	for _, m := range c.Models {
-		if m.VRAMRequired <= maxVRAM {
+		if m.VRAMRequired > 0 && m.VRAMRequired <= maxVRAM {
 			result = append(result, m)
 		}
 	}
 	return result
+}
+
+// FilterByRAM returns all models (including embeddings) whose RAMRequired
+// is less than or equal to maxRAM. When a model's RAMRequired is zero, it
+// is assumed to fit in RAM (legacy entry).
+func (c *Catalog) FilterByRAM(maxRAM int64) []ModelDefinition {
+	var result []ModelDefinition
+	for _, m := range c.Models {
+		if m.RAMRequired == 0 || m.RAMRequired <= maxRAM {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+// FilterByCPUCompatible returns non-embedding chat models that fit in the
+// given system RAM. It ranks MoE models (lowest active:total ratio first)
+// ahead of dense models, then within each group by MoE active:total ratio.
+func (c *Catalog) FilterByCPUCompatible(maxRAM int64) []ModelDefinition {
+	var moeModels, denseModels []ModelDefinition
+	for _, m := range c.Models {
+		if m.IsEmbedding {
+			continue
+		}
+		if m.RAMRequired == 0 || m.RAMRequired <= maxRAM {
+			if m.MoE {
+				moeModels = append(moeModels, m)
+			} else {
+				denseModels = append(denseModels, m)
+			}
+		}
+	}
+	// Sort MoE by active:total ratio (ascending — lower ratio = more efficient)
+	sortMoEByRatio(moeModels)
+	result := append(moeModels, denseModels...) //nolint:gocritic
+	return result
+}
+
+func sortMoEByRatio(models []ModelDefinition) {
+	for i := 0; i < len(models); i++ {
+		for j := i + 1; j < len(models); j++ {
+			ratioI := float64(models[i].ActiveParams) / float64(models[i].TotalParams)
+			ratioJ := float64(models[j].ActiveParams) / float64(models[j].TotalParams)
+			if ratioJ < ratioI {
+				models[i], models[j] = models[j], models[i]
+			}
+		}
+	}
 }
 
 // Get looks up a model by its ID. Returns (model, true) on success or

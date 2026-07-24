@@ -13,50 +13,50 @@ import (
 // Top-level fields are loaded directly; nested structs rely on their own
 // env tags (no prefix applied to nested fields).
 type HelixConfig struct {
-	Mode              string `env:"HELIX_MODE" default:"full"`
-	Hosts             string `env:"HELIX_HOSTS" default:"nezha.local"`
-	SSHUser           string `env:"HELIX_SSH_USER" default:"milosvasic"`
-	SSHKey            string `env:"HELIX_SSH_KEY" default:"~/.ssh/id_ed25519"`
-	ContainerRuntime  string `env:"HELIX_CONTAINER_RUNTIME" default:"auto"`
-	ScheduleStrategy  string `env:"HELIX_SCHEDULE_STRATEGY" default:"auto"`
-	Server            ServerConfig
-	LLM               LLMConfig
-	Knowledge         KnowledgeConfig
-	DB                DatabaseConfig
-	Cache             CacheConfig
-	Messaging         MessagingConfig
-	Log               LogConfig
-	Auth              AuthConfig
-	Features          FeatureConfig
-	Analytics         AnalyticsConfig
-	Proxy             ProxyConfig
-	Concurrency       ConcurrencyConfig
+	Mode             string `env:"HELIX_MODE" default:"full"`
+	Hosts            string `env:"HELIX_HOSTS" default:"nezha.local"`
+	SSHUser          string `env:"HELIX_SSH_USER" default:"milosvasic"`
+	SSHKey           string `env:"HELIX_SSH_KEY" default:"~/.ssh/id_ed25519"`
+	ContainerRuntime string `env:"HELIX_CONTAINER_RUNTIME" default:"auto"`
+	ScheduleStrategy string `env:"HELIX_SCHEDULE_STRATEGY" default:"auto"`
+	Server           ServerConfig
+	LLM              LLMConfig
+	Knowledge        KnowledgeConfig
+	DB               DatabaseConfig
+	Cache            CacheConfig
+	Messaging        MessagingConfig
+	Log              LogConfig
+	Auth             AuthConfig
+	Features         FeatureConfig
+	Analytics        AnalyticsConfig
+	Proxy            ProxyConfig
+	Concurrency      ConcurrencyConfig
 }
 
 // ServerConfig holds HTTP/TLS server settings.
 type ServerConfig struct {
-	Host         string `env:"HELIX_HOST" default:"0.0.0.0"`
-	Port         int    `env:"HELIX_PORT" default:"8443"`
-	TLSCert      string `env:"HELIX_TLS_CERT" default:"./certs/cert.pem"`
-	TLSKey       string `env:"HELIX_TLS_KEY" default:"./certs/key.pem"`
-	RatePerMinute int   `env:"HELIX_RATE_PER_MINUTE" default:"0"`
+	Host          string `env:"HELIX_HOST" default:"0.0.0.0"`
+	Port          int    `env:"HELIX_PORT" default:"8443"`
+	TLSCert       string `env:"HELIX_TLS_CERT" default:"./certs/cert.pem"`
+	TLSKey        string `env:"HELIX_TLS_KEY" default:"./certs/key.pem"`
+	RatePerMinute int    `env:"HELIX_RATE_PER_MINUTE" default:"0"`
 }
 
 // LLMConfig holds large-language-model provider settings.
 type LLMConfig struct {
-	LocalModel         string `env:"HELIX_LLM_LOCAL_MODEL" default:"Llama-3.1-70B-Instruct-Q4_K_M"`
-	LocalRPCHost       string `env:"HELIX_LLM_LOCAL_RPC_HOST" default:"localhost"`
-	LocalRPCPort       int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
-	OpenAIKey          string `env:"HELIX_LLM_OPENAI_KEY"`
-	OpenAIBaseURL      string `env:"HELIX_LLM_OPENAI_BASE_URL"`
-	AnthropicKey       string `env:"HELIX_LLM_ANTHROPIC_KEY"`
-	ChutesKey          string `env:"HELIX_LLM_CHUTES_KEY"`
-	OpenRouterKey      string `env:"HELIX_LLM_OPENROUTER_KEY"`
-	HuggingFaceKey     string `env:"HELIX_LLM_HUGGINGFACE_KEY"`
-	NvidiaKey          string `env:"HELIX_LLM_NVIDIA_KEY"`
-	CerebrasKey        string `env:"HELIX_LLM_CEREBRAS_KEY"`
-	SambaNovaKey       string `env:"HELIX_LLM_SAMBANOVA_KEY"`
-	TogetherKey        string `env:"HELIX_LLM_TOGETHER_KEY"`
+	LocalModel     string `env:"HELIX_LLM_LOCAL_MODEL" default:"Llama-3.1-70B-Instruct-Q4_K_M"`
+	LocalRPCHost   string `env:"HELIX_LLM_LOCAL_RPC_HOST" default:"localhost"`
+	LocalRPCPort   int    `env:"HELIX_LLM_LOCAL_RPC_PORT" default:"50052"`
+	OpenAIKey      string `env:"HELIX_LLM_OPENAI_KEY"`
+	OpenAIBaseURL  string `env:"HELIX_LLM_OPENAI_BASE_URL"`
+	AnthropicKey   string `env:"HELIX_LLM_ANTHROPIC_KEY"`
+	ChutesKey      string `env:"HELIX_LLM_CHUTES_KEY"`
+	OpenRouterKey  string `env:"HELIX_LLM_OPENROUTER_KEY"`
+	HuggingFaceKey string `env:"HELIX_LLM_HUGGINGFACE_KEY"`
+	NvidiaKey      string `env:"HELIX_LLM_NVIDIA_KEY"`
+	CerebrasKey    string `env:"HELIX_LLM_CEREBRAS_KEY"`
+	SambaNovaKey   string `env:"HELIX_LLM_SAMBANOVA_KEY"`
+	TogetherKey    string `env:"HELIX_LLM_TOGETHER_KEY"`
 	// Fallback chain
 	// Defaults updated to match HelixAgent's canonical port registry
 	// (HELIXAGENT_PORT_HTTP = 8100 in the 81xx band). Operators
@@ -66,19 +66,24 @@ type LLMConfig struct {
 	ScoreRefreshInterval string `env:"HELIX_LLM_SCORE_REFRESH_INTERVAL" default:"5m"`
 	MemorySyncEnabled    bool   `env:"HELIX_LLM_MEMORY_SYNC_ENABLED" default:"false"`
 	MemoryURL            string `env:"HELIX_LLM_MEMORY_URL" default:"http://localhost:8100"`
-	DefaultProvider    string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
-	ModelsDir          string `env:"HELIX_MODELS_DIR" default:"/models"`
-	ModelsAutoDownload bool   `env:"HELIX_MODELS_AUTO_DOWNLOAD" default:"true"`
-	ModelsMax          int    `env:"HELIX_MODELS_MAX" default:"3"`
-	ComplexityEnabled  bool   `env:"HELIX_COMPLEXITY_ENABLED" default:"true"`
-	ComplexityDefault  string `env:"HELIX_COMPLEXITY_DEFAULT_TIER" default:"fast"`
-	LlamaServerPort    int    `env:"HELIX_LLAMA_SERVER_PORT" default:"8080"`
-	LlamaServerEmbed   bool   `env:"HELIX_LLAMA_SERVER_EMBEDDED" default:"true"`
+	DefaultProvider      string `env:"HELIX_LLM_DEFAULT_PROVIDER" default:"local"`
+	ModelsDir            string `env:"HELIX_MODELS_DIR" default:"/models"`
+	ModelsAutoDownload   bool   `env:"HELIX_MODELS_AUTO_DOWNLOAD" default:"true"`
+	ModelsMax            int    `env:"HELIX_MODELS_MAX" default:"3"`
+	ComplexityEnabled    bool   `env:"HELIX_COMPLEXITY_ENABLED" default:"true"`
+	ComplexityDefault    string `env:"HELIX_COMPLEXITY_DEFAULT_TIER" default:"fast"`
+	LlamaServerPort      int    `env:"HELIX_LLAMA_SERVER_PORT" default:"8080"`
+	LlamaServerEmbed     bool   `env:"HELIX_LLAMA_SERVER_EMBEDDED" default:"true"`
+	InferenceMode        string `env:"HELIX_INFERENCE_MODE" default:"auto"`
+	CPUThreads           int    `env:"HELIX_CPU_THREADS" default:"0"`
+	NUMAEnabled          bool   `env:"HELIX_NUMA_ENABLED" default:"false"`
+	MMAPEnabled          bool   `env:"HELIX_MMAP_ENABLED" default:"true"`
+	MLockEnabled         bool   `env:"HELIX_MLOCK_ENABLED" default:"false"`
 }
 
 // KnowledgeConfig holds RAG / vector-store settings.
 type KnowledgeConfig struct {
-	VectorDB          string `env:"HELIX_VECTOR_DB" default:"qdrant"`
+	VectorDB string `env:"HELIX_VECTOR_DB" default:"qdrant"`
 	// VectorDBHost/VectorDBPort resolve the Qdrant (or other vector-store
 	// backend) network address (§11.4.111 resolve-by-config, never
 	// hardcoded). Defaults preserve the pre-existing behaviour
@@ -172,12 +177,12 @@ type ProxyConfig struct {
 // ConcurrencyConfig holds concurrency limits and lazy-infrastructure settings.
 // A value of 0 for any max-concurrent field means unlimited.
 type ConcurrencyConfig struct {
-	LLMMaxConcurrent       int  `env:"HELIX_LLM_MAX_CONCURRENT" default:"10"`
-	EmbeddingMaxConcurrent int  `env:"HELIX_EMBEDDING_MAX_CONCURRENT" default:"20"`
-	AgentMaxConcurrentTools int `env:"HELIX_AGENT_MAX_CONCURRENT_TOOLS" default:"5"`
-	SSHMaxConcurrent       int  `env:"HELIX_SSH_MAX_CONCURRENT" default:"10"`
-	LazyInfra              bool `env:"HELIX_LAZY_INFRA" default:"false"`
-	IdleShutdownMinutes    int  `env:"HELIX_IDLE_SHUTDOWN_MINUTES" default:"0"`
+	LLMMaxConcurrent        int  `env:"HELIX_LLM_MAX_CONCURRENT" default:"10"`
+	EmbeddingMaxConcurrent  int  `env:"HELIX_EMBEDDING_MAX_CONCURRENT" default:"20"`
+	AgentMaxConcurrentTools int  `env:"HELIX_AGENT_MAX_CONCURRENT_TOOLS" default:"5"`
+	SSHMaxConcurrent        int  `env:"HELIX_SSH_MAX_CONCURRENT" default:"10"`
+	LazyInfra               bool `env:"HELIX_LAZY_INFRA" default:"false"`
+	IdleShutdownMinutes     int  `env:"HELIX_IDLE_SHUTDOWN_MINUTES" default:"0"`
 }
 
 // Load reads configuration from environment variables, applying defaults

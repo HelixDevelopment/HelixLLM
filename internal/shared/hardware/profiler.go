@@ -44,6 +44,16 @@ type HardwareProfile struct {
 	CPU           CPUProfile `json:"cpu"`
 	RAM           RAMProfile `json:"ram"`
 	PresetProfile string     `json:"preset_profile"`
+	// NUMAEnabled indicates whether NUMA topology was detected.
+	NUMAEnabled bool `json:"numa_enabled"`
+	// NUMAIndices lists the detected NUMA node indices.
+	NUMAIndices []int `json:"numa_indices"`
+	// MemoryBandwidthMBps is the estimated memory bandwidth in MB/s.
+	MemoryBandwidthMBps float64 `json:"memory_bandwidth_mbps"`
+	// L3CacheKB is the L3 cache size in KB (summed across all nodes).
+	L3CacheKB int `json:"l3_cache_kb"`
+	// SIMDCapabilities lists detected SIMD ISA extensions (e.g. avx512f, avx2, neon).
+	SIMDCapabilities []string `json:"simd_capabilities"`
 }
 
 // InferenceThreads returns the recommended thread count for llama.cpp inference
@@ -64,11 +74,17 @@ func Detect() *HardwareProfile {
 	cpu := detectCPU()
 	ram := detectRAM()
 	preset := selectPresetProfile(gpu.VRAMTotal)
+	numa, numaIndices := detectNUMA()
 	return &HardwareProfile{
-		GPU:           gpu,
-		CPU:           cpu,
-		RAM:           ram,
-		PresetProfile: preset,
+		GPU:                 gpu,
+		CPU:                 cpu,
+		RAM:                 ram,
+		PresetProfile:       preset,
+		NUMAEnabled:         numa,
+		NUMAIndices:         numaIndices,
+		MemoryBandwidthMBps: estimateMemoryBandwidth(),
+		L3CacheKB:           detectL3Cache(),
+		SIMDCapabilities:    detectSIMDCapabilities(cpu),
 	}
 }
 
@@ -304,6 +320,187 @@ func inferenceThreads(cores int) int {
 		return minInferenceThreads
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// CPU platform detection (NUMA, bandwidth, L3, SIMD)
+// ---------------------------------------------------------------------------
+
+// detectNUMA checks /sys/devices/system/node/ for NUMA nodes. Returns
+// enabled status and the list of node indices.
+func detectNUMA() (bool, []int) {
+	entries, err := os.ReadDir("/sys/devices/system/node/")
+	if err != nil {
+		return false, nil
+	}
+	var indices []int
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "node") {
+			continue
+		}
+		n, parseErr := strconv.Atoi(name[4:])
+		if parseErr != nil {
+			continue
+		}
+		indices = append(indices, n)
+	}
+	if len(indices) < 2 {
+		return false, indices
+	}
+	return true, indices
+}
+
+// estimateMemoryBandwidth returns an estimated memory bandwidth in MB/s
+// based on DDR generation and channel count. Safe default: ~25 GB/s (DDR4
+// single-channel).
+func estimateMemoryBandwidth() float64 {
+	// Try to detect DDR generation from /proc/cpuinfo or dmidecode
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return 25000.0
+	}
+	content := string(data)
+	if strings.Contains(content, "ddr5") || strings.Contains(content, "DDR5") {
+		return 51200.0 // DDR5-6400 single channel
+	}
+	var memTotal int64
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "MemTotal:") {
+			memTotal = parseMemInfoKB(line)
+			break
+		}
+	}
+	if memTotal >= 128*1024*1024 { // >= 128 GB → likely multi-channel DDR4/DDR5
+		return 76800.0
+	}
+	if memTotal >= 64*1024*1024 { // >= 64 GB → dual-channel DDR4
+		return 51200.0
+	}
+	return 25000.0 // conservative DDR4 single-channel
+}
+
+// detectL3Cache reads /sys/devices/system/cpu/cpu*/cache/index3/size
+// and sums the L3 cache across all CPU nodes. Falls back to 0 on error.
+func detectL3Cache() int {
+	// Try dmidecode first
+	out, err := exec.Command(
+		"dmidecode", "-t", "cache",
+	).Output()
+	if err == nil {
+		total := parseL3FromDMI(string(out))
+		if total > 0 {
+			return total
+		}
+	}
+	// Fallback: walk /sys
+	var totalL3 int64
+	entries, err := os.ReadDir("/sys/devices/system/cpu/")
+	if err != nil {
+		return 0
+	}
+	seen := make(map[string]bool)
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "cpu") {
+			continue
+		}
+		cachePath := "/sys/devices/system/cpu/" + name + "/cache/index3/size"
+		data, fErr := os.ReadFile(cachePath)
+		if fErr != nil {
+			continue
+		}
+		key := strings.TrimSpace(string(data))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		kb := parseCacheSize(string(data))
+		totalL3 += kb
+	}
+	return int(totalL3)
+}
+
+// parseL3FromDMI extracts the L3 cache size from dmidecode output.
+func parseL3FromDMI(output string) int {
+	var totalL3 int
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "L3") && strings.Contains(line, "KB") {
+			fields := strings.Fields(line)
+			for _, f := range fields {
+				if strings.HasSuffix(f, "KB") {
+					val := strings.TrimSuffix(f, "KB")
+					if n, err := strconv.Atoi(val); err == nil {
+						totalL3 += n
+					}
+				}
+			}
+		}
+	}
+	return totalL3
+}
+
+// parseCacheSize extracts the KB value from a sysfs cache size string
+// like "32768K\n" or "32M\n".
+func parseCacheSize(raw string) int64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	// Handle "32M" or "32768K" format
+	var multiplier int64 = 1
+	if strings.HasSuffix(raw, "M") || strings.HasSuffix(raw, "m") {
+		multiplier = 1024
+		raw = strings.TrimSuffix(strings.TrimSuffix(raw, "M"), "m")
+	} else {
+		raw = strings.TrimSuffix(strings.TrimSuffix(raw, "K"), "k")
+	}
+	val, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return val * multiplier
+}
+
+// detectSIMDCapabilities returns the SIMD extensions available on this
+// system, derived from both /proc/cpuinfo flags and runtime detection.
+func detectSIMDCapabilities(cpu CPUProfile) []string {
+	var caps []string
+	if cpu.AVX512 {
+		caps = append(caps, "avx512f")
+	}
+	if cpu.AVX2 {
+		caps = append(caps, "avx2")
+	}
+	// Check for AVX (non-2, non-512) from /proc/cpuinfo flags
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err == nil {
+		content := string(data)
+		if strings.Contains(content, " avx ") {
+			caps = append(caps, "avx")
+		}
+		if strings.Contains(content, " sse4_2 ") {
+			caps = append(caps, "sse4_2")
+		}
+		if strings.Contains(content, " sse4_1 ") {
+			caps = append(caps, "sse4_1")
+		}
+		if strings.Contains(content, " neon ") {
+			caps = append(caps, "neon")
+		}
+		if strings.Contains(content, " fma ") {
+			caps = append(caps, "fma")
+		}
+	}
+	if len(caps) == 0 {
+		// ARM fallback
+		if strings.Contains(runtime.GOARCH, "arm") {
+			caps = append(caps, "neon")
+		}
+	}
+	return caps
 }
 
 // ---------------------------------------------------------------------------

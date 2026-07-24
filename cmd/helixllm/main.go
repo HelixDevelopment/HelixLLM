@@ -34,13 +34,13 @@ import (
 )
 
 func main() {
-	modeFlag       := flag.String("mode", "", "Operating mode (overrides HELIX_MODE env)")
-	monitorFlag    := flag.Bool("monitor", false, "Launch the TUI cluster status monitor instead of the server")
+	modeFlag := flag.String("mode", "", "Operating mode (overrides HELIX_MODE env)")
+	monitorFlag := flag.Bool("monitor", false, "Launch the TUI cluster status monitor instead of the server")
 	challengesFlag := flag.Bool("challenges", false, "Run challenge banks instead of starting server")
-	banksDirFlag   := flag.String("banks-dir", "challenges/banks/", "Directory containing YAML challenge banks")
-	baseURLFlag    := flag.String("base-url", "https://localhost:8443", "Base URL for challenge HTTP requests")
-	categoryFlag   := flag.String("category", "", "Run only challenges matching this category")
-	priorityFlag   := flag.String("priority", "", "Run only challenges matching this priority")
+	banksDirFlag := flag.String("banks-dir", "challenges/banks/", "Directory containing YAML challenge banks")
+	baseURLFlag := flag.String("base-url", "https://localhost:8443", "Base URL for challenge HTTP requests")
+	categoryFlag := flag.String("category", "", "Run only challenges matching this category")
+	priorityFlag := flag.String("priority", "", "Run only challenges matching this priority")
 	flag.Parse()
 
 	// CONST-046: user-facing CLI strings resolved via i18n Translator.
@@ -162,22 +162,28 @@ func main() {
 	hwProfile := hardware.Detect()
 	hardware.UpdateSystemMetrics(hwProfile)
 	log.WithFields(map[string]interface{}{
-		"gpu":     hwProfile.GPU.Available,
-		"vram_mb": hwProfile.GPU.VRAMTotal / (1024 * 1024),
-		"preset":  hwProfile.PresetProfile,
+		"gpu":         hwProfile.GPU.Available,
+		"vram_mb":     hwProfile.GPU.VRAMTotal / (1024 * 1024),
+		"preset":      hwProfile.PresetProfile,
+		"inference":   cfg.LLM.InferenceMode,
+		"numa_nodes":  len(hwProfile.NUMAIndices),
+		"l3_cache_kb": hwProfile.L3CacheKB,
+		"ram_gb":      hwProfile.RAM.Total / (1024 * 1024 * 1024),
 	}).Info("Hardware detected")
 
 	catalog := models.DefaultCatalog()
 	var available []models.ModelDefinition
-	if hwProfile.GPU.Available {
+	if hwProfile.GPU.Available && cfg.LLM.InferenceMode != "cpu_only" {
 		available = catalog.FilterByVRAM(hwProfile.GPU.VRAMFree)
 	} else {
-		available = catalog.FilterByVRAM(0)
-		// CPU-only: just use the smallest model
-		if fast := catalog.ByTier(models.TierFast); len(fast) > 0 {
-			available = fast
+		available = catalog.FilterByCPUCompatible(hwProfile.RAM.Available)
+		if cfg.LLM.InferenceMode == "cpu_only" && len(available) == 0 {
+			log.Warn("No CPU-compatible models found; falling back to all chat models")
+			available = catalog.ChatModels()
 		}
 	}
+
+	log.WithField("count", len(available)).Info("Models selected for inference")
 
 	registry := models.NewRegistry()
 	downloader := brain.NewDownloader(cfg.LLM.ModelsDir)
@@ -218,13 +224,22 @@ func main() {
 			presetsPath := filepath.Join(os.TempDir(), "helixllm-presets.ini")
 			os.WriteFile(presetsPath, []byte(presetsINI), 0644) //nolint:errcheck
 
+			threads := hwProfile.InferenceThreads()
+			if cfg.LLM.CPUThreads > 0 {
+				threads = cfg.LLM.CPUThreads
+			}
+			cpuOnly := !hwProfile.GPU.Available || cfg.LLM.InferenceMode == "cpu_only"
 			llamaSrv = brain.NewLlamaServer(brain.LlamaServerConfig{
 				Port:         cfg.LLM.LlamaServerPort,
 				ModelsDir:    cfg.LLM.ModelsDir,
 				PresetsPath:  presetsPath,
 				MaxModels:    cfg.LLM.ModelsMax,
-				Threads:      hwProfile.InferenceThreads(),
+				Threads:      threads,
 				ThreadsBatch: hwProfile.BatchThreads(),
+				NUMA:         hwProfile.NUMAEnabled && cfg.LLM.NUMAEnabled,
+				MLock:        cfg.LLM.MLockEnabled,
+				MMAP:         cfg.LLM.MMAPEnabled,
+				NoKVOffload:  cpuOnly,
 			})
 			if err := llamaSrv.Start(ctx); err != nil {
 				log.WithError(err).Warn("Failed to start embedded llama-server")

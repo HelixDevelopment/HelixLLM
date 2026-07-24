@@ -23,14 +23,20 @@ type LlamaServerConfig struct {
 	MaxModels    int
 	Threads      int
 	ThreadsBatch int
+	// CPU inference flags
+	NUMA        bool // --numa
+	MLock       bool // --mlock
+	MMAP        bool // --mmap (default on)
+	NoKVOffload bool // --no-kv-offload (CPU-only)
 }
 
 // BuildArgs returns the command-line arguments for llama-server derived from
 // the configuration. The argument order matches the expected positional order:
 // --host, --port, --models-dir, --models-preset, --models-max,
-// --models-autoload, --threads, --threads-batch, --metrics.
+// --models-autoload, --threads, --threads-batch, --metrics,
+// plus CPU-specific flags when enabled.
 func (c *LlamaServerConfig) BuildArgs() []string {
-	return []string{
+	args := []string{
 		"--host", "0.0.0.0",
 		"--port", strconv.Itoa(c.Port),
 		"--models-dir", c.ModelsDir,
@@ -39,8 +45,21 @@ func (c *LlamaServerConfig) BuildArgs() []string {
 		"--models-autoload",
 		"--threads", strconv.Itoa(c.Threads),
 		"--threads-batch", strconv.Itoa(c.ThreadsBatch),
-		"--metrics",
 	}
+	if c.NUMA {
+		args = append(args, "--numa")
+	}
+	if c.MLock {
+		args = append(args, "--mlock")
+	}
+	if c.MMAP {
+		args = append(args, "--mmap")
+	}
+	if c.NoKVOffload {
+		args = append(args, "--no-kv-offload")
+	}
+	args = append(args, "--metrics")
+	return args
 }
 
 // LlamaServer manages the lifecycle of a llama-server child process and

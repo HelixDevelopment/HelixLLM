@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultCatalog_HasFourModels(t *testing.T) {
+func TestDefaultCatalog_HasSixModels(t *testing.T) {
 	c := models.DefaultCatalog()
 	require.NotNil(t, c)
-	assert.Len(t, c.Models, 4)
+	assert.Len(t, c.Models, 6)
 }
 
 func TestDefaultCatalog_HasFastTier(t *testing.T) {
