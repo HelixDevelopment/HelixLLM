@@ -197,8 +197,30 @@ func main() {
 		registry.Add(rm)
 	}
 
-	// Download missing models
-	if cfg.LLM.ModelsAutoDownload {
+	// Pre-flight-resolve the embedded llama-server binary BEFORE spending any
+	// time on model downloads. HXC-233: a prior deployment spent 37 minutes
+	// downloading a model file for the embedded server to serve, then failed
+	// to start the server because "llama-server" was not installed anywhere
+	// on the host — the download was pure waste since nothing could ever
+	// consume it. Resolving first means an absent binary is discovered
+	// immediately, and the wasted download + doomed Start() attempt are both
+	// skipped. HELIX_LLAMA_SERVER_EMBEDDED itself is left untouched (still
+	// "enabled" from the operator's point of view) — only THIS run's
+	// download+start work is skipped, so a later run started once the
+	// binary is installed (or HELIX_LLAMA_SERVER_BINARY_PATH is pointed at
+	// it) picks the embedded server back up with no further config change.
+	llamaServerEmbedAvailable := false
+	if cfg.LLM.LlamaServerEmbed {
+		if _, resolveErr := brain.ResolveLlamaServerBinary(cfg.LLM.LlamaServerBinaryPath); resolveErr != nil {
+			log.WithError(resolveErr).Warn("embedded llama-server binary not found — local model auto-download and embedded-server start are both skipped for this run; install llama-server (or set HELIX_LLAMA_SERVER_BINARY_PATH to its location) to restore local model serving, or set HELIX_LLAMA_SERVER_EMBEDDED=false to silence this warning if local serving is not needed")
+		} else {
+			llamaServerEmbedAvailable = true
+		}
+	}
+
+	// Download missing models — only when something can actually consume
+	// them this run (embedded server enabled AND its binary resolved above).
+	if cfg.LLM.ModelsAutoDownload && llamaServerEmbedAvailable {
 		for _, def := range available {
 			if !downloader.ModelExists(def.Filename) {
 				url := downloader.HuggingFaceURL(def.HuggingFaceRepo, def.Filename)
@@ -210,9 +232,9 @@ func main() {
 		}
 	}
 
-	// Generate presets and optionally start embedded llama-server
+	// Generate presets and start the embedded llama-server.
 	var llamaSrv *brain.LlamaServer
-	if cfg.LLM.LlamaServerEmbed {
+	if llamaServerEmbedAvailable {
 		var downloadedModels []models.ModelDefinition
 		for _, def := range available {
 			if downloader.ModelExists(def.Filename) {
@@ -230,6 +252,7 @@ func main() {
 			}
 			cpuOnly := !hwProfile.GPU.Available || cfg.LLM.InferenceMode == "cpu_only"
 			llamaSrv = brain.NewLlamaServer(brain.LlamaServerConfig{
+				BinaryPath:   cfg.LLM.LlamaServerBinaryPath,
 				Port:         cfg.LLM.LlamaServerPort,
 				ModelsDir:    cfg.LLM.ModelsDir,
 				PresetsPath:  presetsPath,
@@ -243,6 +266,15 @@ func main() {
 			})
 			if err := llamaSrv.Start(ctx); err != nil {
 				log.WithError(err).Warn("Failed to start embedded llama-server")
+				// HXC-233: the process never launched — do NOT leave llamaSrv
+				// pointing at a "server" whose port nothing is listening on.
+				// The override below (LocalRPCHost/Port -> the embedded
+				// server) must only fire when a real process is running,
+				// otherwise every completion request is silently redirected
+				// at a dead (or worse, unrelated-service-occupied) endpoint
+				// instead of falling through to the router's real
+				// no-provider-available error.
+				llamaSrv = nil
 			} else {
 				log.Info("Waiting for llama-server to be ready...")
 				if err := llamaSrv.WaitReady(ctx, 120*time.Second); err != nil {

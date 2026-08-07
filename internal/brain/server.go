@@ -74,6 +74,30 @@ type LlamaServer struct {
 	cancel  context.CancelFunc
 }
 
+// ResolveLlamaServerBinary determines, WITHOUT spawning anything, whether the
+// llama-server binary Start would invoke can actually be found: explicitPath
+// when non-empty, otherwise "llama-server" resolved via $PATH (mirroring the
+// fallback Start applies internally). It returns the resolved absolute path
+// on success, or an error identifying exactly what could not be found.
+//
+// Callers use this as a cheap pre-flight so a genuinely-absent binary is
+// discovered BEFORE any expensive prerequisite work (e.g. downloading a
+// multi-gigabyte model file that only the embedded server would consume)
+// rather than after — see HXC-233, where a deployment burned 37 minutes on a
+// model download for an embedded server that then failed with "executable
+// file not found in $PATH".
+func ResolveLlamaServerBinary(explicitPath string) (string, error) {
+	binary := explicitPath
+	if binary == "" {
+		binary = "llama-server"
+	}
+	resolved, err := exec.LookPath(binary)
+	if err != nil {
+		return "", fmt.Errorf("llama-server: binary %q not resolvable: %w", binary, err)
+	}
+	return resolved, nil
+}
+
 // NewLlamaServer creates a LlamaServer from the given configuration. The
 // returned server is not yet started; call Start to launch the process.
 func NewLlamaServer(cfg LlamaServerConfig) *LlamaServer {

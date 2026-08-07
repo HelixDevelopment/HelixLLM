@@ -74,11 +74,16 @@ type LLMConfig struct {
 	ComplexityDefault    string `env:"HELIX_COMPLEXITY_DEFAULT_TIER" default:"fast"`
 	LlamaServerPort      int    `env:"HELIX_LLAMA_SERVER_PORT" default:"8080"`
 	LlamaServerEmbed     bool   `env:"HELIX_LLAMA_SERVER_EMBEDDED" default:"true"`
-	InferenceMode        string `env:"HELIX_INFERENCE_MODE" default:"auto"`
-	CPUThreads           int    `env:"HELIX_CPU_THREADS" default:"0"`
-	NUMAEnabled          bool   `env:"HELIX_NUMA_ENABLED" default:"false"`
-	MMAPEnabled          bool   `env:"HELIX_MMAP_ENABLED" default:"true"`
-	MLockEnabled         bool   `env:"HELIX_MLOCK_ENABLED" default:"false"`
+	// LlamaServerBinaryPath is the explicit path to the llama-server
+	// executable. Empty (default) resolves "llama-server" via $PATH, exactly
+	// like brain.LlamaServer.Start's own fallback. Set this when llama-server
+	// is installed outside $PATH instead of editing system-wide PATH (HXC-233).
+	LlamaServerBinaryPath string `env:"HELIX_LLAMA_SERVER_BINARY_PATH"`
+	InferenceMode         string `env:"HELIX_INFERENCE_MODE" default:"auto"`
+	CPUThreads            int    `env:"HELIX_CPU_THREADS" default:"0"`
+	NUMAEnabled           bool   `env:"HELIX_NUMA_ENABLED" default:"false"`
+	MMAPEnabled           bool   `env:"HELIX_MMAP_ENABLED" default:"true"`
+	MLockEnabled          bool   `env:"HELIX_MLOCK_ENABLED" default:"false"`
 }
 
 // KnowledgeConfig holds RAG / vector-store settings.

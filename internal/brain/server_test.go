@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
@@ -124,6 +127,99 @@ func TestNewLlamaServer_BaseURL(t *testing.T) {
 	want := "http://127.0.0.1:8090"
 	if s.BaseURL() != want {
 		t.Errorf("BaseURL() = %q, want %q", s.BaseURL(), want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ResolveLlamaServerBinary (HXC-233)
+// ---------------------------------------------------------------------------
+//
+// These tests reproduce the two real-world states that mattered in the
+// HXC-233 investigation: (a) an explicit HELIX_LLAMA_SERVER_BINARY_PATH that
+// does/doesn't resolve, and (b) the default $PATH-lookup fallback that
+// matches brain.LlamaServer.Start's own "" -> "llama-server" behaviour. On
+// the live host investigated for HXC-233, "llama-server" was confirmed
+// absent from every directory on $PATH (docs/qa/live_systemd_boot_.../
+// 23_llama_server_search.txt) — TestResolveLlamaServerBinary_PATHLookup_NotFound
+// pins that exact failure mode deterministically (own PATH, not the host's).
+
+// newFakeExecutable creates an executable regular file at dir/name and
+// returns its path. §11.4.81 honest gap: chmod-based executable bits are a
+// POSIX concept; this helper is Unix-only, matching the deployment target
+// investigated for HXC-233 (a systemd --user Linux host).
+func newFakeExecutable(t *testing.T, dir, name string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("SKIP-OK: HXC-233 — chmod-executable-bit semantics are POSIX-only; no Windows equivalent test authored yet")
+	}
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("newFakeExecutable: write %s: %v", p, err)
+	}
+	return p
+}
+
+// TestResolveLlamaServerBinary_ExplicitPath_Found verifies that a valid,
+// executable HELIX_LLAMA_SERVER_BINARY_PATH resolves successfully and the
+// $PATH environment is never consulted.
+func TestResolveLlamaServerBinary_ExplicitPath_Found(t *testing.T) {
+	dir := t.TempDir()
+	bin := newFakeExecutable(t, dir, "llama-server")
+
+	// Deliberately break $PATH so a pass here can only be explained by the
+	// explicit path being honoured, not an accidental PATH hit.
+	t.Setenv("PATH", t.TempDir())
+
+	got, err := brain.ResolveLlamaServerBinary(bin)
+	if err != nil {
+		t.Fatalf("ResolveLlamaServerBinary(%q) returned error: %v", bin, err)
+	}
+	if got == "" {
+		t.Fatal("ResolveLlamaServerBinary returned an empty path on success")
+	}
+}
+
+// TestResolveLlamaServerBinary_ExplicitPath_NotFound verifies that a
+// configured-but-nonexistent HELIX_LLAMA_SERVER_BINARY_PATH is reported as an
+// error rather than silently falling back to a $PATH lookup.
+func TestResolveLlamaServerBinary_ExplicitPath_NotFound(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "llama-server-does-not-exist")
+
+	_, err := brain.ResolveLlamaServerBinary(missing)
+	if err == nil {
+		t.Fatalf("ResolveLlamaServerBinary(%q) = nil error, want an error (path does not exist)", missing)
+	}
+}
+
+// TestResolveLlamaServerBinary_PATHLookup_Found verifies the empty-path
+// fallback: "" resolves "llama-server" via $PATH, mirroring
+// brain.LlamaServer.Start's own internal fallback.
+func TestResolveLlamaServerBinary_PATHLookup_Found(t *testing.T) {
+	dir := t.TempDir()
+	newFakeExecutable(t, dir, "llama-server")
+	t.Setenv("PATH", dir)
+
+	got, err := brain.ResolveLlamaServerBinary("")
+	if err != nil {
+		t.Fatalf("ResolveLlamaServerBinary(\"\") returned error with llama-server on PATH: %v", err)
+	}
+	if got == "" {
+		t.Fatal("ResolveLlamaServerBinary returned an empty path on success")
+	}
+}
+
+// TestResolveLlamaServerBinary_PATHLookup_NotFound reproduces the exact
+// HXC-233 defect condition: llama-server is genuinely absent from every
+// directory on $PATH. This is the RED case — the pre-flight MUST report an
+// error here so main.go can skip the model download + Start() attempt instead
+// of discovering the absence only after both have run.
+func TestResolveLlamaServerBinary_PATHLookup_NotFound(t *testing.T) {
+	empty := t.TempDir() // contains no "llama-server" (or anything else)
+	t.Setenv("PATH", empty)
+
+	_, err := brain.ResolveLlamaServerBinary("")
+	if err == nil {
+		t.Fatal("ResolveLlamaServerBinary(\"\") = nil error, want an error (llama-server not on PATH) — HXC-233 regression")
 	}
 }
 
