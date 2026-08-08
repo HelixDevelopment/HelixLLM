@@ -44,6 +44,14 @@ type QueryResult struct {
 	Query   string        `json:"query"`
 	Chunks  []ScoredChunk `json:"chunks"`
 	Context string        `json:"context"`
+
+	// SemanticEmbeddings reports whether the retrieval that produced this
+	// result used a real semantic Embedder (true) or the deterministic,
+	// non-semantic HashEmbedder fallback (false) — see IsSemanticEmbedder
+	// (HXC-235). Always set explicitly by Pipeline.Query so a caller can
+	// tell hash-fallback results from real ones at the point of use,
+	// never only from a startup log line.
+	SemanticEmbeddings bool `json:"semantic_embeddings"`
 }
 
 type IngestRequest struct {

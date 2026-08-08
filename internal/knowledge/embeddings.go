@@ -13,6 +13,30 @@ type Embedder interface {
 	Dimension() int
 }
 
+// IsSemanticEmbedder reports whether e produces real, semantically
+// meaningful embeddings (true) as opposed to the deterministic,
+// non-semantic HashEmbedder fallback (false). A nil Embedder is reported
+// as non-semantic — a caller degraded all the way to a zero-vector
+// fallback is exactly as unable to do meaningful similarity search as one
+// backed by HashEmbedder.
+//
+// HXC-235: HELIX_EMBEDDING_PROVIDER unset / "local" / unrecognised / on
+// construction error all resolve to HashEmbedder (buildEmbedder in
+// cmd/helixllm/main.go, F07 / §11.4.146). F07 made that fact observable
+// at STARTUP via a WARN log line; this function is the single point of
+// truth every RESPONSE-level caller (the /v1/embeddings and
+// /internal/knowledge/query handlers) uses to surface the SAME fact at
+// the point of use, so a programmatic caller — which never sees process
+// stdout/stderr — can tell hash-fallback results from real ones without
+// depending on log output.
+func IsSemanticEmbedder(e Embedder) bool {
+	if e == nil {
+		return false
+	}
+	_, isHash := e.(*HashEmbedder)
+	return !isHash
+}
+
 // HashEmbedder produces deterministic unit-length vectors by hashing
 // the input with SHA-256 and distributing the hash bytes across the
 // requested number of dimensions.

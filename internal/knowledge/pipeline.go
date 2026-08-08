@@ -267,9 +267,10 @@ func (p *Pipeline) Query(ctx context.Context, req QueryRequest) (*QueryResult, e
 	}
 
 	return &QueryResult{
-		Query:   req.Query,
-		Chunks:  scored,
-		Context: strings.Join(parts, "\n"),
+		Query:              req.Query,
+		Chunks:             scored,
+		Context:            strings.Join(parts, "\n"),
+		SemanticEmbeddings: IsSemanticEmbedder(p.embedder),
 	}, nil
 }
 

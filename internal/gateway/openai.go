@@ -632,6 +632,13 @@ func HandleEmbeddings(_ *brain.Brain, embedder knowledge.Embedder) gin.HandlerFu
 						PromptTokens: 1,
 						TotalTokens:  1,
 					},
+					// HXC-235: report at the point of use whether these
+					// vectors are genuinely semantic or came from the
+					// deterministic HashEmbedder fallback. Without this a
+					// caller cannot distinguish real embeddings from
+					// meaningless ones — the response looks identical either
+					// way, which is the whole defect.
+					SemanticEmbeddings: knowledge.IsSemanticEmbedder(embedder),
 				})
 				return
 			}
@@ -658,6 +665,12 @@ func HandleEmbeddings(_ *brain.Brain, embedder knowledge.Embedder) gin.HandlerFu
 				PromptTokens: 1,
 				TotalTokens:  1,
 			},
+			// HXC-235: this is the zero-vector path — no embedder, or Embed
+			// failed. A vector of zeros carries no meaning whatsoever, so it
+			// is never semantic regardless of which embedder was configured.
+			// Reporting false here is not a fallback default; it is the
+			// literal truth about these numbers.
+			SemanticEmbeddings: false,
 		})
 	}
 }

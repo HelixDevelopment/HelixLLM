@@ -149,6 +149,16 @@ type EmbeddingResponse struct {
 	Data   []EmbeddingData `json:"data"`
 	Model  string          `json:"model"`
 	Usage  *Usage          `json:"usage,omitempty"`
+
+	// SemanticEmbeddings is a HelixLLM extension field (not part of the
+	// OpenAI schema; standard OpenAI clients tolerate unknown JSON
+	// fields). It reports whether Data was produced by a real semantic
+	// embedding provider (true) or the deterministic, non-semantic
+	// HashEmbedder fallback / zero-vector fallback (false) — HXC-235: the
+	// caller must be able to distinguish real embeddings from hash
+	// fallback at the point of use (this response), not only from a
+	// server-side startup log line.
+	SemanticEmbeddings bool `json:"semantic_embeddings"`
 }
 
 type EmbeddingData struct {
