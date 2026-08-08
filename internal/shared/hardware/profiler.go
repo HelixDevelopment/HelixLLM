@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -351,12 +352,23 @@ func detectNUMA() (bool, []int) {
 	return true, indices
 }
 
+const (
+	procCPUInfoPath = "/proc/cpuinfo"
+	procMemInfoPath = "/proc/meminfo"
+)
+
 // estimateMemoryBandwidth returns an estimated memory bandwidth in MB/s
-// based on DDR generation and channel count. Safe default: ~25 GB/s (DDR4
-// single-channel).
+// based on DDR generation and installed capacity. Safe default: ~25 GB/s
+// (DDR4 single-channel).
 func estimateMemoryBandwidth() float64 {
-	// Try to detect DDR generation from /proc/cpuinfo or dmidecode
-	data, err := os.ReadFile("/proc/cpuinfo")
+	return estimateMemoryBandwidthFrom(procCPUInfoPath, procMemInfoPath)
+}
+
+// estimateMemoryBandwidthFrom is estimateMemoryBandwidth with its two input
+// files injected, so the capacity branches are reachable under test.
+func estimateMemoryBandwidthFrom(cpuinfoPath, meminfoPath string) float64 {
+	// Try to detect DDR generation from /proc/cpuinfo
+	data, err := os.ReadFile(cpuinfoPath)
 	if err != nil {
 		return 25000.0
 	}
@@ -364,9 +376,16 @@ func estimateMemoryBandwidth() float64 {
 	if strings.Contains(content, "ddr5") || strings.Contains(content, "DDR5") {
 		return 51200.0 // DDR5-6400 single channel
 	}
+	// Installed capacity comes from /proc/meminfo — MemTotal does not exist in
+	// /proc/cpuinfo, so reading it there left memTotal permanently 0 and made
+	// both capacity branches below unreachable.
+	memData, memErr := os.ReadFile(meminfoPath)
+	if memErr != nil {
+		return 25000.0
+	}
 	var memTotal int64
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(string(memData), "\n") {
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "MemTotal:") {
 			memTotal = parseMemInfoKB(line)
 			break
@@ -381,8 +400,12 @@ func estimateMemoryBandwidth() float64 {
 	return 25000.0 // conservative DDR4 single-channel
 }
 
-// detectL3Cache reads /sys/devices/system/cpu/cpu*/cache/index3/size
-// and sums the L3 cache across all CPU nodes. Falls back to 0 on error.
+// sysfsCPURoot is the sysfs directory enumerating the system's logical CPUs.
+// Tests bypass it by passing a synthetic root to sumL3FromSysfs directly.
+const sysfsCPURoot = "/sys/devices/system/cpu"
+
+// detectL3Cache reports the total L3 cache size in KB, summed across all L3
+// cache instances on the system. Falls back to 0 on error.
 func detectL3Cache() int {
 	// Try dmidecode first
 	out, err := exec.Command(
@@ -395,31 +418,83 @@ func detectL3Cache() int {
 		}
 	}
 	// Fallback: walk /sys
-	var totalL3 int64
-	entries, err := os.ReadDir("/sys/devices/system/cpu/")
+	return sumL3FromSysfs(sysfsCPURoot)
+}
+
+// sumL3FromSysfs walks <cpuRoot>/cpu*/cache/index3/ and sums the size of each
+// DISTINCT L3 cache instance. Returns 0 when the tree is unreadable.
+//
+// Every logical CPU exposes the index3 node of the cache instance it is
+// attached to, so a naive walk would count one instance once per sharing CPU.
+// Instances are therefore de-duplicated by cache-instance identity, drawn from
+// the kernel cacheinfo ABI:
+//
+//  1. index3/id — documented as "a unique identifier for a specific cache
+//     instance of a particular type" (values may be non-contiguous).
+//  2. index3/shared_cpu_list — the set of CPUs sharing the instance, which is
+//     identical for every CPU of one instance and differs between instances.
+//     Used when id is exposed nowhere in the tree.
+//
+// ONE of those attributes is chosen for the WHOLE walk (see l3IdentityAttr),
+// never per directory: mixing them would let a single instance yield an id key
+// for some of its CPUs and a shared_cpu_list key for the rest, counting that
+// instance twice. With one identity space per walk, an entry that does not
+// expose the chosen attribute is skipped rather than counted, so the result can
+// under-count on a host with irregular cacheinfo but can never over-count.
+func sumL3FromSysfs(cpuRoot string) int {
+	entries, err := os.ReadDir(cpuRoot)
 	if err != nil {
 		return 0
 	}
+	attr := l3IdentityAttr(cpuRoot, entries)
+	var totalL3 int64
 	seen := make(map[string]bool)
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasPrefix(name, "cpu") {
 			continue
 		}
-		cachePath := "/sys/devices/system/cpu/" + name + "/cache/index3/size"
-		data, fErr := os.ReadFile(cachePath)
+		indexDir := filepath.Join(cpuRoot, name, "cache", "index3")
+		data, fErr := os.ReadFile(filepath.Join(indexDir, "size"))
 		if fErr != nil {
 			continue
 		}
-		key := strings.TrimSpace(string(data))
-		if seen[key] {
+		key, ok := readCacheAttr(indexDir, attr)
+		if !ok || seen[key] {
 			continue
 		}
 		seen[key] = true
-		kb := parseCacheSize(string(data))
-		totalL3 += kb
+		totalL3 += parseCacheSize(string(data))
 	}
 	return int(totalL3)
+}
+
+// l3IdentityAttr picks the single cacheinfo attribute used to identify L3
+// instances for an entire walk: "id" when any index3 node in the tree exposes
+// a non-blank one, otherwise "shared_cpu_list". Deciding once — rather than
+// per directory — is what makes the de-duplication incapable of over-counting.
+func l3IdentityAttr(cpuRoot string, entries []os.DirEntry) string {
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "cpu") {
+			continue
+		}
+		indexDir := filepath.Join(cpuRoot, e.Name(), "cache", "index3")
+		if _, ok := readCacheAttr(indexDir, "id"); ok {
+			return "id"
+		}
+	}
+	return "shared_cpu_list"
+}
+
+// readCacheAttr reads one cacheinfo attribute, reporting ok=false when it is
+// missing, unreadable, or blank.
+func readCacheAttr(indexDir, attr string) (string, bool) {
+	raw, err := os.ReadFile(filepath.Join(indexDir, attr))
+	if err != nil {
+		return "", false
+	}
+	val := strings.TrimSpace(string(raw))
+	return val, val != ""
 }
 
 // parseL3FromDMI extracts the L3 cache size from dmidecode output.
