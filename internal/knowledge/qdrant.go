@@ -124,6 +124,24 @@ func (q *QdrantStore) Close() error {
 	return q.client.Close()
 }
 
+// Ping performs a REAL, context-bounded round-trip to the Qdrant instance
+// (the client's root-endpoint liveness request, the same probe NewQdrantStore
+// uses to decide whether the backend is reachable at all) and returns the
+// transport error verbatim on failure.
+//
+// It exists so callers that need CURRENT liveness — the /internal/health
+// aggregator in particular — have a probe that is cheap, cancellable, and
+// carries no risk of hanging the caller. The VectorStore interface's own
+// methods are unsuitable for that: Collections/Stats run against
+// context.Background(), so a wedged Qdrant would block for the client's whole
+// internal timeout regardless of the caller's deadline.
+func (q *QdrantStore) Ping(ctx context.Context) error {
+	if err := q.client.Connect(ctx); err != nil {
+		return fmt.Errorf("qdrant: ping: %w", err)
+	}
+	return nil
+}
+
 // EnsureCollection creates a collection in Qdrant if it does not yet exist.
 // It is safe to call repeatedly; errors from "already exists" are silently
 // swallowed.

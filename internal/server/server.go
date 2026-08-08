@@ -176,11 +176,34 @@ func (s *Server) registerRoutes() {
 	}
 }
 
+// healthHandler serves the aggregated dependency report.
+//
+// HTTP status maps the aggregator's THREE states onto the two answers a
+// consumer acts on — "keep sending me traffic" or "take me out of rotation":
+//
+//	healthy   -> 200  every dependency is up
+//	degraded  -> 200  an OPTIONAL dependency is down; the service still serves
+//	                  every request through its documented fallback
+//	unhealthy -> 503  a REQUIRED dependency is down; the service cannot serve
+//
+// The degraded case must be 200. The aggregator marks a component optional
+// precisely because the service is built to degrade past it — the KV cache
+// falls back to in-memory, the RAG store to the in-process memory store, the
+// fallback chain to a static score table. Answering 503 there would pull a
+// gateway that is correctly serving every request out of its load balancer,
+// and would flatten the required/optional distinction into "any dependency
+// blip is an outage". A false alarm is as much a defect in a health endpoint
+// as a false all-clear; the body still carries status=degraded plus the
+// failing component, so nothing is hidden from a consumer that reads it.
+//
+// This branch was unreachable before HXC-244: with no components registered
+// the aggregator could only ever return healthy, so the mapping was never
+// exercised. Registering real checks makes it live.
 func healthHandler(checker *health.Checker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		report := checker.Check(c.Request.Context())
 		status := http.StatusOK
-		if report.Status != health.StatusHealthy {
+		if report.Status == health.StatusUnhealthy {
 			status = http.StatusServiceUnavailable
 		}
 		c.JSON(status, report)

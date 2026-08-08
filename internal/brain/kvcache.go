@@ -187,11 +187,35 @@ func (c *RedisKVCache) Stats(ctx context.Context) (*CacheStats, error) {
 	}, nil
 }
 
-// Available reports whether the Redis backend is reachable.
+// Available reports whether the Redis backend was reachable AT CONSTRUCTION
+// TIME. It is a cached boolean set once by NewKVCache and never refreshed —
+// it is NOT a liveness probe. Callers that need to know whether Redis is
+// reachable NOW must use Ping.
 func (c *RedisKVCache) Available() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.available
+}
+
+// Ping performs a REAL Redis round-trip (a RESP PING command) bounded by ctx,
+// and returns the transport/protocol error verbatim on failure.
+//
+// This exists because Available() answers a different question: it reports the
+// reachability observed once during NewKVCache and is never refreshed, so it
+// cannot distinguish "Redis is up" from "Redis was up when this process
+// started". A health endpoint that reported Available() would be publishing
+// startup metadata as if it were current liveness — the absence-of-error
+// verdict this package's callers must never emit.
+//
+// Ping is deliberately side-effect-free: it does NOT update the cached
+// `available` flag. Flipping that flag would change Store/Retrieve short-circuit
+// behaviour as a side effect of an observability call, which belongs to a
+// separate, independently-reviewed change rather than to a probe.
+func (c *RedisKVCache) Ping(ctx context.Context) error {
+	if err := c.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("kvcache: redis ping %s: %w", c.config.RedisAddr, err)
+	}
+	return nil
 }
 
 // Close shuts down the Redis connection.

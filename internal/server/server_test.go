@@ -154,6 +154,77 @@ func TestHealthEndpointUnhealthy(t *testing.T) {
 	}
 }
 
+// TestHealthEndpoint_OptionalFailureDegradesWithout503 pins the other half of
+// the required/optional contract: a dependency the service can degrade past
+// must show up as degraded in the body WITHOUT taking the endpoint to 503.
+// Without this, marking a fallback-capable dependency required would look
+// correct to the suite while 503-ing a deployment that serves every request.
+func TestHealthEndpoint_OptionalFailureDegradesWithout503(t *testing.T) {
+	checker := health.NewChecker()
+	checker.Register("required-ok", func(ctx context.Context) error { return nil })
+	checker.RegisterOptional("optional-down", func(ctx context.Context) error {
+		return fmt.Errorf("cache unreachable")
+	})
+	srv := server.New(server.Options{Host: "127.0.0.1", Port: 0, Checker: checker})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/internal/health", nil)
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 — an optional dependency failing must not 503", w.Code)
+	}
+	var report map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if report["status"] != "degraded" {
+		t.Errorf("status = %v, want degraded", report["status"])
+	}
+}
+
+// TestHealthEndpoint_ComponentsAreNamed asserts the served report actually
+// enumerates what it checked, and that each entry is identifiable.
+//
+// HXC-244 forensic anchor: this endpoint used to answer
+// {"status":"healthy","components":[]} for every request, because the checker
+// handed to the server had no registered components. A verdict over an empty
+// component list is a claim, not evidence — so the served body must carry a
+// non-empty components array whose entries each have a name.
+func TestHealthEndpoint_ComponentsAreNamed(t *testing.T) {
+	checker := health.NewChecker()
+	checker.Register("dependency-a", func(ctx context.Context) error { return nil })
+	checker.RegisterOptional("dependency-b", func(ctx context.Context) error { return nil })
+	srv := server.New(server.Options{Host: "127.0.0.1", Port: 0, Checker: checker})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/internal/health", nil)
+	srv.Handler().ServeHTTP(w, req)
+
+	var report struct {
+		Status     string `json:"status"`
+		Components []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if len(report.Components) != 2 {
+		t.Fatalf("components = %d, want 2 (a report with no components proves nothing)",
+			len(report.Components))
+	}
+	for i, c := range report.Components {
+		if strings.TrimSpace(c.Name) == "" {
+			t.Errorf("component %d has no name — it is unattributable in a report", i)
+		}
+		if c.Status == "" {
+			t.Errorf("component %q has no status", c.Name)
+		}
+	}
+}
+
 func TestListenAndServe_MissingTLS(t *testing.T) {
 	checker := health.NewChecker()
 	srv := server.New(server.Options{

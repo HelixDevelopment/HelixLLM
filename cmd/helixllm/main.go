@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -295,13 +296,24 @@ func main() {
 	}
 
 	// Create KV cache for conversation context persistence.
+	//
+	// HXC-244: redisKV stays in scope even when the gateway degrades to the
+	// in-memory cache, so /internal/health can still probe the Redis the
+	// operator CONFIGURED. Deriving the health component from whichever cache
+	// object won would make a configured-but-unreachable Redis disappear from
+	// the report entirely — silence in exactly the situation the operator most
+	// needs to be told about.
 	var kvCache brain.KVCacher
+	var redisKV *brain.RedisKVCache
+	var redisAddr string
 	if cfg.Cache.RedisHost != "" {
-		kvCache = brain.NewKVCache(brain.KVCacheConfig{
-			RedisAddr:     fmt.Sprintf("%s:%d", cfg.Cache.RedisHost, cfg.Cache.RedisPort),
+		redisAddr = fmt.Sprintf("%s:%d", cfg.Cache.RedisHost, cfg.Cache.RedisPort)
+		redisKV = brain.NewKVCache(brain.KVCacheConfig{
+			RedisAddr:     redisAddr,
 			RedisPassword: cfg.Cache.RedisPassword,
 		})
-		if kvCache.Available() {
+		if redisKV.Available() {
+			kvCache = redisKV
 			log.Info("KV cache: Redis connected")
 		} else {
 			log.Warn("KV cache: Redis unreachable, falling back to in-memory")
@@ -404,6 +416,37 @@ func main() {
 			"local", e.IsLocalFallback,
 		)
 	}
+
+	// HXC-244: publish the real dependency checks on /internal/health.
+	//
+	// Registration happens HERE rather than beside health.NewChecker() because
+	// the dependencies being checked — the provider set, the KV cache, the
+	// vector store — do not exist yet at that point. The server already holds
+	// this same *Checker, and the aggregator's component list is mutex-guarded,
+	// so registering now is safe; no request can observe the intermediate empty
+	// list because srv.ListenAndServe is not called until the end of main.
+	//
+	// qdrantStore is nil when Qdrant was unreachable at startup (NewVectorStore
+	// falls back to the in-process memory store), which is precisely the case
+	// fallbackDependencyCheck reports as "configured but NOT in use".
+	qdrantStore, _ := store.(*knowledge.QdrantStore)
+	healthDeps := healthCheckDeps{
+		Providers:     brainSvc.Providers,
+		RedisAddr:     redisAddr,
+		RedisInUse:    redisKV != nil && redisKV.Available(),
+		VectorBackend: cfg.Knowledge.VectorDB,
+		VectorTarget:  fmt.Sprintf("%s:%d", cfg.Knowledge.VectorDBHost, cfg.Knowledge.VectorDBPort),
+		VectorInUse:   qdrantStore != nil,
+		VerifierURL:   cfg.LLM.VerifierURL,
+		HTTPClient:    &http.Client{Timeout: healthProbeTimeout},
+	}
+	if redisKV != nil {
+		healthDeps.RedisProbe = redisKV.Ping
+	}
+	if qdrantStore != nil {
+		healthDeps.VectorProbe = qdrantStore.Ping
+	}
+	registerHealthChecks(checker, healthDeps)
 
 	// Register gateway routes with RAG hook — this injects retrieved codebase
 	// context into every /v1/chat/completions request so small models have
