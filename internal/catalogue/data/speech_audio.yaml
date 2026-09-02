@@ -323,13 +323,22 @@ entries:
   # Promoted from the deferred block 2026-09-02. It was deferred solely for want
   # of an on-disk weight size; that figure has since been measured.
   #
-  # PROVENANCE, stated fully because this figure is SINGLE-SOURCED: the two
-  # weight files were measured by HTTP HEAD against the ONNX mirror on
-  # 2026-09-02 — graph 325,532,387 B + voices 28,214,398 B = 353,746,785 B.
-  # Re-verification from the build host was INCONCLUSIVE (its network returns a
-  # 15-byte error page instead of headers), so this is one measurement, not two
-  # agreeing ones. Recorded rather than estimated, with the method named so it
-  # can be re-run where the network permits.
+  # PROVENANCE — corrected 2026-09-02 after a first-hand re-measurement.
+  #
+  # An earlier note here recorded 353,746,785 B as single-sourced, claiming
+  # re-verification was inconclusive because an HTTP HEAD returned a 15-byte
+  # error page. That conclusion was wrong: HEAD is blocked here, but the model
+  # API is not. Re-measured through it:
+  #     onnx/model.onnx                325,532,232
+  #     voices/*.bin  (55 files)        28,725,248
+  #     TOTAL                          354,257,480
+  # The previous figure understated by 510,695 B — about one voice file, so the
+  # earlier count likely saw 54 of the 55. Understating is the dangerous
+  # direction: the entry is offered, the fetch then runs out of room.
+  #
+  # Re-run:  curl -sS 'https://huggingface.co/api/models/onnx-community/\
+  #          Kokoro-82M-v1.0-ONNX?blobs=true'  and sum siblings[].size for
+  #          onnx/model.onnx plus every voices/*.bin.
   #
   # WHY THIS ENTRY MATTERS: before it, the only loading text-to-speech entry was
   # xtts-v2 under CPML — non-commercial, and unlicensable since Coqui shut down.
@@ -344,7 +353,7 @@ entries:
       quantisation: fp32
       specialisations: [speech-synthesis]
     memory_required_bytes: 2147483648
-    storage_required_bytes: 353746785
+    storage_required_bytes: 354257480
     requires_accelerator: false
     source: https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX
     usage_terms:
@@ -356,8 +365,8 @@ entries:
     integrity:
       algorithm: sha256
     notes:
-      - "storage measured by HTTP HEAD 2026-09-02: graph 325532387 + voices 28214398 = 353746785 bytes"
-      - "single-sourced: re-verification from the build host was inconclusive (restricted network)"
+      - "storage measured via the model API 2026-09-02: graph 325532232 + 55 voices 28725248 = 354257480 bytes"
+      - "corrected from an earlier 353746785 that undercounted the voices by one file"
       - "memory figure sourced as '<2 GB VRAM; processor-viable'"
       - "processor-viable at usable speed: ~5x real-time on a 32-core CPU"
       - "54 baked-in voices; NO voice cloning of any kind"

@@ -203,10 +203,21 @@ What configuration still legitimately says:
 | `HELIXLLM_DECLARED_USAGE` | How output will be used: `commercial`, `personal`, `research`, `evaluation`. |
 | `VISIONGEN_FORBID_MODELS` / `IMAGEGEN_FORBID_MODELS` | Comma-separated `id` or `id:variant` to exclude. Forbidding can only *remove* an option the measurement offered — never introduce one it did not. Every removal is printed as `FORBIDDEN-BY-CONFIG`. |
 
-Once selection has produced offers, the boot lanes take the **most capable** one the measurement
-permits — ordered by memory requirement, largest first, with the identity breaking ties — then look
-for that model's files. They never scan the directory and run whatever they find: that would be the
-directory naming the model.
+Once selection has produced offers, they arrive **already ordered, cheapest-admissible-first** —
+by memory required, then storage required, then the catalogue identity — and the boot lanes take the
+first one this runtime can actually serve, then look for that model's files. They never scan the
+directory and run whatever they find: that would be the directory naming the model.
+
+Cheapest rather than largest, because a host does not serve one model. A coder model runs beside a
+vision or video one on the same accelerator (`internal/vrambroker` is what accounts for that), so
+memory taken by the biggest option that fits is memory the next model cannot have. Largest-first
+optimises one model in isolation; cheapest-that-works optimises the machine.
+
+The ordering is decided once, in `internal/selection`, and not in each lane — a rule copied into
+three lanes is a rule that drifts. It is the same rule `container/helix_model_gate.py` applies, so
+the Go path and the Python path choose the same build on the same host. Ordering only ranks options
+that already passed configuration, fit on **both** the memory and the storage axis, and the declared
+usage terms; it never promotes something that was withheld.
 
 ---
 

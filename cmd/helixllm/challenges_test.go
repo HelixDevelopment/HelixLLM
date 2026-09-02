@@ -71,7 +71,7 @@ func captureStderr(t *testing.T, fn func()) string {
 func TestRunChallenges_FailedToLoadBanks_UsesTranslator(t *testing.T) {
 	ft := &fakeTranslator{}
 	stderr := captureStderr(t, func() {
-		rc := runChallenges(ft, "en", "https://localhost:1", "/nonexistent/banks/dir/xyz123", "", "")
+		rc := runChallenges(ft, "en", "https://localhost:1", "/nonexistent/banks/dir/xyz123", "", "", "")
 		if rc != 1 {
 			t.Fatalf("runChallenges return code = %d, want 1 (bank-load failure)", rc)
 		}

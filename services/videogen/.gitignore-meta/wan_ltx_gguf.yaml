@@ -2,6 +2,46 @@
 # model weights consumed by the video-gen service. A fresh clone obtains them via
 # `huggingface-cli download` (no in-repo bytes); the harness setup step + the
 # container's HF cache volume make the download one-time.
+#
+# ---------------------------------------------------------------------------
+# HOW THE DISK FIGURES BELOW WERE MEASURED (2026-09-02) — AND WHY THE EARLIER
+# FIGURE WAS WRONG BY ~14 GiB
+# ---------------------------------------------------------------------------
+# This manifest previously declared `expected_disk_usage: "~18 GiB"` for the
+# default path. That UNDERSTATED the real footprint by ~14 GiB, and a host
+# provisioned to it runs out of disk PART WAY THROUGH a long download, leaving a
+# partial weight set. The corrected figure is 31.85 GiB.
+#
+# WHY THE NAIVE FIGURE WAS WRONG (the reason, so it does not drift back):
+#   The UMT5-XXL text encoder is DOWNLOADED IN FULL (10.58 GiB of shards) and
+#   only THEN processor-offloaded at run time by VIDEOGEN_CPU_OFFLOAD=1. Offload
+#   moves a tensor off the ACCELERATOR; it does not make the file smaller and it
+#   does not avoid fetching it. So the encoder costs DISK even though it costs
+#   almost no VRAM. Any figure derived from the ~10 GiB VRAM budget — which is
+#   how "~18 GiB" reads — omits it. Disk and memory are separate axes and must be
+#   sourced separately: `memory_required_bytes` is what the broker admits,
+#   `storage_required_bytes` is what the filesystem must hold.
+#
+# METHOD (reproducible; §11.4.6 — measured, not estimated):
+#   The HF model API reports every file's byte size. The repository total is the
+#   sum of `siblings[].size` with `?blobs=true` (without that parameter the API
+#   returns siblings WITHOUT sizes, which is how an "estimate" gets made by
+#   accident). For each repo below:
+#
+#     curl -sS 'https://huggingface.co/api/models/<owner>/<repo>?blobs=true' \
+#       | python3 -c "import json,sys; d=json.load(sys.stdin); \
+#           print(sum(s.get('size') or 0 for s in d['siblings']))"
+#
+#   Re-running it re-derives every `expected_disk_usage_bytes` marked
+#   `disk_basis: measured` below, and `resolved_revision` pins the revision the
+#   measurement was taken at, so a later re-measure that disagrees is a real
+#   upstream change rather than an unexplained drift.
+#
+# CROSS-CHECK (mechanical, §11.4.108): each source names its `catalogue_entry`,
+#   and `test_manifest_catalogue_agreement.py` asserts this file's
+#   `expected_disk_usage_bytes` equals that entry's `storage_required_bytes` in
+#   internal/catalogue/data/video.yaml. The two documents can no longer disagree
+#   silently — which is the defect that produced the ~18 GiB figure.
 schema_version: 1
 entry_slug: wan_ltx_gguf
 pattern: "services/videogen/models/** *.safetensors *.gguf"
@@ -9,25 +49,160 @@ mechanism_type: download            # download from authoritative HF source
 requires_network: true
 requires_credentials: false         # WAN/LTX open repos; set HF_TOKEN only if a
                                     #   gated variant is selected (§11.4.10, never committed)
-expected_disk_usage: "~18 GiB (WAN 2.2 TI2V-5B FP8 default; +GGUF-Q4 14B / LTX-13B variants on demand)"
+
+# MEASURED 2026-09-02 (method above). The DEFAULT no-coder-pause path only.
+expected_disk_usage: "31.85 GiB (34203021834 B) — WAN 2.2 TI2V-5B, the DEFAULT path, MEASURED. Provision for this, not for the VRAM budget: the UMT5-XXL text encoder (10.58 GiB) is fetched in full and only then processor-offloaded. Fetching all three catalogued sources is ~84.4 GiB (90574979594 B), of which only this one is measured."
+expected_disk_usage_bytes: 34203021834
+expected_disk_usage_all_sources_bytes: 90574979594   # sum of the three per-source figures below
 
 sources:
   - name: wan22_5b_default
     repo: Wan-AI/Wan2.2-TI2V-5B-Diffusers
+    catalogue_entry: wan2.2-ti2v-5b
     why: "DEFAULT no-coder-pause path — WAN 2.2 TI2V-5B, FP8 @480p (~8-10 GB peak, native offload)"
     note: "the co-resident short-clip default; calibrate margin (near the ~10.4 GiB ceiling)"
+    expected_disk_usage_bytes: 34203021834       # 31.85 GiB, 29 files
+    disk_basis: measured
+    disk_measured_on: 2026-09-02
+    resolved_revision: b8fff7315c768468a5333511427288870b2e9635
+    serves_recorded_build: true
+    serving_note: >-
+      The one source here that genuinely serves the build its catalogue entry
+      records. `WanPipeline.from_pretrained` on this repo loads what
+      `wan2.2-ti2v-5b` describes.
+
   - name: wan22_14b_gguf
     repo: Wan-AI/Wan2.2-T2V-A14B-Diffusers
+    catalogue_entry: wan2.2-t2v-a14b
     why: "alt no-pause path — WAN 2.2 14B GGUF-Q4 + T5-CPU (~6-8 GB @480p)"
     note: "GGUF-Q4 quant asset supplied via env; T5-XXL MUST be CPU-offloaded"
+    expected_disk_usage_bytes: 27917287424       # 26.00 GiB
+    disk_basis: composed-estimate
+    disk_estimate_note: >-
+      NOT a measurement of the `repo:` above. It is the catalogue's composed
+      estimate for the GGUF-Q4 asset (~14.8 GiB) + the UMT5-XXL encoder
+      (10.58 GiB, measured in the sibling 5B repo) + VAE (~0.5 GiB). The GGUF
+      asset is env-injected from a source no in-repo document records, so its
+      size cannot be measured from here.
+    resolved_revision: 5be7df9619b54f4e2667b2755bc6a756675b5cd7
+    serves_recorded_build: false
+    serving_note: >-
+      MISMATCH, recorded rather than papered over (§11.4.6). The `repo:` named
+      here is the UNQUANTISED Diffusers repository: MEASURED 2026-09-02 at
+      126200628126 B (117.53 GiB, 49 files) and containing ZERO `.gguf` files.
+      It therefore does not serve the GGUF-Q4 build the catalogue entry records
+      — fetching it costs 4.5x the figure above, and loading it through the
+      shipped `from_pretrained` path yields the full unquantised model at a
+      memory cost the entry's ~8 GiB figure was never measured for. It is
+      retained as the PROVENANCE of the measured encoder size and of the
+      unquantised contrast figure, NOT as a weight source to fetch. See
+      `unimplemented_precisions` below: the service refuses this path at
+      configuration time rather than serving the wrong build.
+
   - name: ltx_13b
     repo: Lightricks/LTX-Video
+    catalogue_entry: ltx-video-13b
     why: "alt no-pause path — LTX-Video 13B GGUF-Q4 (~6-10 GB, needs 32 GB+ system RAM)"
     note: "GGUF-Q4 (Q4_K_S/M) variant; the FP8/full LTX weights are MUST-PAUSE, not the default"
+    expected_disk_usage_bytes: 28454670336       # 26.50 GiB
+    disk_basis: composed-estimate
+    disk_estimate_note: >-
+      NOT a measurement of the `repo:` above. Composed as 13B at Q4_K (~7.2 GiB)
+      + the MEASURED text_encoder (17.74 GiB) + MEASURED vae (1.56 GiB). The
+      ~7.2 GiB term is now known to be slightly LOW: the real 13B Q4_K assets
+      MEASURE 7983375360 B (7.44 GiB, Q4_K_S) and 8818041856 B (8.21 GiB,
+      Q4_K_M). Which of the two would be served is undetermined while no source
+      is recorded, so no single value is substituted here — that choice belongs
+      to the change that records the source (§11.4.6: do not guess the variant).
+    resolved_revision: 8984fa25007f376c1a299016d0957a37a2f797bb
+    serves_recorded_build: false
+    serving_note: >-
+      MISMATCH — this is the sharpest case, and the reason the `ltx` backend is
+      marked unsupported (see `unsupported_backends`). VERIFIED 2026-09-02
+      against the HF API: (1) this repo contains ZERO `.gguf` files, so the
+      earlier wording here — which read as though the Q4_K_S/M quant lives in
+      it — was wrong; the quant must come from an external source, and no
+      in-repo document records one. (2) The repo DOES carry `model_index.json`,
+      so `LTXPipeline.from_pretrained` on it SUCCEEDS — and resolves the
+      diffusers subtree, whose `transformer/config.json` is 28 layers x 32 heads
+      x 64 head_dim (~2B, 7.17 GiB), NOT the 13B this entry records (48 layers
+      x 32 heads x 128 head_dim, 24.29 GiB in the diffusers-format 13B repo).
+      Succeeding-with-the-wrong-model is worse than failing, which is why the
+      backend refuses instead. (3) The 13B builds ARE in this repo, as
+      ROOT-LEVEL single files (`ltxv-13b-0.9.8-dev.safetensors` 28579183340 B /
+      26.62 GiB; `-fp8` 15694280140 B / 14.62 GiB) that `from_pretrained` does
+      not select and that are MUST-PAUSE sizes anyway.
+      Whole-repo total, all variants: 254107005436 B (236.66 GiB, 63 files).
+
+# ---------------------------------------------------------------------------
+# WHAT THE SHIPPED SERVICE CAN ACTUALLY LOAD (§11.4.6 honest boundary)
+# ---------------------------------------------------------------------------
+# services/videogen/videogen_server.py builds its pipeline with exactly one
+# call shape: `WanPipeline/LTXPipeline.from_pretrained(MODEL_ID,
+# torch_dtype=...)`. It carries NO `from_single_file`, no
+# `GGUFQuantizationConfig`, no `quantization_config` argument — grep the file.
+#
+# `from_pretrained` resolves a DIFFUSERS-FORMAT repository via
+# `model_index.json`. A GGUF quant repository is a bag of single-file `.gguf`
+# checkpoints with no `model_index.json` at all — VERIFIED 2026-09-02 for every
+# published LTX 13B Q4 repo (wsbagnsv1/ltxv-13b-0.9.7-dev-GGUF,
+# QuantStack/LTXV-13B-0.9.8-dev-GGUF, QuantStack/LTXV-13B-0.9.8-distilled-GGUF:
+# `model_index.json` absent in all three). So `gguf-q4` is a precision this
+# manifest and the catalogue both NAME but the shipped loader cannot serve.
+#
+# Recorded here so the gap is a fact with a remedy rather than a surprise at
+# load time. The service refuses these at configuration time.
+unimplemented_precisions:
+  - precision: gguf-q4
+    reason: >-
+      The service loads only through `from_pretrained`, which cannot read GGUF
+      weights. Pointing it at a diffusers-format repo instead does not serve the
+      quant — it serves the UNQUANTISED model at a memory cost the entry's
+      figure was never measured for.
+    affects_catalogue_entries: [wan2.2-t2v-a14b, ltx-video-13b]
+    what_would_establish_support: >-
+      A real GGUF load path in videogen_server.py: load the transformer with
+      `<Model>Transformer3DModel.from_single_file(<gguf>,
+      quantization_config=GGUFQuantizationConfig(compute_dtype=...))`, source the
+      text encoder / VAE / tokenizer / scheduler separately, and assemble the
+      pipeline from those components; then record the quant asset's source and
+      its MEASURED size on the affected catalogue entries, and re-derive their
+      memory figures against the assembled pipeline.
+
+unsupported_backends:
+  - backend: ltx
+    reason: >-
+      No source is established that serves the recorded `ltx-video-13b`
+      GGUF-Q4 build through this service's load path. The obvious repository
+      loads successfully and serves a ~2B model instead (see the ltx_13b
+      `serving_note`), so this backend is refused at configuration time rather
+      than left to serve a smaller model than the catalogue documents.
+    what_would_establish_support: >-
+      EITHER the GGUF load path above plus a recorded source for a 13B Q4_K
+      asset; OR re-record `ltx-video-13b` against a diffusers-format 13B
+      repository that `from_pretrained` genuinely resolves to a 48-layer /
+      4096-hidden transformer — with its memory figure re-measured, since the
+      13B diffusers transformer alone is 24.29 GiB and is a MUST-PAUSE size on
+      the co-resident budget, not the no-pause path this entry claims.
 
 # Verify LATEST asset ids/tags before download (§11.4.99) — the exact WAN FP8 /
 # GGUF-Q4 asset filenames and the LTX GGUF variant move; the README carries the
-# 'Sources verified' footer. integrity-hash intentionally left to first-download
-# capture (the HF repos are the authoritative source; pin the resolved revision
-# hash into this file at runtime-proof time, §11.4.6).
+# 'Sources verified' footer.
+#
+# `resolved_revision` per source above is the repository revision each MEASURED
+# byte total was read at. It is NOT a weight digest and must not be used as one:
+# it names a commit, it does not attest a file's contents. The per-file digest
+# is still deferred to first authorized download (§11.4.6).
 integrity_hash: "PENDING: capture resolved HF revision sha at first authorized download"
+
+# Sources verified 2026-09-02 (§11.4.99), HF model API `?blobs=true` +
+# `resolve/main/<path>` for the config files:
+#   https://huggingface.co/api/models/Wan-AI/Wan2.2-TI2V-5B-Diffusers?blobs=true
+#   https://huggingface.co/api/models/Wan-AI/Wan2.2-T2V-A14B-Diffusers?blobs=true
+#   https://huggingface.co/api/models/Lightricks/LTX-Video?blobs=true
+#   https://huggingface.co/Lightricks/LTX-Video/resolve/main/model_index.json
+#   https://huggingface.co/Lightricks/LTX-Video/resolve/main/transformer/config.json
+#   https://huggingface.co/Lightricks/LTX-Video-0.9.8-13B-distilled/resolve/main/transformer/config.json
+#   https://huggingface.co/api/models/wsbagnsv1/ltxv-13b-0.9.7-dev-GGUF?blobs=true
+#   https://huggingface.co/api/models/QuantStack/LTXV-13B-0.9.8-dev-GGUF?blobs=true
+#   https://huggingface.co/api/models/QuantStack/LTXV-13B-0.9.8-distilled-GGUF?blobs=true

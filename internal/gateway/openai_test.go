@@ -114,6 +114,23 @@ func TestChatCompletionsStreaming(t *testing.T) {
 	}
 }
 
+// fabricatedModelIDs are the three ids GET /v1/models used to advertise with
+// no backend configured, each stamped `owned_by: helix`. None of them was ever
+// served by a backend-less server: a client that selected one received three
+// models that do not exist and cannot answer a single request.
+//
+// The list is kept here, by name, so the guard below FAILS LOUDLY and names the
+// offender if any of them is ever re-introduced (§11.4.135 — the defect's own
+// regression guard).
+var fabricatedModelIDs = []string{
+	"llama-3.1-70b",
+	"gpt-4o",
+	"claude-sonnet-4-20250514",
+}
+
+// TestListModels asserts the RECONCILED behaviour of the no-backend listing:
+// an EMPTY list carrying a stated reason (§11.4.120 — this test previously
+// asserted the fabricated list, which was the defect, not the contract).
 func TestListModels(t *testing.T) {
 	r := setupOpenAIRouter()
 	w := httptest.NewRecorder()
@@ -125,29 +142,85 @@ func TestListModels(t *testing.T) {
 	}
 
 	var list api.ModelList
-	json.Unmarshal(w.Body.Bytes(), &list)
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode body %q: %v", w.Body.String(), err)
+	}
 	if list.Object != "list" {
 		t.Errorf("object = %q, want list", list.Object)
 	}
-	if len(list.Data) < 1 {
-		t.Error("no models returned")
+	if len(list.Data) != 0 {
+		t.Errorf("no backend is configured, so the server serves no models, "+
+			"yet %d were listed: %+v", len(list.Data), list.Data)
+	}
+	// The empty list must SAY WHY. Without the reason a client cannot tell an
+	// unconfigured server from a broken one.
+	if strings.TrimSpace(list.Reason) == "" {
+		t.Error("empty model list carried no reason: a client cannot distinguish " +
+			"\"no backend configured\" from \"the request went wrong\"")
+	}
+	// `"data": []`, never `"data": null` — a null list reads as a malformed body.
+	if !strings.Contains(w.Body.String(), `"data":[]`) {
+		t.Errorf("body = %s, want an explicit empty data array", w.Body.String())
 	}
 }
 
-func TestGetModel(t *testing.T) {
+// TestListModels_NoBackend_ListsNoUnservableModel is the anti-bluff guard for
+// the removed hardcoded list: it fails, NAMING the model, if a backend-less
+// server ever again advertises a model it cannot serve (FR-019, CONST-036,
+// BLUFF-002).
+func TestListModels_NoBackend_ListsNoUnservableModel(t *testing.T) {
 	r := setupOpenAIRouter()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/v1/models/llama-3.1-70b", nil)
+	req := httptest.NewRequest("GET", "/v1/models", nil)
 	r.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Fatalf("status = %d, want 200", w.Code)
+	var list api.ModelList
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode body %q: %v", w.Body.String(), err)
 	}
+	for _, m := range list.Data {
+		for _, fabricated := range fabricatedModelIDs {
+			if m.ID == fabricated {
+				t.Errorf("GET /v1/models advertised %q (owned_by=%q) with NO backend "+
+					"configured: this server cannot serve that model, and a client "+
+					"selecting it gets a request that can never be answered",
+					m.ID, m.OwnedBy)
+			}
+		}
+	}
+	if len(list.Data) != 0 {
+		t.Errorf("with no backend configured every listed model is unservable; "+
+			"%d were listed: %+v", len(list.Data), list.Data)
+	}
+}
 
-	var model api.Model
-	json.Unmarshal(w.Body.Bytes(), &model)
-	if model.ID != "llama-3.1-70b" {
-		t.Errorf("model ID = %q, want llama-3.1-70b", model.ID)
+// TestGetModel asserts the RECONCILED per-model lookup: with no backend, every
+// id is a miss, and the 404 states WHY so the operator can act on it.
+func TestGetModel(t *testing.T) {
+	for _, id := range fabricatedModelIDs {
+		t.Run(id, func(t *testing.T) {
+			r := setupOpenAIRouter()
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/v1/models/"+id, nil)
+			r.ServeHTTP(w, req)
+
+			if w.Code != 404 {
+				t.Fatalf("GET /v1/models/%s = %d with no backend configured, want 404: "+
+					"a server serving no models must not report one as present", id, w.Code)
+			}
+			var errResp api.ErrorResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+				t.Fatalf("decode body %q: %v", w.Body.String(), err)
+			}
+			if !strings.Contains(errResp.Error.Message, "no model-serving backend") {
+				t.Errorf("404 message = %q; it must state that no backend is configured, "+
+					"or the client cannot tell a missing model from a server with no "+
+					"backend at all", errResp.Error.Message)
+			}
+			if !strings.Contains(errResp.Error.Message, id) {
+				t.Errorf("404 message = %q, want the requested id %q named", errResp.Error.Message, id)
+			}
+		})
 	}
 }
 
@@ -159,6 +232,13 @@ func TestGetModelNotFound(t *testing.T) {
 
 	if w.Code != 404 {
 		t.Errorf("status = %d, want 404", w.Code)
+	}
+	var errResp api.ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("decode body %q: %v", w.Body.String(), err)
+	}
+	if !strings.Contains(errResp.Error.Message, "no model-serving backend") {
+		t.Errorf("404 message = %q, want the no-backend reason stated", errResp.Error.Message)
 	}
 }
 

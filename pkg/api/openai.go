@@ -134,6 +134,14 @@ type Model struct {
 type ModelList struct {
 	Object string  `json:"object"` // list
 	Data   []Model `json:"data"`
+	// Reason states why Data is empty when the server has nothing to list.
+	//
+	// An empty list with no explanation is indistinguishable from a broken
+	// server: the client cannot tell "no backend is configured" from "the
+	// request went wrong". This field carries that distinction. It is set ONLY
+	// alongside an empty Data and is omitted otherwise — a reason next to a
+	// populated list would state a withholding that did not happen.
+	Reason string `json:"reason,omitempty"`
 }
 
 // CompletionRequest matches OpenAI's /v1/completions.

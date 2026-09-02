@@ -374,35 +374,19 @@ func (c Chooser) Choose(host capability.HostCapabilityProfile, e catalogue.Entry
 	// The model does not fit in memory. From here the only question is whether
 	// a fallback path exists — not how much memory is missing.
 
-	// (b) Eligibility is roster membership, and only roster membership.
-	// Architecture is never consulted: architecturally-suitable models exist
-	// that this runtime does not support, and inferring eligibility from
-	// architecture offers them anyway, turning a selection bug into a load-time
-	// failure (D1).
-	if !e.StreamingEligible() {
-		return Choice{}, refuse(host, e, ReasonUnsupportedConfiguration, func(r *Refusal) {
-			r.Unsupported = &Unsupported{
-				Requirement: RequirementStreamingRoster,
-				Detail:      e.StreamingRoster.FamilyName,
-			}
-		})
-	}
-
-	// (c) The streaming runtime's own floors. Failing these IS a resource
-	// answer — the path exists and a larger host would take it — which is what
-	// separates this refusal from the roster miss above.
-	if resident := c.Streaming.ResidentMemoryBytes(e); resident > uint64(host.MemoryAvailable) {
-		return Choice{}, refuse(host, e, ReasonInsufficientResources, func(r *Refusal) {
-			r.Shortfall = &Shortfall{
-				Resource:       ResourceMemory,
-				RequiredBytes:  resident,
-				AvailableBytes: uint64(host.MemoryAvailable),
-			}
-		})
-	}
-	if s, short := storageShortfall(host, c.Streaming.StorageBytes(e)); short {
-		return Choice{}, refuse(host, e, ReasonInsufficientResources, func(r *Refusal) {
-			r.Shortfall = &s
+	// (b) and (c) belong to the streaming path itself and live with it, in
+	// streaming.go: eligibility is roster membership and only roster membership
+	// (D1), and the runtime's own memory and disk floors are checked separately
+	// (D2). They are delegated rather than repeated here so there is ONE
+	// implementation of them — a second copy would keep passing its own tests
+	// while drifting from the one the launcher plans against.
+	//
+	// The verdict carries exactly one detail, matching its reason, so attaching
+	// both below can never produce a refusal with two answers.
+	if v := c.Streaming.Admit(host, e); !v.Admitted {
+		return Choice{}, refuse(host, e, v.Reason, func(r *Refusal) {
+			r.Unsupported = v.Unsupported
+			r.Shortfall = v.Shortfall
 		})
 	}
 

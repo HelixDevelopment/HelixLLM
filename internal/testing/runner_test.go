@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	helixtest "github.com/HelixDevelopment/HelixLLM/internal/testing"
@@ -214,6 +215,15 @@ challenges:
 	}
 }
 
+// TestRunner_RunAll_UnsupportedAction previously asserted that a step the
+// dispatcher did not recognise was silently skipped AND that the containing
+// challenge was therefore reported "passed". That assertion encoded the
+// harness-integrity defect itself — it is the behaviour that let the suite
+// report success while executing nothing.
+//
+// Reconciled per §11.4.120: the gate now asserts the NEW mechanism — an
+// unrecognised action is a LOAD ERROR that names the offending step, so it can
+// never reach the runner and never be absorbed into a green result.
 func TestRunner_RunAll_UnsupportedAction(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
@@ -235,24 +245,15 @@ challenges:
 	writeTempBank(t, dir, "skip.yaml", bank)
 
 	r := helixtest.NewRunner(srv.URL)
-	if err := r.LoadBanksDir(dir); err != nil {
-		t.Fatalf("LoadBanksDir: %v", err)
+	err := r.LoadBanksDir(dir)
+	if err == nil {
+		t.Fatal("bank with an unsupported action loaded without error")
 	}
-
-	results := r.RunAll(context.Background())
-	if len(results) != 1 {
-		t.Fatalf("want 1 result, got %d", len(results))
+	if !strings.Contains(err.Error(), "shell-cmd") {
+		t.Errorf("load error does not name the offending step: %v", err)
 	}
-	// Challenge with only skipped steps should be marked passed
-	// (no step explicitly failed).
-	if results[0].Status != "passed" {
-		t.Errorf("status = %s, want passed", results[0].Status)
-	}
-	if len(results[0].Steps) != 1 {
-		t.Fatalf("want 1 step, got %d", len(results[0].Steps))
-	}
-	if results[0].Steps[0].Status != "skipped" {
-		t.Errorf("step status = %s, want skipped", results[0].Steps[0].Status)
+	if !strings.Contains(err.Error(), "EXEC") {
+		t.Errorf("load error does not name the unsupported action: %v", err)
 	}
 }
 

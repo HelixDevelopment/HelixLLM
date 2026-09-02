@@ -29,13 +29,6 @@ type Completer interface {
 	CompleteStream(ctx context.Context, req *types.InternalChatRequest) (<-chan types.StreamChunk, error)
 }
 
-// hardcodedModels is the built-in model list returned by fallback handlers (no Brain configured).
-var hardcodedModels = []api.Model{
-	{ID: "llama-3.1-70b", Object: "model", Created: 1700000000, OwnedBy: "helix"},
-	{ID: "gpt-4o", Object: "model", Created: 1700000001, OwnedBy: "helix"},
-	{ID: "claude-sonnet-4-20250514", Object: "model", Created: 1700000002, OwnedBy: "helix"},
-}
-
 func randomID() string {
 	return fmt.Sprintf("%08x", rand.Uint32())
 }
@@ -522,7 +515,22 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 }
 
 // HandleListModels handles GET /v1/models.
-// When b is non-nil it returns the models from the Brain; otherwise the built-in model list.
+//
+// When b is non-nil the listing is the Brain's — the models actually reachable
+// through a configured backend. When b is nil this server has NO backend and is
+// therefore serving NO models, and the listing is empty with a stated reason.
+//
+// The empty listing is the whole point (FR-019, CONST-036): a model that is not
+// being served is never listed as available. This handler previously returned a
+// fabricated three-entry list — including a `gpt-4o` and a
+// `claude-sonnet-4-20250514` stamped `owned_by: helix` — so a client with no
+// backend configured received three models that do not exist and cannot serve a
+// single request. Advertising them was a false-availability defect, not a
+// convenience.
+//
+// The reason travels WITH the empty list because an unexplained empty list is
+// indistinguishable from a broken server: the client can tell "nothing is
+// configured here" from "something went wrong" only if the server says so.
 func HandleListModels(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if b != nil {
@@ -534,13 +542,22 @@ func HandleListModels(b *brain.Brain) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, api.ModelList{
 			Object: "list",
-			Data:   hardcodedModels,
+			// Explicitly empty, never nil: `"data": []` is a listing that
+			// states "none", while `"data": null` reads as a malformed body.
+			Data:   []api.Model{},
+			Reason: tr(c, i18n.KeyGatewayNoBackendModels),
 		})
 	}
 }
 
 // HandleGetModel handles GET /v1/models/:id.
-// When b is non-nil it searches Brain models; otherwise the built-in model list.
+//
+// When b is non-nil the lookup runs over the Brain's models. When b is nil this
+// server serves no models at all, so EVERY id is a miss — and the 404 says WHY
+// it is a miss, so the client can distinguish "you asked for a model this
+// backend does not have" from "this server has no backend at all". A bare
+// not-found would leave the two indistinguishable, and the second is the one
+// the operator can act on.
 func HandleGetModel(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -562,16 +579,11 @@ func HandleGetModel(b *brain.Brain) gin.HandlerFunc {
 			return
 		}
 
-		for _, m := range hardcodedModels {
-			if m.ID == id {
-				c.JSON(http.StatusOK, m)
-				return
-			}
-		}
 		c.JSON(http.StatusNotFound, api.ErrorResponse{
 			Error: api.ErrorDetail{
-				Message: fmt.Sprintf("model %q not found", id),
-				Type:    "invalid_request_error",
+				Message: tr(c, i18n.KeyGatewayNoBackendModelNotFound,
+					map[string]string{"model": strconv.Quote(id)}),
+				Type: "invalid_request_error",
 			},
 		})
 	}

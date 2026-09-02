@@ -42,6 +42,7 @@ func main() {
 	baseURLFlag := flag.String("base-url", "https://localhost:8443", "Base URL for challenge HTTP requests")
 	categoryFlag := flag.String("category", "", "Run only challenges matching this category")
 	priorityFlag := flag.String("priority", "", "Run only challenges matching this priority")
+	caCertFlag := flag.String("ca-cert", "", "PEM file to trust for challenge HTTPS requests (e.g. certs/cert.pem for the self-signed dev server)")
 	flag.Parse()
 
 	// CONST-046: user-facing CLI strings resolved via i18n Translator.
@@ -51,7 +52,7 @@ func main() {
 	tr := i18n.New(lang)
 
 	if *challengesFlag {
-		os.Exit(runChallenges(tr, lang, *baseURLFlag, *banksDirFlag, *categoryFlag, *priorityFlag))
+		os.Exit(runChallenges(tr, lang, *baseURLFlag, *banksDirFlag, *categoryFlag, *priorityFlag, *caCertFlag))
 	}
 
 	cfg, err := config.Load()

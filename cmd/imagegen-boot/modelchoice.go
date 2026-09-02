@@ -254,21 +254,6 @@ func applyForbidList(offered []selection.Option, forbidKey string) []selection.O
 	return kept
 }
 
-// prefer orders offers by what the measurement supports: the most capable
-// option this host can serve comes first. Every offer already fits with the
-// responsiveness reserve held back, so the largest is the most capable choice
-// the measurement permits. Identity breaks ties so the order is deterministic.
-func prefer(offered []selection.Option) []selection.Option {
-	ordered := append([]selection.Option(nil), offered...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].Cost.MemoryRequiredBytes != ordered[j].Cost.MemoryRequiredBytes {
-			return ordered[i].Cost.MemoryRequiredBytes > ordered[j].Cost.MemoryRequiredBytes
-		}
-		return ordered[i].Identity < ordered[j].Identity
-	})
-	return ordered
-}
-
 // entryFor recovers the catalogue entry an option was derived from. The option
 // carries everything host-dependent; the entry carries the source the weights
 // come from.

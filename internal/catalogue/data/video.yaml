@@ -173,7 +173,7 @@ entries:
       - "Memory SOURCE: cmd/videogen-boot/main.go needBytes() default == 10 GiB, the value actually passed to vrambroker.Acquire(ClassVideo) today; corroborated by the QA README no-pause table ('WAN 2.2 TI2V-5B FP8 @480p — cited peak ~8-10 GB'). This is the load-bearing number the static VIDEOGEN_NEED_BYTES stood in for."
       - "PENDING: the memory figure sits CLOSE TO the ~10.4 GiB co-resident ceiling, so the margin is thin by design and the first-run calibration is load-bearing. Replace with the measured first-run peak on this card (torch.cuda.max_memory_allocated / nvidia-smi free-delta), §11.4.6/§11.4.108."
       - "Storage MEASURED 2026-09-02 via the HF blob API: the full byte total of Wan-AI/Wan2.2-TI2V-5B-Diffusers, the repo the shipped default VIDEOGEN_MODEL points WanPipeline.from_pretrained at. Separate axis from memory (D2): the on-disk footprint is ~3x the VRAM requirement, because the UMT5-XXL text encoder (10.58 GiB of shards) is downloaded in full and then processor-offloaded at run time."
-      - "The manifest's '~18 GiB' expected_disk_usage UNDERSTATES this default path by ~14 GiB — worth correcting there in a separate change."
+      - "RECONCILED 2026-09-02: the manifest previously declared '~18 GiB', UNDERSTATING this default path by ~14 GiB (a host provisioned to it ran out of disk mid-fetch). It now records 34203021834 B with the measurement method and the reason the naive figure was wrong, and `test_manifest_catalogue_agreement.py` asserts the two documents cannot diverge again."
       - "The model's headline capability is HIGHER than the served configuration: the HF card states 720P (1280x704) @24fps, 5s. That is NOT what is offered here — 720p pushes the peak over the ~10.4 GiB co-resident ceiling into the operator-gated coder-pause path (QA README VRAM table). `expected_capability` states the configuration actually served."
       - "PENDING-ACQUISITION: no weight digest recorded; the manifest defers it to first authorized download (SC-011)."
     annotations:
@@ -242,6 +242,8 @@ entries:
       - "UNVERIFIED: the memory figure was never measured on this card; the band is research-cited, PENDING the same first-run calibration as the default path."
       - "UNVERIFIED: the storage figure is a COMPOSED ESTIMATE, not a measurement. The GGUF-Q4 quant asset is env-injected (the server hardcodes no weight id) and is NOT present in the Diffusers repo, so its true size could not be measured. Estimate = 27B total weights at Q4_K (~0.55 B/param) ~= 14.8 GiB, plus the UMT5-XXL text encoder, which is downloaded in full and only then processor-offloaded (MEASURED at 10.58 GiB of shards in the sibling 5B repo, same encoder family), plus VAE ~0.5 GiB."
       - "MEASURED for contrast, if this entry is ever pointed at the unquantised repo instead: Wan-AI/Wan2.2-T2V-A14B-Diffusers totals 126_200_628_126 B (117.53 GiB) — an order of magnitude more disk, and a different entry."
+      - "SOURCE/BUILD MISMATCH, recorded 2026-09-02 rather than papered over (§11.4.6). The `source:` above IS that unquantised repo — the contrast figure in the note above is the source this entry actually records. VERIFIED against the HF blob API: it contains ZERO `.gguf` files, so it does not serve the `gguf-q4` build this entry describes. It passes the FR-012/SC-011 allowlist (it is a well-formed model-repository reference), so `videogen-boot` CAN emit it; loading it through the service's `from_pretrained` path would then yield the FULL unquantised model at a memory cost this entry's 8 GiB figure was never measured for, and 117.53 GiB of disk against a 26 GiB storage figure."
+      - "CONTAINED, not yet resolved: the service refuses this configuration at CONFIGURATION time — `videogen_server.py` marks precision `gguf-q4` unimplemented (it builds only through `from_pretrained`, which cannot read single-file `.gguf` weights) and returns 503 from /health and /v1/videos/generations BEFORE any weight is fetched. So the wrong build is never served and the 117.53 GiB is never downloaded. The residual is that boot still offers this entry and the failure surfaces at the container rather than at selection; resolving that means either recording a source that genuinely serves a GGUF-Q4 build, or withdrawing the source so `repositoryFor` refuses it at boot as it does for ltx-video-13b. Either is a data decision, made deliberately and not here."
       - "UNVERIFIED: no `integrity.size_bytes` is stated — the env-injected GGUF asset's size is not measurable in-repo. A zero would read as a measured zero-length file."
       - "The HF card supports 480P and 720P at 24 fps, 5-second clips. 720P on this model is a MUST-PAUSE path (~14-16 GB) and is not offered; `expected_capability` states the served 480p configuration."
       - "PENDING-ACQUISITION: no weight digest recorded."
@@ -279,12 +281,19 @@ entries:
     memory_required_bytes: 10737418240
     storage_required_bytes: 28454670336
     requires_accelerator: true
-    # NO source: DELIBERATELY. The obvious URL — huggingface.co/Lightricks/LTX-Video —
-    # contains NO .gguf file at all; LTXPipeline.from_pretrained() on that id resolves the
-    # diffusers-format subtree (a smaller transformer), not the 13B GGUF-Q4 build this entry
-    # records. Recording it would point the allowlist at weights that do not serve this
-    # entry — a source that passes the gate and then fails at load. This entry stays
-    # unservable until a source that actually serves the recorded build is established.
+    # NO source: DELIBERATELY — and RE-VERIFIED first-hand 2026-09-02 against the HF API,
+    # which sharpened the reasoning rather than changing it. The obvious URL —
+    # huggingface.co/Lightricks/LTX-Video — contains NO .gguf file at all (0 of 63 files),
+    # so it cannot serve the GGUF-Q4 build this entry records. It is worse than a source
+    # that "fails at load": it carries model_index.json, so LTXPipeline.from_pretrained()
+    # on that id SUCCEEDS, resolving the diffusers subtree whose transformer/config.json is
+    # 28 layers x 32 heads x 64 head_dim (~2B, 7.17 GiB) — NOT the 13B recorded here
+    # (48 x 32 x 128, 24.29 GiB in the diffusers-format 13B repo). Recording it would hand
+    # a caller ~2B output under a 13B identity, silently. That is the outcome this
+    # abstention exists to prevent, and it is why the failure is now also made LOUD:
+    # videogen_server.py marks backend `ltx` unsupported and returns 503 at configuration
+    # time. This entry stays unservable until a source that actually serves the recorded
+    # build is established — see the WHAT WOULD ESTABLISH SUPPORT note below.
     usage_terms:
       license_id: LTX-Video-Open-Weights-License-0.X
       permitted: [personal, research, evaluation]
@@ -314,8 +323,10 @@ entries:
       - "Memory SOURCE: QA README no-pause table, 'LTX-Video 13B — GGUF-Q4 (short clip), cited peak ~6-10 GB, needs 32 GB+ SYSTEM RAM'. Upper bound taken."
       - "UNVERIFIED: the memory figure was never measured on this card."
       - "GAP WITH CONSEQUENCE: this entry additionally requires >= 32 GiB SYSTEM RAM (34359738368 B). That is a genuine second admission axis and no schema field carries it, so it is recorded here rather than silently lost. A host with the VRAM but not the system RAM will thrash."
-      - "UNVERIFIED: the storage figure is an ESTIMATE. Two MEASURED facts bound it (HF blob API, 2026-09-02), one of which contradicts the manifest: (1) Lightricks/LTX-Video contains NO .gguf file at all — the GGUF-Q4 asset the manifest names must come from an external, env-injected source, so its size is unmeasurable from here; worth reconciling in the manifest, which reads as though the quant lives in this repo. (2) LTXPipeline.from_pretrained('Lightricks/LTX-Video') — what the shim actually calls on the ltx backend — resolves the DIFFUSERS-format subtree, not the root 13B single-file checkpoints: text_encoder 17.74 GiB + transformer 7.17 GiB + vae 1.56 GiB ~= 26.5 GiB. That transformer is the smaller diffusers-format model, NOT the 13B; the root-level 13B checkpoints (ltxv-13b-0.9.8-dev.safetensors 26.62 GiB, -fp8 14.62 GiB) are single files the default path does not select. So the shipped ltx backend as configured does not serve 13B without an explicit VIDEOGEN_MODEL override."
+      - "UNVERIFIED: the storage figure is an ESTIMATE. Two MEASURED facts bound it (HF blob API, 2026-09-02), one of which contradicts the manifest: (1) Lightricks/LTX-Video contains NO .gguf file at all — the GGUF-Q4 asset the manifest names must come from an external, env-injected source, so its size is unmeasurable from here. RECONCILED 2026-09-02: the manifest previously read as though the quant lived in this repo and now records that it does not, naming the external Q4_K assets and their measured sizes. (2) LTXPipeline.from_pretrained('Lightricks/LTX-Video') — what the shim actually calls on the ltx backend — resolves the DIFFUSERS-format subtree, not the root 13B single-file checkpoints: text_encoder 17.74 GiB + transformer 7.17 GiB + vae 1.56 GiB ~= 26.5 GiB. That transformer is the smaller diffusers-format model, NOT the 13B; the root-level 13B checkpoints (ltxv-13b-0.9.8-dev.safetensors 26.62 GiB, -fp8 14.62 GiB) are single files the default path does not select. So the shipped ltx backend as configured does not serve 13B without an explicit VIDEOGEN_MODEL override."
       - "Storage estimate = 13B at Q4_K (~7.2 GiB) + the MEASURED T5 text_encoder (17.74 GiB, downloaded in full) + MEASURED vae (1.56 GiB)."
+      - "The ~7.2 GiB Q4_K term is now known to be slightly LOW. MEASURED 2026-09-02: the published 13B Q4_K assets are 7_983_375_360 B (7.44 GiB, Q4_K_S) and 8_818_041_856 B (8.21 GiB, Q4_K_M). Neither is substituted for the estimate here, because WHICH variant would be served is undetermined while no source is recorded, and picking one would be a guess (§11.4.6). Re-derive this figure in the same change that records the source."
+      - "WHAT WOULD ESTABLISH SUPPORT (so this entry is not merely blocked, but blocked with a way out). MEASURED 2026-09-02: published 13B GGUF-Q4 assets DO exist (wsbagnsv1/ltxv-13b-0.9.7-dev-GGUF; QuantStack/LTXV-13B-0.9.8-dev-GGUF; QuantStack/LTXV-13B-0.9.8-distilled-GGUF). NONE of the three carries model_index.json, so `from_pretrained` — the only call shape the service implements — cannot load any of them; that is why a source is still not recorded. Route 1: implement a GGUF load path (transformer via `from_single_file` + `GGUFQuantizationConfig`, encoder/VAE/tokenizer/scheduler sourced separately), then record one of those repos as `source` with its MEASURED asset size. Route 2: re-record this entry against a diffusers-format 13B repo that `from_pretrained` does resolve to a 48-layer transformer — but note its transformer alone MEASURES 24.29 GiB, which is a coder-pause size, so this would cease to be a no-pause entry and its memory figure must be re-measured, not carried over."
       - "UNVERIFIED: no `integrity.size_bytes` is stated — the env-injected GGUF asset is not present in the HF repo."
       - "The HF card states native 1216x704 at 30 fps, best under 720x1280 and below 257 frames (~8.5 s at 30 fps), with frame counts divisible by 8 plus 1. `expected_capability` states the served short-clip 480p configuration, which is the only shape the no-pause budget admits."
       - "PENDING-ACQUISITION: no weight digest recorded."
@@ -325,7 +336,18 @@ entries:
         restrictive-licence member of this family, and the one with a second
         admission axis (system RAM) the schema cannot express.
       weights_repo: https://huggingface.co/Lightricks/LTX-Video
-      weights_repo_note: "Contains no .gguf file; the served GGUF-Q4 asset is env-injected from an unrecorded external source."
+      weights_repo_note: "Provenance of the MEASURED encoder/vae figures ONLY — NOT a servable source for this entry, and deliberately not promoted to `source`. Contains no .gguf file (0 of 63); its model_index.json makes from_pretrained succeed on a ~2B transformer instead of the recorded 13B."
+      unsupported_by_runtime:
+        backend: ltx
+        refused_at: configuration-time
+        refused_by: services/videogen/videogen_server.py
+        evidence: "transformer/config.json 28 layers x 32 heads x 64 head_dim (~2B) vs the recorded 13B at 48 x 32 x 128; HF API, 2026-09-02"
+        note: >-
+          The service returns HTTP 503 from /health and /v1/videos/generations
+          for this backend BEFORE fetching any weight, so the mismatch cannot be
+          served silently. Lift the marker only in the change that records a
+          source serving the recorded build (see the WHAT WOULD ESTABLISH
+          SUPPORT note); the guard fails if marker and source disagree.
       licence_text: https://huggingface.co/Lightricks/LTX-Video/resolve/main/LTX-Video-Open-Weights-License-0.X.txt
       licence_quote: >-
         §2 verbatim: "entities with annual revenues of at least $10,000,000

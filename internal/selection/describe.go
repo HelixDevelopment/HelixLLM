@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/capability"
+	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
 )
 
 // This file composes what a caller needs in order to TELL a user what happened.
@@ -53,6 +54,30 @@ const (
 	FieldAgeSeconds     FieldKey = "age_seconds"
 	FieldMaxAgeSeconds  FieldKey = "max_age_seconds"
 	FieldCause          FieldKey = "cause"
+
+	// FieldFallback reports that an option is served by a fallback path rather
+	// than the preferred one. It is emitted on every streaming option so a
+	// reader can tell "this is what we serve" from "this is what we can still
+	// serve", which are different offers.
+	FieldFallback FieldKey = "fallback"
+	// FieldTradeoffCost is WHAT the fallback path costs.
+	FieldTradeoffCost FieldKey = "tradeoff_cost"
+	// FieldTradeoffCause is WHY it costs that.
+	FieldTradeoffCause FieldKey = "tradeoff_cause"
+)
+
+// The trade-off a streaming option carries.
+//
+// These values are the machine keys the runtime package's Tradeoff uses. They
+// are RESTATED here rather than imported because internal/runtime imports this
+// package, so importing it back would be a cycle. The restatement is guarded by
+// a test in the external test package (which may import both) asserting the two
+// spellings are identical — a silent divergence would send the presentation
+// layer a key it has no wording for.
+const (
+	tradeoffCostThroughput        = "throughput"
+	tradeoffCauseWeightsStreamed  = "weights-streamed-from-disk"
+	streamingOptionIsFallbackPath = true
 )
 
 var knownFieldKeys = map[FieldKey]struct{}{
@@ -66,6 +91,7 @@ var knownFieldKeys = map[FieldKey]struct{}{
 	FieldThroughput: {}, FieldMemoryLeft: {}, FieldStorageLeft: {},
 	FieldMemoryLeftPct: {}, FieldMeasuredAt: {}, FieldAgeSeconds: {},
 	FieldMaxAgeSeconds: {}, FieldCause: {},
+	FieldFallback: {}, FieldTradeoffCost: {}, FieldTradeoffCause: {},
 }
 
 // Known reports whether k is a recorded field key.
@@ -172,7 +198,47 @@ func DescribeOption(o Option) []Field {
 		fs.addFloat(FieldThroughput, o.Expected.ThroughputTokensPerSecond)
 	}
 	fs.add(FieldLicense, o.Terms.LicenseID)
+	describeTradeoff(&fs, o)
 	return fs
+}
+
+// describeTradeoff labels the speed trade-off on every streaming option.
+//
+// This is not decoration. The streaming runtime buys FEASIBILITY with
+// THROUGHPUT, and the price is not a percentage — the same model on the same
+// architecture runs from roughly 9 tokens/second with its working set resident
+// down to 0.05–0.1 tokens/second streaming cold from disk. That is two orders of
+// magnitude, and it is the mechanism working as designed, not a fault.
+//
+// A user choosing a streaming option is choosing SLOWNESS FOR FEASIBILITY, and
+// they can only choose that knowingly if the offer says so. An unlabelled
+// streaming option beside an in-memory one presents two offers that look alike
+// and differ by 100×; the user picks on the visible facts, and the invisible one
+// is the one that matters. Withholding it is a §11.4-class omission at the
+// presentation boundary — the offer is technically true and practically
+// misleading.
+//
+// The label is emitted on EVERY streaming option, without exception, and never
+// on an in-memory one — an in-memory option trades nothing, and a "cost" field
+// on it would teach a reader the field means nothing.
+//
+// The runtime is read from the option's own Runtime field, which is the offer's
+// statement of which runtime serves it. Whether that field is derived from a
+// measurement or copied from the catalogue is the business of the code that
+// builds Options; this function describes the offer it is given, and does not
+// re-decide it.
+//
+// The throughput FIGURE is already emitted above as FieldThroughput when the
+// entry records one. These fields say something the figure cannot: that the
+// number is low BY CONSTRUCTION and WHY. A reader seeing 3.4 tokens/second with
+// no cause cannot tell a slow model from a slow path.
+func describeTradeoff(fs *fieldSet, o Option) {
+	if o.Runtime != catalogue.RuntimeStreaming {
+		return
+	}
+	fs.addBool(FieldFallback, streamingOptionIsFallbackPath)
+	fs.add(FieldTradeoffCost, tradeoffCostThroughput)
+	fs.add(FieldTradeoffCause, tradeoffCauseWeightsStreamed)
 }
 
 // DescribeFamilyRefusal composes why a family could not be served and what its

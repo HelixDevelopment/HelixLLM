@@ -29,6 +29,23 @@ RestrictionTerm, UsageTerms.Permits, UsageTerms.RestrictionFor,
 CapabilityFamily) so the Go catalogue and these Python services cannot drift
 into disagreeing about what a licence permits. Where Go and this module
 differ, Go is the source of truth and this module is the defect.
+
+ONE RECORDED EXCEPTION, resolved the other way (2026-09-02). The two paths
+once disagreed about WHICH admissible entry wins: this module ranked
+cheapest-first, while the Go boot lanes ranked most-capable-first, so the same
+host chose a q4_k_m build here and an f16 build there. That was resolved by
+changing GO TO MATCH THIS MODULE, not the reverse, because the cheapest option
+that genuinely runs is the one that leaves headroom for CO-RESIDENT models: a
+host serves a coder model beside a vision or video one on the same
+accelerator (see internal/vrambroker), and taking the largest thing that fits
+is how it ends up unable to load the second. The ordering now lives in Go at
+internal/selection (FamilyResult.Offered comes back ordered) rather than in
+each boot lane, and uses the same key select() uses below — memory, then
+storage, then the entry key.
+
+So: do NOT "fix" the ranking here to match an older most-capable-first Go
+lane. The rule above is the agreed one on both sides; a Go path that ranks
+largest-first is the defect.
 """
 
 from __future__ import annotations

@@ -34,19 +34,19 @@ test-race:
 	GOMAXPROCS=$$(nproc) go test -count=1 -race -p 1 ./internal/... ./pkg/... ./tests/...
 
 test-stress:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
+	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443} --ca-cert=certs/cert.pem
 
 test-stress-go:
 	go test -v -count=1 -tags=stress -timeout=10m ./tests/stress/...
 
 test-chaos:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/chaos/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
+	./bin/helixllm --challenges --banks-dir=challenges/banks/chaos/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443} --ca-cert=certs/cert.pem
 
 test-security:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/security/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
+	./bin/helixllm --challenges --banks-dir=challenges/banks/security/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443} --ca-cert=certs/cert.pem
 
 test-benchmark:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
+	./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443} --ca-cert=certs/cert.pem
 
 test-automation: build
 	@echo "Running full automation pipeline..."
@@ -55,13 +55,13 @@ test-automation: build
 	$(MAKE) test-challenges
 
 test-usecases:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/workflows/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443}
+	./bin/helixllm --challenges --banks-dir=challenges/banks/workflows/ --base-url=$${HELIX_BASE_URL:-https://localhost:8443} --ca-cert=certs/cert.pem
 
 test-challenges:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/ --base-url=https://localhost:8443
+	./bin/helixllm --challenges --banks-dir=challenges/banks/ --base-url=https://localhost:8443 --ca-cert=certs/cert.pem
 
 test-challenges-api:
-	./bin/helixllm --challenges --banks-dir=challenges/banks/api/ --base-url=https://localhost:8443
+	./bin/helixllm --challenges --banks-dir=challenges/banks/api/ --base-url=https://localhost:8443 --ca-cert=certs/cert.pem
 
 test-all: test-unit test-integration
 

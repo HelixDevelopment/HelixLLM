@@ -65,6 +65,14 @@ const (
 	KeyControlRemediationRestartOK     = "control_remediation_restart_ok"
 	KeyControlHostUnreachable          = "control_host_unreachable"
 	KeyKnowledgeInvalidRequestBody     = "knowledge_invalid_request_body"
+
+	// CONST-036 / FR-019 — the no-backend model-listing reasons. A server
+	// with no Brain configured serves NO models; these keys state that fact
+	// so an empty listing is legible rather than looking like a broken
+	// server. They replace a fabricated three-entry list that advertised
+	// models this server could never serve.
+	KeyGatewayNoBackendModels        = "gateway_no_backend_models"
+	KeyGatewayNoBackendModelNotFound = "gateway_no_backend_model_not_found"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -114,6 +122,11 @@ var defaultEnglishMessages = map[string]string{
 	KeyControlRemediationRestartOK:     "restarted {{service}} on {{host}} (attempt {{attempt}})",
 	KeyControlHostUnreachable:          "host {{host}} is unreachable",
 	KeyKnowledgeInvalidRequestBody:     "invalid request body: {{detail}}",
+
+	KeyGatewayNoBackendModels: "no model-serving backend is configured on this server, " +
+		"so no models are being served",
+	KeyGatewayNoBackendModelNotFound: "model {{model}} not found: no model-serving backend " +
+		"is configured on this server, so no models are being served",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so

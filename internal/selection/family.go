@@ -69,6 +69,7 @@ func evaluateFamily(
 	}
 
 	if len(result.Offered) > 0 {
+		sortOffered(result.Offered)
 		return result
 	}
 
@@ -85,6 +86,54 @@ func evaluateFamily(
 		Candidates: result.Withheld,
 	}
 	return result
+}
+
+// sortOffered puts a family's offers in the order a lane should try them: the
+// cheapest option that genuinely runs on this host comes first.
+//
+// This is a TIE-BREAK AMONG ADMISSIBLE OPTIONS and never a relaxation of
+// admissibility. Everything in Offered has already passed, separately,
+// configuration support, fit on BOTH the memory and the storage axis with the
+// responsiveness reserve held back, and the declared usage terms. Ordering
+// only decides which of several genuine options is reached for first; it
+// cannot promote something that was withheld.
+//
+// Cheapest-first rather than largest-first because this host does not serve
+// one model alone. Several models share one accelerator — that is the whole
+// reason internal/vrambroker exists — so memory taken by the largest
+// admissible option is memory the vision or coder model beside it then cannot
+// have. Picking the biggest thing that fits is how a host ends up unable to
+// load the second model. Largest-first optimises one model in isolation;
+// cheapest-that-works optimises the machine.
+//
+// The key mirrors select() in container/helix_model_gate.py exactly — memory,
+// then storage, then the catalogue identity — so the same host reaches the
+// same decision through the Go path and the Python path. Divergence between
+// the two is a defect in whichever one drifted, and this is the seam it would
+// show up at.
+func sortOffered(offered []Option) {
+	sort.SliceStable(offered, func(i, j int) bool {
+		a, b := offered[i], offered[j]
+		if a.Cost.MemoryRequiredBytes != b.Cost.MemoryRequiredBytes {
+			return a.Cost.MemoryRequiredBytes < b.Cost.MemoryRequiredBytes
+		}
+		if a.Cost.StorageRequiredBytes != b.Cost.StorageRequiredBytes {
+			return a.Cost.StorageRequiredBytes < b.Cost.StorageRequiredBytes
+		}
+		return catalogueKey(a) < catalogueKey(b)
+	})
+}
+
+// catalogueKey renders an option in the catalogue's own identity form.
+//
+// It is the tiebreak the Python gate sorts on, and unlike Option.Identity it
+// carries no host prefix — so two hosts running the same catalogue break ties
+// the same way rather than by what the machines happen to be called.
+func catalogueKey(o Option) string {
+	if o.Variant == "" {
+		return o.ModelID
+	}
+	return o.ModelID + ":" + o.Variant
 }
 
 // evaluateEntry decides one candidate. Exactly one of the two results is

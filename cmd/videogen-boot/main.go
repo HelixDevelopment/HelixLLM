@@ -121,7 +121,11 @@ func chooseModel(ctx context.Context) (choice, error) {
 	}
 
 	var unservable []string
-	for _, option := range prefer(offered) {
+	// offered arrives ordered cheapest-admissible-first from selection, and is
+	// taken in that order: the first option this runtime can actually serve wins.
+	// The order is not re-decided here — one rule, in one place, so the lanes
+	// cannot drift apart from each other or from the Python gate.
+	for _, option := range offered {
 		backend, berr := backendFor(option)
 		if berr != nil {
 			unservable = append(unservable, fmt.Sprintf("%s (%v)", option.Identity, berr))

@@ -1,0 +1,31 @@
+# HelixLLM naming scheme — PINNED (FR-015).
+#
+# These identifiers live in users' tool configurations. A change to any line
+# below breaks every existing configuration that refers to that model: the
+# entry stops resolving, silently. Treat a diff here as a breaking change to
+# a published interface, needing the migration path FR-015 implies — never as
+# a value to refresh so the test goes green.
+#
+# Columns, tab-separated:
+#   consumer  case  canonical-identity  derived-identifier
+#
+# The canonical identity is pinned alongside the identifier because it is what
+# gets hashed: a change to Identity.String re-mints every identifier too.
+#
+# consumer "claude-toolkit": prefix "helixllm", separator "-", max length 64
+claude-toolkit	plain	helixllm/gpu-01/llama3	helixllm-gpu-01-llama3-39b96cf9c493
+claude-toolkit	variant	helixllm/gpu-01/llama3:8b	helixllm-gpu-01-llama3-8b-9b7d13f59535
+claude-toolkit	near-miss-flat	helixllm/gpu-01/llama3-8b	helixllm-gpu-01-llama3-8b-55e17d0475ac
+claude-toolkit	forbidden-charset	helixllm/gpu-01.local/library\/qwen2.5-coder:7b-instruct-q4_K_M	helixllm-gpu-01-local-library-qwen2-5-coder-7b-inst-643612d400c2
+claude-toolkit	length-cap	helixllm/gpu-01/meta-llama-3-1-70b-instruct-abliterated-uncensored-experimental-build	helixllm-gpu-01-meta-llama-3-1-70b-instruct-abliter-404857a0e271
+claude-toolkit	non-ascii-model	helixllm/gpu-01/日本語モデル	helixllm-gpu-01-e336cfc0800a
+claude-toolkit	readable-part-vanishes	helixllm/日本/モデル	helixllm-9c488c8140cf
+#
+# consumer "opencode": prefix "helixllm", separator "-", max length 0
+opencode	plain	helixllm/gpu-01/llama3	helixllm-gpu-01-llama3-39b96cf9c493
+opencode	variant	helixllm/gpu-01/llama3:8b	helixllm-gpu-01-llama3-8b-9b7d13f59535
+opencode	near-miss-flat	helixllm/gpu-01/llama3-8b	helixllm-gpu-01-llama3-8b-55e17d0475ac
+opencode	forbidden-charset	helixllm/gpu-01.local/library\/qwen2.5-coder:7b-instruct-q4_K_M	helixllm-gpu-01.local-library-qwen2.5-coder-7b-instruct-q4_k_m-643612d400c2
+opencode	length-cap	helixllm/gpu-01/meta-llama-3-1-70b-instruct-abliterated-uncensored-experimental-build	helixllm-gpu-01-meta-llama-3-1-70b-instruct-abliterated-uncensored-experimental-build-404857a0e271
+opencode	non-ascii-model	helixllm/gpu-01/日本語モデル	helixllm-gpu-01-e336cfc0800a
+opencode	readable-part-vanishes	helixllm/日本/モデル	helixllm-9c488c8140cf

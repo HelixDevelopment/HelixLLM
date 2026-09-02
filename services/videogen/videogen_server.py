@@ -58,6 +58,38 @@ model to stand in.
 VIDEOGEN_CPU_OFFLOAD, VIDEOGEN_MAX_STEPS and VIDEOGEN_PORT keep defaults: they
 say HOW the service runs, and none of them names a model.
 
+WHAT THIS SERVICE CAN ACTUALLY LOAD, AND WHAT IT REFUSES (§11.4.6)
+-----------------------------------------------------------------
+The pipeline is built with exactly one call shape:
+`WanPipeline/LTXPipeline.from_pretrained(MODEL_ID, torch_dtype=...)`. That
+resolves a DIFFUSERS-FORMAT repository through its `model_index.json`. Two
+configurations are therefore NAMED by the catalogue and the weight manifest but
+CANNOT be served by this loader, and both are refused at CONFIGURATION time —
+before any weight is fetched — rather than allowed to load something else:
+
+  * precision `gguf-q4`. There is no GGUF load path here: no
+    `from_single_file`, no `GGUFQuantizationConfig`. A GGUF quant repository is
+    a bag of single-file `.gguf` checkpoints with no `model_index.json`, so
+    `from_pretrained` cannot read one (verified 2026-09-02 against every
+    published LTX 13B Q4 repository). Pointing this loader at a diffusers-format
+    repository "instead" does not serve the quant — it serves the UNQUANTISED
+    model, at a memory cost the recorded figure was never measured for.
+
+  * backend `ltx`. No source is established that serves the recorded 13B
+    GGUF-Q4 build through this loader. The obvious repository is worse than
+    useless here: it carries `model_index.json`, so `from_pretrained` SUCCEEDS
+    — and resolves a 28-layer / 2048-hidden transformer (~2B), not the 13B the
+    catalogue records (48 layers / 4096 hidden). Succeeding with a smaller model
+    than the caller was told they are getting is the failure this refusal
+    exists to prevent; a user would attribute ~2B output to a 13B model.
+
+Both markers state what would establish support, and both are mirrored in
+`.gitignore-meta/wan_ltx_gguf.yaml` (`unimplemented_precisions` /
+`unsupported_backends`). `test_manifest_catalogue_agreement.py` asserts the
+markers, the manifest and the catalogue cannot drift apart: lifting a marker
+without recording a serving source — or recording one without lifting the
+marker — fails that guard.
+
 Runtime-proof status (§11.4.6 / §11.4.108): the first REAL generation +
 per-variant VRAM calibration (feeding the measured peak to the vrambroker's
 Acquire(needBytes)) is PENDING — it requires an operator-authorized coder-pause
@@ -151,6 +183,68 @@ def _unconfigured_reason() -> str | None:
     )
 
 
+# --- what this loader can serve: refusals that fire before any weight is read ---
+#
+# These are NOT model names and cannot select anything — each one can only ever
+# REFUSE a configuration the upstream selection produced. Both are mirrored in
+# the weight manifest's `unimplemented_precisions` / `unsupported_backends`.
+
+_UNIMPLEMENTED_PRECISIONS = {
+    "gguf-q4": (
+        "this service has no GGUF load path: it builds pipelines only through "
+        "`from_pretrained`, which resolves a diffusers-format repository via "
+        "model_index.json and cannot read single-file .gguf weights. Serving a "
+        "diffusers repository in its place would load the UNQUANTISED model at a "
+        "memory cost this build's recorded figure was never measured for. "
+        "To establish support: add a real GGUF path (transformer via "
+        "`from_single_file(..., quantization_config=GGUFQuantizationConfig(...))`, "
+        "text encoder / VAE / tokenizer / scheduler sourced separately, pipeline "
+        "assembled from those components), then record the quant asset's source "
+        "and MEASURED size on the affected catalogue entries and re-measure their "
+        "memory figures against the assembled pipeline."
+    ),
+}
+
+_UNSUPPORTED_BACKENDS = {
+    "ltx": (
+        "no source is established that serves the recorded `ltx-video-13b` "
+        "GGUF-Q4 build through this loader. The obvious repository is not a safe "
+        "stand-in: it carries model_index.json, so `from_pretrained` SUCCEEDS and "
+        "returns a 28-layer/2048-hidden transformer (~2B) instead of the recorded "
+        "13B (48 layers/4096 hidden) — output a caller would attribute to a 13B "
+        "model. Refusing loudly here is the lesser harm. "
+        "To establish support: EITHER add the GGUF load path above plus a recorded "
+        "source for a 13B Q4_K asset, OR re-record the entry against a "
+        "diffusers-format 13B repository `from_pretrained` genuinely resolves to a "
+        "48-layer transformer — re-measuring its memory figure, since that "
+        "transformer alone is ~24 GiB and is a coder-pause size, not the no-pause "
+        "path the entry currently claims."
+    ),
+}
+
+
+def _unservable_reason() -> str | None:
+    """Why a fully-decided configuration still cannot be served here.
+
+    Distinct from `_unconfigured_reason`, which reports a decision that never
+    arrived. This one reports a decision that DID arrive and names something
+    this loader cannot honour. Both must refuse, and for the same reason: the
+    alternative is loading whatever `from_pretrained` happens to accept and
+    reporting it under the identity the caller asked for.
+
+    Checked at configuration time so the refusal costs no download.
+    """
+    if PRECISION is not None:
+        why = _UNIMPLEMENTED_PRECISIONS.get(PRECISION.strip().lower())
+        if why is not None:
+            return f"precision {PRECISION!r} is not servable by this build: {why}"
+    if BACKEND is not None:
+        why = _UNSUPPORTED_BACKENDS.get(BACKEND.strip().lower())
+        if why is not None:
+            return f"backend {BACKEND!r} is not servable by this build: {why}"
+    return None
+
+
 app = FastAPI(title="helixllm-videogen", version="0.1.0-scaffold")
 
 # The pipeline is loaded lazily on the first generation request and cached.
@@ -196,6 +290,13 @@ def _build_pipeline():
         # stated here too so no path can ever construct a pipeline for a model
         # nobody chose.
         return None, reason
+
+    unservable = _unservable_reason()
+    if unservable is not None:
+        # Same defence in depth, for the decided-but-unservable case: no path may
+        # reach a `from_pretrained` call that would load a DIFFERENT build than
+        # the one recorded and admitted.
+        return None, unservable
 
     import torch
 
@@ -264,6 +365,13 @@ def health():
     unconfigured = _unconfigured_reason()
     if unconfigured is not None:
         raise HTTPException(status_code=503, detail=unconfigured)
+
+    # A container told to serve something this build cannot load is not healthy
+    # either, and — unlike a lazy-load pending — it never will be. Report it now,
+    # not at first request after a long weight download.
+    unservable = _unservable_reason()
+    if unservable is not None:
+        raise HTTPException(status_code=503, detail=unservable)
 
     engine_ready = _pipe is not None
     reason = None
@@ -354,6 +462,12 @@ def generate(req: VideoRequest):
     if unconfigured is not None:
         # No model was chosen for this container. Refuse — never substitute one.
         raise HTTPException(status_code=503, detail=unconfigured)
+
+    unservable = _unservable_reason()
+    if unservable is not None:
+        # A model WAS chosen, and this build cannot load it. Refuse — never serve
+        # a different build under the identity the caller asked for.
+        raise HTTPException(status_code=503, detail=unservable)
 
     pipe = _ensure_pipeline()
     if pipe is None:

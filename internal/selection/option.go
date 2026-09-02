@@ -253,7 +253,15 @@ func (r FamilyRefusal) Missing() []string {
 // FamilyResult is the answer for one capability family: offers, or a refusal
 // that states why. Never both, and never neither.
 type FamilyResult struct {
-	Family   catalogue.CapabilityFamily
+	Family catalogue.CapabilityFamily
+	// Offered is ordered cheapest-first — by memory required, then storage
+	// required, then the catalogue identity — and NOT in catalogue order. A
+	// caller takes the first entry it can serve; it does not re-sort.
+	//
+	// The order is decided here, once, rather than left to each caller,
+	// because a rule copied into every lane is a rule that drifts: the same
+	// host would otherwise answer differently depending on which lane asked.
+	// See sortOffered for why cheapest rather than largest.
 	Offered  []Option
 	Withheld []Withheld
 	// Refusal is non-nil exactly when Offered is empty.
