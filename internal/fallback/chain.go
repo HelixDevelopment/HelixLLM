@@ -22,7 +22,26 @@ type Chain struct {
 	providers   map[string]brain.Provider
 	entries     []ChainEntry
 	rateLimiter *RateLimitTracker
+	pinner      ModelPinner
 	mu          sync.RWMutex
+}
+
+// ModelPinner resolves a requested model name to the provider that actually
+// serves it.
+//
+// It exists because the Chain cannot answer that question on its own: it holds
+// providers and scores, while the mapping from a published identifier to a
+// served model lives in the Brain's naming registry. The Chain sees only this
+// interface so it never has to know how identifiers are derived. *brain.Brain
+// satisfies it.
+type ModelPinner interface {
+	// PinModel reports whether the request named a specific served model and,
+	// if so, which provider answers to it under which name. See
+	// brain.Brain.PinModel for the meaning of the three outcomes — in
+	// particular, ok=true with an empty provider means the caller named one of
+	// our identifiers whose host is not serving, which is an error rather than
+	// an invitation to substitute.
+	PinModel(requested string) (provider, model string, ok bool)
 }
 
 // NewChain returns a Chain backed by the given provider map and rate limiter.
@@ -40,6 +59,60 @@ func (c *Chain) SetEntries(entries []ChainEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries = entries
+}
+
+// SetModelPinner installs the resolver consulted before the entry list, so a
+// request naming a served model reaches THAT model instead of the chain's own
+// per-entry default. It is safe to call concurrently.
+//
+// Leaving it nil keeps the pure score-ordered behaviour, which is what a caller
+// that has no naming registry (most tests) wants.
+func (c *Chain) SetModelPinner(p ModelPinner) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pinner = p
+}
+
+// pin asks the installed pinner about a requested model name.
+func (c *Chain) pin(requested string) (provider, model string, ok bool) {
+	c.mu.RLock()
+	p := c.pinner
+	c.mu.RUnlock()
+	if p == nil {
+		return "", "", false
+	}
+	return p.PinModel(requested)
+}
+
+// pinnedProvider returns the provider a pinned request must be served by, or an
+// error naming what the caller asked for.
+//
+// It deliberately does NOT fall through to the rest of the chain. A published
+// identifier names one model on one host; a raw model name a provider serves is
+// the same explicit choice written the older way. Answering either from some
+// other provider is precisely the silent misroute the pin exists to prevent —
+// the caller gets a confident response from a model it never asked for and has
+// no way to detect the substitution. A caller who genuinely wants
+// any-available-model names no model at all and gets the score-ordered chain;
+// a caller who names one and cannot have it is better served by an error it can
+// see. That is the deliberate trade: an explicit failure over a silent swap.
+func (c *Chain) pinnedProvider(providerName, model, requested string) (brain.Provider, error) {
+	if providerName == "" {
+		return nil, fmt.Errorf(
+			"model %q (requested as %q) is not served by any registered provider", model, requested)
+	}
+	provider, ok := c.providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf(
+			"provider %q serves model %q (requested as %q) but is not registered with the chain",
+			providerName, model, requested)
+	}
+	if !provider.Available() {
+		return nil, fmt.Errorf(
+			"provider %q serving model %q (requested as %q) is not available",
+			providerName, model, requested)
+	}
+	return provider, nil
 }
 
 // Entries returns a snapshot copy of the current entry list.
@@ -65,6 +138,24 @@ func (c *Chain) Entries() []ChainEntry {
 // successive calls.  The old snapshot-based approach (Entries() returning a
 // copy) silently discarded every mutation.
 func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*types.InternalChatResponse, error) {
+	// A request that names a served model is answered by THAT model. This runs
+	// before the entry list because the loop below overrides req.Model with its
+	// own entry default — resolving afterwards would be resolving something the
+	// chain had already thrown away.
+	if providerName, model, pinned := c.pin(req.Model); pinned {
+		provider, err := c.pinnedProvider(providerName, model, req.Model)
+		if err != nil {
+			return nil, err
+		}
+		reqCopy := deepCopyRequest(req)
+		reqCopy.Model = model
+		// The tool-capability skip below is not applied here: it exists to move
+		// a tool-bearing request to a DIFFERENT entry, and a pinned request has
+		// nowhere else to go. If the pinned model rejects tools, the provider's
+		// own error says so — which is the truth the caller needs.
+		return provider.Complete(ctx, &reqCopy)
+	}
+
 	c.mu.RLock()
 	numEntries := len(c.entries)
 	c.mu.RUnlock()
@@ -141,6 +232,19 @@ func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 // CompleteStream iterates the entry list in order and calls the first
 // available provider for streaming.  The failover logic mirrors Complete.
 func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatRequest) (<-chan types.StreamChunk, error) {
+	// See Complete: the pin is resolved before the entry list, on its own call
+	// site. Streaming is how a chat client actually talks, so an unguarded
+	// streaming path would leave the defect live for the common case.
+	if providerName, model, pinned := c.pin(req.Model); pinned {
+		provider, err := c.pinnedProvider(providerName, model, req.Model)
+		if err != nil {
+			return nil, err
+		}
+		reqCopy := deepCopyRequest(req)
+		reqCopy.Model = model
+		return provider.CompleteStream(ctx, &reqCopy)
+	}
+
 	c.mu.RLock()
 	numEntries := len(c.entries)
 	c.mu.RUnlock()

@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/naming"
@@ -188,28 +189,122 @@ func (b *Brain) ModelOptionsFor(rs naming.Ruleset) []ModelOption {
 // which is what keeps a pre-existing configuration holding a raw model name
 // working exactly as before.
 func (b *Brain) ResolveModelName(name string) (string, bool) {
-	if name == "" {
+	id, ok := b.resolveIdentity(name)
+	if !ok {
 		return name, false
 	}
-	id, ok := b.names.IdentityFor(naming.ClaudeToolkit, name)
-	if !ok {
-		// The identifier may not have been listed yet in this process. Derive
-		// over the current options rather than requiring a prior listing.
-		for _, opt := range b.ModelOptionsFor(naming.ClaudeToolkit) {
-			if opt.Identifier == name && opt.Identity != "" {
-				parsed, err := naming.ParseIdentity(opt.Identity)
-				if err != nil {
-					return name, false
-				}
-				id, ok = parsed, true
-				break
+	return joinModelVariant(id.Model, id.Variant), true
+}
+
+// resolveIdentity maps a published identifier back to the identity it stands
+// for, or reports false for anything that is not one of our identifiers.
+//
+// It is the shared half of [Brain.ResolveModelName] and [Brain.PinModel]: the
+// first needs only the model name, the second also needs the HOST, and deriving
+// the identity twice in two places is how the two would drift apart.
+func (b *Brain) resolveIdentity(name string) (naming.Identity, bool) {
+	if name == "" {
+		return naming.Identity{}, false
+	}
+	if id, ok := b.names.IdentityFor(naming.ClaudeToolkit, name); ok {
+		return id, true
+	}
+	// The identifier may not have been listed yet in this process. Derive
+	// over the current options rather than requiring a prior listing.
+	for _, opt := range b.ModelOptionsFor(naming.ClaudeToolkit) {
+		if opt.Identifier == name && opt.Identity != "" {
+			parsed, err := naming.ParseIdentity(opt.Identity)
+			if err != nil {
+				return naming.Identity{}, false
 			}
-		}
-		if !ok {
-			return name, false
+			return parsed, true
 		}
 	}
-	return joinModelVariant(id.Model, id.Variant), true
+	return naming.Identity{}, false
+}
+
+// PinModel reports whether a request named a SPECIFIC served model and, if so,
+// which provider answers to it under which name.
+//
+// This is what makes the published identifier mean something on the real
+// request path. Routing and the fallback chain both work in provider model
+// names, and the chain additionally substitutes its own per-entry model when a
+// request does not pin one — so a client that listed an identifier and then
+// asked for it would otherwise be answered by an unrelated provider running an
+// unrelated model, with no error and no way to tell.
+//
+// Three outcomes, and the difference between them is the whole contract:
+//
+//   - ok=false — nothing registered serves this name. The caller has not named
+//     anything we can honour, so it keeps whatever routing it already had.
+//     This is what preserves the fallback chain's score-ordered substitution
+//     for requests that name no model, and for names this deployment does not
+//     serve at all.
+//   - ok=true, provider non-empty — the request named a served model; that
+//     provider must answer it, under the returned name.
+//   - ok=true, provider empty — the request named one of OUR identifiers, but
+//     nothing currently registered serves the model on the host it names. The
+//     caller asked for something specific and specific is unavailable; the
+//     honest answer is an error, never a different model.
+func (b *Brain) PinModel(requested string) (provider, model string, ok bool) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return "", "", false
+	}
+
+	model = requested
+	wantHost := ""
+	identifier := false
+	if id, isIdentifier := b.resolveIdentity(requested); isIdentifier {
+		model = joinModelVariant(id.Model, id.Variant)
+		wantHost = id.Host
+		identifier = true
+	}
+
+	// Sorted so the pin is deterministic. Map iteration order would let the
+	// same request reach a different provider run to run, which is exactly the
+	// class of surprise this function exists to remove.
+	names := make([]string, 0, len(b.providers))
+	for name := range b.providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		p := b.providers[name]
+		if !serves(p, model) {
+			continue
+		}
+		if wantHost == "" {
+			return name, model, true
+		}
+		// The identifier named a host. Two machines can serve the same model
+		// name under DIFFERENT identifiers (the host is part of the identity
+		// and of the digest), so honouring the host is what keeps one
+		// identifier from landing on the other machine's copy.
+		if h, hosted := p.(ServingHost); hosted &&
+			strings.EqualFold(strings.TrimSpace(h.ServingHost()), wantHost) {
+			return name, model, true
+		}
+	}
+
+	if identifier {
+		// One of our identifiers, but its host is no longer serving. Specific
+		// request, specific answer unavailable — say so rather than let it fall
+		// through to whatever else happens to be up.
+		return "", model, true
+	}
+	return "", "", false
+}
+
+// serves reports whether p offers a model under exactly this name.
+func serves(p Provider, model string) bool {
+	for _, m := range p.Models() {
+		if m == model {
+			return true
+		}
+	}
+	return false
 }
 
 // splitModelVariant separates a served name into model and variant on its LAST

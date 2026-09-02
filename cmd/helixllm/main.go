@@ -396,8 +396,7 @@ func main() {
 	entries := scorerBridge.BuildEntries(scores, providerModels)
 
 	rateLimiter := fallback.NewRateLimitTracker(5, 1000)
-	fallbackChain := fallback.NewChain(brainSvc.Providers(), rateLimiter)
-	fallbackChain.SetEntries(entries)
+	fallbackChain := newFallbackChain(brainSvc, entries, rateLimiter)
 
 	scorerBridge.StartRefreshLoop(ctx, fallbackChain, providerModels)
 
@@ -662,6 +661,24 @@ func buildEmbedder(cfg *config.HelixConfig, log logging.Logger) knowledge.Embedd
 	}
 
 	return embedder
+}
+
+// newFallbackChain builds the Chain that serves every /v1 request.
+//
+// It exists as a named function rather than three inline statements because the
+// LAST of them is load-bearing and easy to lose: the chain is the Completer the
+// gateway is wired to, and without the Brain as its model pinner it answers
+// every request from its own top-ranked entry — so the identifier /v1/models
+// publishes would resolve to nothing and a client asking for a specific model
+// would be answered, confidently, by a different one. Tests build the serving
+// stack through THIS function so a regression here cannot pass unnoticed.
+func newFallbackChain(b *brain.Brain, entries []fallback.ChainEntry, rl *fallback.RateLimitTracker) *fallback.Chain {
+	chain := fallback.NewChain(b.Providers(), rl)
+	chain.SetEntries(entries)
+	// The Brain owns the naming registry and the provider set, so it is what
+	// can say which provider a published identifier actually names.
+	chain.SetModelPinner(b)
+	return chain
 }
 
 // discoverProviderModels returns a map of provider name → first model ID by
