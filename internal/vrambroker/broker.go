@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/HelixDevelopment/HelixLLM/internal/capability"
 )
 
 // HeadroomBytes is the safety margin (2 GiB, design §4) kept free above every
@@ -95,6 +97,7 @@ type ThermalGuard func(ctx context.Context) error
 type broker struct {
 	mu         sync.Mutex
 	read       budgetReader
+	device     capability.DeviceIdentity // which card the budget is read from (§11.4.111)
 	thermal    ThermalGuard
 	headroom   int64
 	burstLease *Lease            // the single live burst lease, if any (§11.4.119)
@@ -115,11 +118,27 @@ func WithThermalGuard(g ThermalGuard) Option {
 	}
 }
 
+// WithDevice binds the broker's budget to ONE accelerator by its STABLE
+// identity — a device UUID or a PCI bus address, never an enumeration index
+// (§11.4.111). It is the same identity capability.Accelerator carries, so the
+// card selection measured for the host and the card admission is read from are
+// provably the same device rather than two independently-ordered guesses.
+//
+// Left unset, a single-GPU host still works (one row is the only device); a
+// multi-GPU host refuses with ErrDeviceAmbiguous rather than admitting against
+// whichever card enumerated first.
+func WithDevice(id capability.DeviceIdentity) Option {
+	return func(b *broker) { b.device = id }
+}
+
 // New returns a Broker backed by the real nvidia-smi reader.
 func New(opts ...Option) Broker {
-	b := newWithReader(readNvidiaSMI)
+	b := newWithReader(nil)
 	for _, o := range opts {
 		o(b)
+	}
+	if b.read == nil {
+		b.read = nvidiaSMIReader(b.device)
 	}
 	return b
 }

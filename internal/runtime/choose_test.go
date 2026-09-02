@@ -278,7 +278,7 @@ func TestStaleMeasurementRefusesRatherThanDecidingOnAnOldReading(t *testing.T) {
 // configuration answer, not a resource one.
 func TestMandatoryAcceleratorOnAHostMeasuredToHaveNoneIsUnsupported(t *testing.T) {
 	host := fixtures.NoAccelerator()
-	entry := catfixtures.RevenueCappedEntry() // requires an accelerator, 24 GiB memory
+	entry := catfixtures.RevenueCappedEntry() // requires an accelerator
 
 	require.True(t, entry.RequiresAccelerator, "fixture precondition")
 	require.True(t, host.HasNoAccelerator(), "fixture precondition: measured, and has none")

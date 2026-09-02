@@ -146,7 +146,13 @@ func RevenueCappedEntry() catalogue.Entry {
 			ParameterCount:  12_000_000_000,
 			Specialisations: []string{"text-to-image"},
 		},
-		MemoryRequiredBytes:  24 * gib,
+		// 7 GiB is the figure the shipped catalogue records for this model
+		// (vision_image.yaml flux.1-dev: 7516192768). It matters that it FITS
+		// the accelerator fixtures this entry is paired with: the licence tests
+		// state that the host "runs the image model perfectly well" and only the
+		// declared usage stands in the way, and that premise is only true if the
+		// entry clears every measured axis — device memory included.
+		MemoryRequiredBytes:  7 * gib,
 		StorageRequiredBytes: 23*gib + 800*mib,
 		RequiresAccelerator:  true,
 		UsageTerms: catalogue.UsageTerms{

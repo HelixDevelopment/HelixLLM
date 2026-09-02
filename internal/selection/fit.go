@@ -19,9 +19,16 @@ import (
 //     a share of free storage is held back too. The value is a project policy
 //     choice, not a measured threshold, and it is exposed here so a caller can
 //     state a different one rather than discover this one by its effects.
+//   - AcceleratorHeadroomBytes is an ABSOLUTE reserve on device memory, not a
+//     fraction, because the thing it mirrors is absolute: the runtime admission
+//     gate keeps a fixed margin free above every reservation. It defaults to
+//     zero — selection then asks only "does this fit the card as measured" —
+//     and a caller that wants selection to agree with its admission gate states
+//     that gate's margin here rather than have selection guess at one.
 type Reserve struct {
-	MemoryFraction  float64
-	StorageFraction float64
+	MemoryFraction           float64
+	StorageFraction          float64
+	AcceleratorHeadroomBytes uint64
 }
 
 // Reserve fractions. MemoryFraction is SC-003's 15%. StorageFraction is the
@@ -39,8 +46,10 @@ func DefaultReserve() Reserve {
 	}
 }
 
-// Zero reports whether r holds nothing back on either axis.
-func (r Reserve) Zero() bool { return r.MemoryFraction == 0 && r.StorageFraction == 0 }
+// Zero reports whether r holds nothing back on any axis.
+func (r Reserve) Zero() bool {
+	return r.MemoryFraction == 0 && r.StorageFraction == 0 && r.AcceleratorHeadroomBytes == 0
+}
 
 // MemoryReserve is the share of the host's nameplate memory total held back.
 // SC-003 is expressed against the total, not against what happens to be free,
@@ -126,8 +135,53 @@ func storageAxis(p capability.HostCapabilityProfile, e catalogue.Entry, r Reserv
 	}
 }
 
-// fits evaluates both axes SEPARATELY and returns the first shortfall found,
-// memory before storage.
+// servingDevice picks the device an accelerator-required option would load
+// onto: the one with the most memory free.
+//
+// A model is loaded onto ONE device, so the question is whether ANY single
+// measured device can hold it, and the largest is the one that can if any can.
+// Ties break on the device's stable Identity, never on its position in the
+// enumeration — enumeration order is assigned at discovery time and moves when
+// a card is added or the driver reloads, so a decision that fell out of it
+// would answer differently on the same machine after a reboot (§11.4.111).
+func servingDevice(devices []capability.Accelerator) (capability.Accelerator, bool) {
+	if len(devices) == 0 {
+		return capability.Accelerator{}, false
+	}
+	best := devices[0]
+	for _, d := range devices[1:] {
+		switch {
+		case d.MemoryAvailable > best.MemoryAvailable:
+			best = d
+		case d.MemoryAvailable == best.MemoryAvailable && d.Identity < best.Identity:
+			best = d
+		}
+	}
+	return best, true
+}
+
+// acceleratorAxis derives the device-memory axis for an entry that mandates an
+// accelerator.
+//
+// The requirement compared here is the entry's own memory figure, because for
+// an accelerator-required entry that figure IS the device-memory requirement:
+// the catalogue records it as the value handed to the runtime's VRAM admission
+// gate, and repeats it as the entry's minimum free device memory. Checking it
+// only against host RAM answers a question nobody asked — a 4 GiB card in a
+// 64 GiB machine clears a 19 GB requirement with room to spare, and the option
+// is offered to a user whose card cannot hold a third of it.
+func acceleratorAxis(d capability.Accelerator, e catalogue.Entry, r Reserve) axis {
+	return axis{
+		resource:  ResourceAccelerator,
+		required:  e.MemoryRequiredBytes,
+		available: uint64(d.MemoryAvailable),
+		reserved:  r.AcceleratorHeadroomBytes,
+	}
+}
+
+// fits evaluates the axes SEPARATELY and returns the first shortfall found:
+// host memory, then device memory where the entry mandates a device, then
+// storage.
 //
 // The separation is the point. The low-storage fixture host fits a model's
 // memory more than twenty times over and does not fit its disk at all: a check
@@ -139,6 +193,17 @@ func fits(p capability.HostCapabilityProfile, e catalogue.Entry, r Reserve) (Hea
 
 	if s, isShort := mem.short(); isShort {
 		return Headroom{}, &s
+	}
+	// The device axis is only asked when the entry mandates a device. An entry
+	// that runs on the processor is not made infeasible by a small card, and an
+	// entry that mandates one has already been shown a device exists: supports()
+	// runs before this and refuses the no-device host for configuration.
+	if e.RequiresAccelerator {
+		if device, measured := servingDevice(p.Accelerators); measured {
+			if s, isShort := acceleratorAxis(device, e, r).short(); isShort {
+				return Headroom{}, &s
+			}
+		}
 	}
 	if s, isShort := store.short(); isShort {
 		return Headroom{}, &s

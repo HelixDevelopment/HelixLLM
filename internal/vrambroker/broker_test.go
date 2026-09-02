@@ -22,9 +22,9 @@ func gib(n int64) int64 { return n * 1024 * MiB }
 func TestAdmit_TruthTable(t *testing.T) {
 	hr := HeadroomBytes // 2 GiB
 	cases := []struct {
-		name          string
-		free, need    int64
-		wantAdmitted  bool
+		name         string
+		free, need   int64
+		wantAdmitted bool
 	}{
 		{"fits with room", gib(12), gib(8), true},
 		{"exact fit (need+headroom == free)", gib(10), gib(8), true},
@@ -155,25 +155,36 @@ func TestBudget_ReadError_ReturnsZeros(t *testing.T) {
 	require.Zero(t, free)
 }
 
+// TestParseSMICSV. RECONCILED per §11.4.120: this test previously asserted
+// "multi-GPU output: first row is used", which is the CRITICAL-6 defect — the
+// budget was bound to an enumeration position. It now asserts the mechanism
+// that replaced it: every row is parsed and carries its own stable identity, so
+// selectDevice can resolve a card by name. See device_identity_test.go for the
+// identity-resolution guards.
 func TestParseSMICSV(t *testing.T) {
-	// Real nvidia-smi shape observed on the target card (MiB, nounits).
-	total, used, free, err := parseSMICSV("32607, 19432, 12689\n")
+	// Real nvidia-smi shape (uuid, pci.bus_id, MiB, nounits).
+	devices, err := parseSMICSV("GPU-abc, 00000000:41:00.0, 32607, 19432, 12689\n")
 	require.NoError(t, err)
-	require.Equal(t, int64(32607)*MiB, total)
-	require.Equal(t, int64(19432)*MiB, used)
-	require.Equal(t, int64(12689)*MiB, free)
+	require.Len(t, devices, 1)
+	require.Equal(t, int64(32607)*MiB, devices[0].Total)
+	require.Equal(t, int64(19432)*MiB, devices[0].Used)
+	require.Equal(t, int64(12689)*MiB, devices[0].Free)
 
-	// Multi-GPU output: first row is used.
-	total, _, _, err = parseSMICSV("32607, 19432, 12689\n24564, 100, 24464\n")
+	// Multi-GPU output: EVERY row is parsed. No row is privileged by position.
+	devices, err = parseSMICSV("GPU-abc, 00000000:41:00.0, 32607, 19432, 12689\n" +
+		"GPU-def, 00000000:09:00.0, 24564, 100, 24464\n")
 	require.NoError(t, err)
-	require.Equal(t, int64(32607)*MiB, total)
+	require.Len(t, devices, 2, "a second GPU must not be silently discarded")
+	require.Equal(t, int64(24564)*MiB, devices[1].Total)
 
-	_, _, _, err = parseSMICSV("")
+	_, err = parseSMICSV("")
 	require.Error(t, err)
-	_, _, _, err = parseSMICSV("garbage line without commas")
+	_, err = parseSMICSV("garbage line without commas")
 	require.Error(t, err)
-	_, _, _, err = parseSMICSV("32607, notanumber, 12689")
+	_, err = parseSMICSV("GPU-abc, 00000000:41:00.0, 32607, notanumber, 12689")
 	require.Error(t, err)
+	_, err = parseSMICSV(" , , 32607, 19432, 12689")
+	require.Error(t, err, "a row with no identity cannot be resolved by name")
 }
 
 func TestAcquire_ConcurrentBurst_ExactlyOneWinner(t *testing.T) {

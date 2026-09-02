@@ -26,4 +26,15 @@ var (
 	// core ships with a permissive guard; the concrete temperature/power probe is
 	// injected via WithThermalGuard.
 	ErrThermalUnsafe = errors.New("vrambroker: card outside safe thermal/power envelope (refused, §11.4.133)")
+
+	// ErrDeviceAmbiguous is returned when several GPUs are present and none was
+	// named. The broker refuses rather than reading whichever card enumerated
+	// first: a budget attributed to a device the caller never chose says nothing
+	// about where the work will actually land (§11.4.111, §11.4.6).
+	ErrDeviceAmbiguous = errors.New("vrambroker: several accelerators measured and none named — refusing to bind the budget to an enumeration position")
+
+	// ErrDeviceNotFound is returned when the configured device identity is not
+	// among the measured devices. Admitting against some other card would be the
+	// exact substitution the identity exists to prevent, so this fails CLOSED.
+	ErrDeviceNotFound = errors.New("vrambroker: the named accelerator is not among the measured devices — refusing fail-closed")
 )
