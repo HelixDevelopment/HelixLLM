@@ -1,0 +1,1089 @@
+# Vision (image-understanding) and image-generation catalogue entries.
+#
+# SOURCE OF TRUTH for every figure, licence and viability claim below:
+#   specs/002-adaptive-local-model-serving/research/02-vision-image.md
+#   (research pass dated 2026-09-02; its "Sources" section carries the per-claim
+#   citations and a §11.4.99 90-day staleness bound.)
+# Field semantics: specs/002-adaptive-local-model-serving/data-model.md
+#   § "Model Option". Wire shape: internal/catalogue/load.go (strict —
+#   KnownFields(true); an unrecorded key refuses the whole file).
+#
+# ---------------------------------------------------------------------------
+# 1. LICENCE IS A SELECTION CONSTRAINT, NOT METADATA (FR-054/FR-055, D4)
+# ---------------------------------------------------------------------------
+# Two sibling PAIRS below differ in nothing that matters to selection except
+# their licence — same vendor, same architecture, same footprint, same serving
+# path:
+#     flux.1-schnell   Apache-2.0  <->  flux.1-dev       non-commercial
+#     flux.2-klein-4b  Apache-2.0  <->  flux.2-klein-9b  non-commercial
+# (flux.2-klein-9b is deferred below for an unrelated reason; its licence is
+# recorded there.) Where a licence does not grant commercial use, `commercial`
+# is ABSENT from `usage_terms.permitted` AND a restriction `excludes` it. Both
+# halves are needed: Entry.Validate rejects permitting a purpose your own
+# restriction excludes, while UsageTerms.RestrictionFor(commercial) is what lets
+# a caller NAME the term that withheld the model instead of reporting a generic
+# unavailability. Offering a legally-unusable model is the failure this
+# prevents.
+#
+# RESTRICTION TERMS ARE A CLOSED SET in load.go (parseRestrictionTerm):
+# non-commercial, revenue-cap, attribution-required, share-alike, research-only.
+# Two licence shapes in this research have no matching term, and are recorded
+# honestly rather than forced into a wrong one:
+#   - MiniCPM-V-4.5: free for research/academic use, commercial use requires
+#     registration with the vendor. Encoded as `research-only` excluding
+#     commercial — which is what the licence grants — with the registration
+#     requirement spelled out in `reference` and `notes`. A `registration-
+#     required` term would be more exact and may warrant a Go constant.
+#   - RAIL and Gemma use-based restrictions (SD 1.5, PixArt-Sigma, SDXL,
+#     PaliGemma2): these EXCLUDE NO PURPOSE. They constrain how output may be
+#     used and can never withhold an entry, so encoding them as an exclusionary
+#     term would be false. They are recorded in `notes` and `annotations`
+#     instead, and commercial use stays granted.
+#
+# ---------------------------------------------------------------------------
+# 2. NO IMAGE-GENERATION MODEL IS PROCESSOR-VIABLE AT INTERACTIVE SPEED
+# ---------------------------------------------------------------------------
+# `requires_accelerator: true` on ALL 11 image-generation entries. Research §3b
+# states it plainly: no candidate is confirmed to produce output in anything
+# resembling interactive time on a processor alone. The one model with a sourced
+# processor figure — Stable Diffusion 1.5 through stable-diffusion.cpp — needs
+# 5 to 20 MINUTES for one 512x512 image, and that engine is not wired in this
+# repository. A host with no accelerator therefore receives a stated reason
+# (`annotations.accelerator_requirement_reason` on each entry) INSTEAD of an
+# offer. That is FR-028 working as intended, not a gap to paper over.
+#
+# ---------------------------------------------------------------------------
+# 3. VISION IS THE OPPOSITE CASE — no-GPU hosts still get REAL options (FR-003)
+# ---------------------------------------------------------------------------
+# Five vision entries carry `requires_accelerator: false` on sourced grounds:
+# smolvlm2-256m, smolvlm2-500m, moondream2 (int4), qwen2.5-vl-3b-instruct (the
+# one MEASURED entry in this file) and qwen3-vl-4b-instruct. The 8B tier and
+# above carry true: the research rates 8B-class processor latency as fitting in
+# system memory but NOT usable (SC-001), and above roughly 8B it is compute, not
+# memory, that binds — so a larger memory figure does not rescue it.
+#
+# ---------------------------------------------------------------------------
+# 4. UNVERIFIED FIGURES ARE NEVER RESOLVED INTO A CONFIDENT NUMBER (§11.4.6)
+# ---------------------------------------------------------------------------
+# `memory_required_bytes` drives admission. Where the research marks a model's
+# memory figure UNVERIFIED, estimated or extrapolated, there is NO honest number
+# to put here — and this wire format has no way to say "absent" (the field is an
+# unsigned integer, and zero is refused by Entry.Validate). Inventing a figure
+# would silently drive a wrong selection, so those models are NOT entries. They
+# are recorded in full in the DEFERRED block at the end of this file, with the
+# measurement each one needs. Ten models are deferred that way; nothing from the
+# research is lost, and nothing is asserted that was not measured.
+#
+# Every surviving entry's per-figure basis is in `annotations.memory_basis` and
+# `annotations.storage_basis`, and every UNVERIFIED marker from the research is
+# carried verbatim in `notes`.
+#
+# ---------------------------------------------------------------------------
+# STORAGE IS AN INDEPENDENT AXIS (D2)
+# ---------------------------------------------------------------------------
+# `storage_required_bytes` is NEVER derived from `memory_required_bytes`. Where
+# the research stated no on-disk figure, storage is derived from parameter count
+# x bytes-per-weight — arithmetic on the model, not a copy of the memory axis —
+# and `annotations.storage_basis` says `derived-from-parameters` with a matching
+# `notes` marker. The clearest proof case here is qwen2.5-vl-3b-instruct:
+# 4138 MiB of MEASURED memory against 2639 MiB of disk. Neither implies the
+# other.
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY: NO DIGEST EXISTS ANYWHERE IN THIS FILE
+# ---------------------------------------------------------------------------
+# Research 02 gathered no weight-file digest for any model, and fabricating one
+# would defeat the check it exists to perform (SC-011). Each entry names the
+# algorithm and carries `size_bytes` only where a real file size was sourced.
+#
+# CONSEQUENCE, STATED PLAINLY: every entry here LOADS and may be OFFERED, and
+# every one is refused by Entry.ValidateForAcquisition with
+# ErrIncompleteIntegrity — the gate that precedes touching a weight file.
+# (CORRECTED 2026-09-02: this paragraph previously said Entry.Validate reports
+# ErrIncompleteIntegrity and that catalogue.Load therefore refuses this file.
+# That is no longer true and the file loads today. Validate deliberately does
+# NOT require an integrity expectation — as entry.go now explains, demanding it
+# there made the catalogue unloadable in its ordinary initial state: nothing
+# could load, so no download could be triggered, so no digest could ever be
+# captured.) The sibling data files text.yaml, video.yaml and speech_audio.yaml
+# are in the same digest-less state. This is a shared, visible, closeable gap —
+# not a defect peculiar to this file, and not something to close by inventing
+# hex.
+#
+# ---------------------------------------------------------------------------
+# UNITS
+# ---------------------------------------------------------------------------
+# Byte values are a mechanical conversion of the research's own figure, read in
+# the unit the research used: GiB/MiB as 2^30/2^20 where it wrote GiB/MiB, GB as
+# 10^9 where it wrote GB (as HuggingFace reports file sizes). Each figure's
+# verbatim source phrasing is in `annotations.*_sourced`, so a re-verification
+# pass can correct a reading without re-deriving the source number. Do not read
+# more significant figures into a byte integer than its sourced value carries.
+#
+# `annotations` is free-form and, per load.go, "never read for a decision" — it
+# carries provenance only. Nothing in it, and nothing in `notes`, is user-facing
+# text: per CONST-046 and entry.go's own doc comment, what a user sees is
+# composed at the presentation boundary from `descriptor` facts plus host
+# measurement, in the user's language.
+
+entries:
+
+  # =========================================================================
+  # FAMILY: vision — image in, text out
+  # =========================================================================
+
+  - model_id: smolvlm2-256m-video-instruct
+    variant: fp16
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 256000000
+      quantisation: fp16
+      specialisations: [image-understanding, video-understanding, edge]
+    memory_required_bytes: 1000000000
+    storage_required_bytes: 1000000000
+    requires_accelerator: false
+    source: https://huggingface.co/HuggingFaceTB/SmolVLM2-256M-Video-Instruct
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, video, text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "UNVERIFIED: exact FP16 file size. The research states only 'well under 1 GB', so both byte figures are conservative UPPER BOUNDS, not measurements."
+      - "UNVERIFIED: no processor tokens/second figure sourced."
+      - "PENDING-ACQUISITION: no weight digest recorded; Entry.Validate refuses this entry until one is captured (SC-011)."
+    annotations:
+      summary: >-
+        Smallest vision-language model in the research. The vendor ships it as
+        the minimum-footprint image and video model for processor-only laptops
+        and edge devices.
+      memory_basis: sourced-upper-bound
+      memory_sourced: "FP16 full model well under 1 GB"
+      memory_note: "Weights only; runtime overhead (KV cache, activations, projector) is NOT modelled — treat as a floor."
+      storage_basis: sourced-upper-bound
+      storage_sourced: "FP16 full model well under 1 GB"
+      processor_viable: true
+      processor_viability_basis: vendor_stated
+      processor_viability_note: "Designed as the smallest video/image LM shipped; runs on CPU laptops and edge devices."
+      serving_engine: "llama.cpp libmtmd (GGUF quants exist)"
+      catalogue_status: partial
+
+  - model_id: smolvlm2-500m-video-instruct
+    variant: fp16
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 500000000
+      quantisation: fp16
+      specialisations: [image-understanding, video-understanding, edge]
+    memory_required_bytes: 1000000000
+    storage_required_bytes: 1000000000
+    requires_accelerator: false
+    source: https://huggingface.co/HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, video, text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "UNVERIFIED: no processor tokens/second figure sourced."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Second-smallest vision-language model in the research; same family and
+        processor posture as the 256M entry with roughly double the parameters.
+      memory_basis: sourced
+      memory_sourced: "FP16 ~1 GB"
+      memory_note: "Weights only; runtime overhead not modelled — treat as a floor."
+      storage_basis: sourced
+      storage_sourced: "FP16 ~1 GB"
+      processor_viable: true
+      processor_viability_basis: sourced
+      processor_viability_note: "Research marks no-GPU/8 GB RAM and no-GPU/32 GB RAM both as comfortable fits."
+      serving_engine: "llama.cpp libmtmd"
+      catalogue_status: partial
+
+  - model_id: moondream2
+    variant: int4
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 1900000000
+      quantisation: int4
+      specialisations: [image-understanding, edge, low-power]
+    memory_required_bytes: 3400000000
+    storage_required_bytes: 950000000
+    requires_accelerator: false
+    source: https://huggingface.co/vikhyatk/moondream2
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "UNVERIFIED: no on-disk weight size is stated for any Moondream2 build. storage_required_bytes is DERIVED from parameter count (1.9 B x 0.5 byte at int4), never copied off the memory figure (D2)."
+      - "Vendor reports '2B'; the research records ~1.9 B, which is what descriptor.parameter_count carries."
+      - "Further-quantised builds are reported down to ~1.2 GB. That is a DIFFERENT variant with a different footprint and is NOT what this entry offers."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Compact vision-language model the vendor states is highly optimised for
+        processor inference and runs on Raspberry Pi-class hardware. This entry
+        offers the int4 build.
+      memory_basis: sourced
+      memory_sourced: "int4 ~3.4 GB (BF16 ~6.4 GB to load; int8 ~4.4 GB)"
+      storage_basis: derived-from-parameters
+      storage_sourced: "no on-disk figure stated for any build"
+      processor_viable: true
+      processor_viability_basis: vendor_stated
+      processor_viability_note: "Vendor states 'highly optimized for CPU inference'; runs on a Raspberry Pi-class device."
+      serving_engine: "llama.cpp libmtmd"
+      catalogue_status: partial
+
+  - model_id: qwen2.5-vl-3b-instruct
+    variant: q4_k_m
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 3090000000
+      quantisation: q4_k_m
+      specialisations: [image-understanding, ocr, instruction-following]
+    memory_required_bytes: 4338987008
+    storage_required_bytes: 2767192064
+    requires_accelerator: false
+    source: https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 1922039808
+    notes:
+      - "The ONLY measured memory figure in this file: 4138 MiB actual GPU peak for the VLM alone, co-resident with a live 30B coder on one RTX 5090. Well under the 6 GiB pre-boot estimate. Evidence: docs/qa/phase3_vision_20260707/RESULTS.md."
+      - "D2 PROOF CASE: 2639 MiB of disk against 4138 MiB of measured memory. Neither figure implies the other."
+      - "SCHEMA GAP, stated not worked around: this model needs TWO weight files — the language-model GGUF and the mmproj vision projector (806 MiB, mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf) — but IntegrityExpectation holds one digest and one size. integrity.size_bytes covers the language model only; the projector has no expectation slot."
+      - "UNVERIFIED: exact processor tokens/second for this repository's hardware."
+      - "A 7B variant is wired as an env override (VISIONGEN_MODEL_GGUF / VISIONGEN_MMPROJ / VISIONGEN_NEED_BYTES, ~9 GiB default budget) but its GGUF has NOT been downloaded or measured, so it is deliberately not an entry."
+      - "PENDING-ACQUISITION: no weight digest recorded, despite this being the best-evidenced entry in the file."
+    annotations:
+      summary: >-
+        The vision-language model already wired and proven on accelerator
+        hardware here. Given a real generated image it correctly named the
+        colour and shape and read the embedded text, with a golden-BAD
+        assertion proven to fail.
+      memory_basis: measured
+      memory_sourced: "4138 MiB measured actual GPU peak"
+      storage_basis: vendor_stated
+      storage_sourced: "GGUF Q4_K_M 1.79 GiB + mmproj Q8_0 806 MiB = ~2.6 GiB (2639 MiB)"
+      processor_viable: true
+      processor_viability_basis: sourced
+      processor_viability_note: "Small enough for CPU + libmtmd; prompt and generation speed will be low tokens/second."
+      serving_engine: "llama.cpp libmtmd via localhost/helixllm/llamacpp-router:cuda12.8-sm120"
+      already_wired: "cmd/visiongen-boot/compose.vision.yml (default, env-overridable), own port :18439"
+      runtime_evidence: docs/qa/phase3_vision_20260707/RESULTS.md
+      catalogue_status: verified
+
+  - model_id: qwen3-vl-4b-instruct
+    variant: q4_k_m
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 4000000000
+      quantisation: q4_k_m
+      specialisations: [image-understanding, instruction-following]
+    memory_required_bytes: 6000000000
+    storage_required_bytes: 2500000000
+    requires_accelerator: false
+    source: https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "UNVERIFIED: the mmproj projector's file size is not stated, so storage_required_bytes covers the language model only and is a FLOOR."
+      - "Projector precision is mixable independently of language-model precision, so a different mmproj choice changes the disk figure."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Next-generation Qwen vision-language model one size above the wired 3B.
+      memory_basis: sourced-range-upper
+      memory_sourced: "~5-6 GB at Q4_K_M + mmproj + KV cache"
+      memory_note: "Upper end of the sourced range taken, so admission does not under-reserve."
+      storage_basis: sourced
+      storage_sourced: "language model Q4_K_M ~2.5 GB (mmproj FP16 or Q8_0, size not stated)"
+      processor_viable: true
+      processor_viability_basis: sourced
+      processor_viability_note: "Comparable to the 3B Qwen2.5-VL entry: tight but workable at 8 GB of system memory, comfortable at 32 GB."
+      serving_engine: "llama.cpp libmtmd"
+      catalogue_status: partial
+
+  - model_id: qwen3-vl-8b-instruct
+    variant: q4_k_m
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 8000000000
+      quantisation: q4_k_m
+      specialisations: [image-understanding, instruction-following]
+    memory_required_bytes: 8000000000
+    storage_required_bytes: 5030000000
+    requires_accelerator: true
+    source: https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 5030000000
+    notes:
+      - "UNVERIFIED: exact processor tokens/second."
+      - "UNVERIFIED: the mmproj (F16 or Q8_0) file size is not stated, so storage_required_bytes is a FLOOR."
+      - "Q8_0 (8.71 GB) and F16 (16.4 GB) builds exist and are NOT what this entry offers."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        The 8B Qwen vision-language tier, and the first size at which the
+        research stops treating processor-only serving as usable.
+      memory_basis: sourced
+      memory_sourced: "Q4_K_M + mmproj + KV cache fits in 8 GB with limited headroom; comfortable at 12-16 GB"
+      storage_basis: vendor_stated
+      storage_sourced: "GGUF Q4_K_M 5.03 GB"
+      accelerator_requirement_reason: >-
+        The weights fit in system memory at Q4_K_M but the latency does not
+        qualify: the research rates 8B-class models on a no-GPU host with 8 GB
+        of memory as too slow to be usable, and on a 32 GB no-GPU host as
+        fitting but slow. Above roughly 8B it is processor compute, not memory,
+        that binds — so more memory does not help.
+      processor_viable: false
+      processor_viability_basis: sourced
+      processor_viability_note: "Borderline — runnable on CPU at Q4_K_M but noticeably slower than the 3B/4B tier."
+      serving_engine: "llama.cpp libmtmd"
+      catalogue_status: verified
+
+  - model_id: minicpm-v-4.5
+    variant: q4_k_m
+    family: vision
+    architecture: dense
+    descriptor:
+      parameter_count: 8000000000
+      quantisation: q4_k_m
+      specialisations: [image-understanding, instruction-following]
+    memory_required_bytes: 8000000000
+    storage_required_bytes: 5030000000
+    requires_accelerator: true
+    source: https://huggingface.co/openbmb/MiniCPM-V-4_5-gguf
+    usage_terms:
+      license_id: minicpm-model-license
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: research-only
+          excludes: [commercial]
+          reference: "MiniCPM Model License — free for research and academic use; COMMERCIAL USE REQUIRES REGISTRATION WITH THE VENDOR, so it is not granted by the licence as published"
+    runtime: in-memory
+    expected_capability:
+      modalities: [image, text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 5030000000
+    notes:
+      - "TERM MAPPING: the licence's actual condition is 'commercial use requires vendor registration'. load.go's parseRestrictionTerm accepts a CLOSED set with no such term, so this is encoded as `research-only` — which is what the licence grants freely — with the registration requirement spelled out in the reference. A `registration-required` term would be more exact and may warrant a Go constant."
+      - "Not a plain permissive licence: this is a custom vendor licence, not Apache or MIT."
+      - "UNVERIFIED: no measured processor tokens/second exists to settle a source conflict — the model row states the vendor explicitly documents llama.cpp and Ollama processor inference for 4-6 GB class hardware, while the tier table rates the whole 8B class as not usable on a processor. The accelerator gate follows the latency finding, not the vendor claim."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        A non-Qwen 8B vision-language model offering family diversity. Its
+        licence gates commercial use behind vendor registration.
+      memory_basis: sourced-range-upper
+      memory_sourced: "~6-8 GB at Q4_K_M"
+      storage_basis: vendor_stated
+      storage_sourced: "GGUF Q4_K_M 5.03 GB (Q4_0 4.77, Q6_K 6.72, Q8_0 8.71, F16 16.4)"
+      accelerator_requirement_reason: >-
+        Grouped with Qwen3-VL-8B by the research's tier analysis: the weights
+        fit in system memory while the latency does not qualify.
+      processor_viable: false
+      processor_viability_basis: sourced
+      processor_viability_note: "Conflicting sources, recorded rather than resolved. Treated as not viable pending a measured tokens/second figure."
+      composition: "Qwen3-8B language model plus a SigLIP2-400M vision tower"
+      serving_engine: "llama.cpp libmtmd"
+      catalogue_status: verified
+
+  # =========================================================================
+  # FAMILY: image-generation — text in, image out
+  #
+  # requires_accelerator is true on EVERY entry below. See section 2 of the
+  # header: research §3b found no candidate confirmed to produce output in
+  # anything resembling interactive time on a processor alone. A host with no
+  # accelerator receives annotations.accelerator_requirement_reason instead of
+  # an offer.
+  # =========================================================================
+
+  - model_id: stable-diffusion-1.5
+    variant: gguf
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 980000000
+      quantisation: gguf
+      specialisations: [text-to-image]
+    memory_required_bytes: 2300000000
+    storage_required_bytes: 1960000000
+    requires_accelerator: true
+    source: https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5
+    usage_terms:
+      license_id: CreativeML-OpenRAIL-M
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "THE ONE MODEL IN THIS FAMILY WITH A SOURCED PROCESSOR FIGURE, and it is 5-20 MINUTES per single 512x512 image on a modern CPU (unoptimised). ONNX/OpenVINO backends cut that materially and still land in the minutes range. On an accelerator it is ~1-2 s/image at 512x512."
+      - "Per SC-001 this must never be presented alongside the accelerator tiers as comparable. If offered at all it is a slow, batch-only option, labelled as such."
+      - "LICENCE: CreativeML OpenRAIL-M permits commercial use and redistribution; its harmful-use clauses EXCLUDE NO PURPOSE and so can never withhold this entry. They are recorded here rather than as an exclusionary restriction, which would be false."
+      - "UNVERIFIED: no on-disk figure sourced. storage_required_bytes is DERIVED from parameter count (0.98 B x 2 bytes at fp16), never copied off the memory figure (D2). The text encoder and VAE are additional and unsourced, so it is a FLOOR."
+      - "BLOCKER: the serving engine this entry depends on, stable-diffusion.cpp, is NOT wired anywhere in this repository. services/imagegen uses diffusers plus Nunchaku and is accelerator-only. Offering this entry means wiring that engine first."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        The only image generator with a measured processor figure, and that
+        figure is minutes per image — which is why it is still accelerator
+        gated. The practical works-everywhere-badly fallback.
+      memory_basis: sourced
+      memory_sourced: "via stable-diffusion.cpp GGUF, 512x512 fp16 needs only ~2.3 GB (FP16 full ~5.9 GB at 1024x1024)"
+      storage_basis: derived-from-parameters
+      storage_sourced: "no on-disk figure sourced for the GGUF build"
+      accelerator_requirement_reason: >-
+        It runs without an accelerator, but at five to twenty minutes for a
+        single 512x512 image, which is not usable service. An accelerator is
+        required for this family.
+      processor_viable: true
+      processor_interactive: false
+      processor_viability_basis: sourced
+      processor_viability_note: "Runs, but at 5-20 minutes per 512x512 image. Viability and usability are different questions and this entry separates them."
+      generation_time: "accelerator ~1-2 s/image at 512x512; processor 5-20 minutes/image"
+      licence_use_based_restrictions: "CreativeML OpenRAIL-M harmful-use clauses — non-excluding"
+      serving_engine: "stable-diffusion.cpp (pure C/C++ on ggml) — NOT wired in this repository"
+      catalogue_status: partial
+
+  - model_id: pixart-sigma-xl-2-1024-ms
+    variant: fp16-t5-8bit
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 600000000
+      quantisation: fp16
+      specialisations: [text-to-image]
+    memory_required_bytes: 8000000000
+    storage_required_bytes: 1200000000
+    requires_accelerator: true
+    source: https://huggingface.co/PixArt-alpha/PixArt-Sigma-XL-2-1024-MS
+    usage_terms:
+      license_id: CreativeML-Open-RAIL++-M
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "UNVERIFIED: exact seconds per image on this repository's target hardware; no benchmark source located."
+      - "UNVERIFIED: processor-only viability. The small parameter count suggests it degrades better than the Stable Diffusion family, but that is not confirmed and must not be offered as though it were."
+      - "UNVERIFIED / INCOMPLETE: no on-disk figure sourced. storage_required_bytes is DERIVED from parameter count (0.6 B x 2 bytes at fp16) and covers the diffusion transformer ONLY — the T5 text encoder is a separate, unsourced component, so this is a substantial UNDER-count and a floor."
+      - "LICENCE: weights are CreativeML Open RAIL++-M (the code is Apache-2.0). Its use-based restrictions exclude no purpose and cannot withhold this entry."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Smallest-parameter image generator in the research. Fits under 8 GB
+        with the text encoder in 8-bit and model offload enabled.
+      memory_basis: sourced-upper-bound
+      memory_sourced: "runs under 8 GB with the T5 text encoder loaded in 8-bit; CPU offload available via enable_model_cpu_offload()"
+      storage_basis: derived-from-parameters
+      storage_sourced: "no on-disk figure sourced"
+      accelerator_requirement_reason: >-
+        No processor-only benchmark was found for this model at all, so no
+        processor-served configuration can be offered.
+      processor_viable: null
+      processor_viability_basis: absent
+      licence_use_based_restrictions: "CreativeML Open RAIL++-M — non-excluding"
+      serving_engine: "diffusers PixArtSigmaPipeline"
+      catalogue_status: partial
+
+  - model_id: sdxl-1.0-base
+    variant: fp16
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 3500000000
+      quantisation: fp16
+      specialisations: [text-to-image]
+    memory_required_bytes: 8000000000
+    storage_required_bytes: 6940000000
+    requires_accelerator: true
+    source: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
+    usage_terms:
+      license_id: CreativeML-OpenRAIL++-M
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 6940000000
+    notes:
+      - "The only entry in this family whose on-disk size is stated DIRECTLY rather than derived: FP16 weights 6.94 GB, sourced independently of the memory figure (D2)."
+      - "UNVERIFIED: precise seconds per image. 'Tens of seconds' at 1024x1024 on 8 GB cards is general community reporting, not independently confirmed."
+      - "LICENCE: CreativeML OpenRAIL++-M use-based restrictions exclude no purpose and cannot withhold this entry."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        The mainstream 8 GB-class image generator; ~3.5 B UNet plus two fixed
+        CLIP/OpenCLIP text encoders.
+      memory_basis: vendor_stated
+      memory_sourced: "documented as workable on 8 GB consumer GPUs, with CPU offload available for less"
+      storage_basis: sourced
+      storage_sourced: "FP16 weights 6.94 GB on disk"
+      accelerator_requirement_reason: >-
+        Processor-only serving degrades to the same many-minutes-per-image
+        regime as SD 1.5 and worse, because the UNet is larger.
+      processor_viable: false
+      processor_viability_basis: sourced
+      processor_viability_note: "Impractical at the 8 GB memory class; fits at 32 GB of system memory but very slow (UNVERIFIED, worse than SD 1.5)."
+      licence_use_based_restrictions: "CreativeML OpenRAIL++-M — non-excluding"
+      serving_engine: "diffusers StableDiffusionXLPipeline"
+      catalogue_status: verified
+
+  - model_id: sdxl-turbo
+    variant: fp16
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 3500000000
+      quantisation: fp16
+      specialisations: [text-to-image, few-step]
+    memory_required_bytes: 7000000000
+    storage_required_bytes: 6940000000
+    requires_accelerator: true
+    source: https://huggingface.co/stabilityai/sdxl-turbo
+    usage_terms:
+      license_id: stabilityai-non-commercial-research-community
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: research-only
+          excludes: [commercial]
+          reference: "Stability AI Non-Commercial Research Community Licence — research and non-commercial use only; not cleared for a commercial-capable default catalogue without a separate commercial licence"
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "Fastest accelerator option in the research: sub-second to a few seconds per image at 1-4 inference steps with no classifier-free guidance."
+      - "UNCONFIRMED LICENCE CLAIM: one search result claimed an Apache-2.0 listing exists somewhere. The vendor's own licence page is authoritative — verify the exact repository's LICENSE file before offering this model under any other terms. Research note: verify before offering as a default even on a 24 GB-and-above host."
+      - "UNVERIFIED: no on-disk figure sourced. storage_required_bytes is DERIVED from the fact that it shares SDXL 1.0 base's ~3.5 B UNet, whose FP16 weights are 6.94 GB — not copied off the memory axis (D2)."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Same ~3.5 B UNet as SDXL, distilled for 1-4-step generation. Fastest
+        accelerator option in the research, but its licence bars commercial use.
+      memory_basis: sourced
+      memory_sourced: "~4.5 GB at 512x512/FP16 single-step; ~7 GB at 1024x1024/FP16 (12 GB recommended as comfortable)"
+      memory_note: "The 1024x1024 figure is taken, as the higher-resolution default."
+      storage_basis: derived-from-sibling-architecture
+      storage_sourced: "no on-disk figure sourced for this repository"
+      accelerator_requirement_reason: >-
+        The speed advantage comes from step count, not from cheaper compute per
+        step, so processor-only serving still lands in the minutes range.
+      processor_viable: false
+      processor_viability_basis: sourced
+      generation_time: "sub-second to a few seconds per image on an accelerator (1-4 inference steps)"
+      serving_engine: "diffusers StableDiffusionXLPipeline with the turbo scheduler"
+      catalogue_status: verified
+
+  - model_id: stable-diffusion-3.5-medium
+    variant: fp16
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 2500000000
+      quantisation: fp16
+      specialisations: [text-to-image]
+    memory_required_bytes: 9900000000
+    storage_required_bytes: 5000000000
+    requires_accelerator: true
+    source: https://huggingface.co/stabilityai/stable-diffusion-3.5-medium
+    usage_terms:
+      license_id: stabilityai-community-license
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: revenue-cap
+          excludes: [commercial]
+          threshold:
+            value: 1000000
+            currency: USD
+            period: annual
+          reference: "Stability AI Community Licence — free for research and for commercial use under $1M annual revenue"
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "Commercial use is permitted only BELOW the recorded revenue ceiling, so it is not unconditionally granted. The revenue-cap restriction carries the threshold so a caller can evaluate it against the declared usage rather than seeing a flat refusal."
+      - "UNVERIFIED: exact seconds per image on target hardware."
+      - "UNVERIFIED: processor-only viability. An INT4 path exists at ~1.3 GB but is not benchmarked on a processor; it is a DIFFERENT variant with a different footprint and is NOT what this entry offers."
+      - "memory_required_bytes takes the FULL-PIPELINE figure (~9.9 GB), not the weights-only ~5 GB, so admission does not under-reserve for the text encoders."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Mid-size MMDiT generator, free below a one-million-dollar annual
+        revenue ceiling.
+      memory_basis: sourced-range-upper
+      memory_sourced: "FP16 ~5 GB weights only; full pipeline documented at up to ~9.9 GB for full quality; ~5-10 GB depending on which text encoders stay resident"
+      storage_basis: sourced
+      storage_sourced: "FP16 ~5 GB (weights only; text encoders additional)"
+      accelerator_requirement_reason: >-
+        Processor-only viability is not independently benchmarked and is likely
+        the same many-minutes class as SD 1.5 and SDXL.
+      processor_viable: null
+      processor_viability_basis: absent
+      serving_engine: "diffusers StableDiffusion3Pipeline"
+      catalogue_status: verified
+
+  - model_id: stable-diffusion-3.5-large
+    variant: fp8
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 8100000000
+      quantisation: fp8
+      specialisations: [text-to-image]
+    memory_required_bytes: 11000000000
+    storage_required_bytes: 8100000000
+    requires_accelerator: true
+    source: https://huggingface.co/stabilityai/stable-diffusion-3.5-large
+    usage_terms:
+      license_id: stabilityai-community-license
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: revenue-cap
+          excludes: [commercial]
+          threshold:
+            value: 1000000
+            currency: USD
+            period: annual
+          reference: "Stability AI Community Licence — same terms as SD 3.5 Medium"
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "Does not fit the 8 GB class: it needs at least 11 GB even at FP8. The FP16 build needs ~18 GB."
+      - "UNVERIFIED: exact seconds per image."
+      - "UNVERIFIED: no on-disk figure sourced. storage_required_bytes is DERIVED from parameter count (8.1 B x 1 byte at fp8), never copied off the memory axis (D2)."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        The large Stable Diffusion 3.5 tier. The FP8 build, co-engineered with
+        NVIDIA for roughly a 40 percent memory reduction, is what makes it fit
+        a 16 GB host at all.
+      memory_basis: sourced
+      memory_sourced: "FP16 ~18 GB; FP8 build ~11 GB (NVIDIA co-engineered quantisation, ~40% reduction)"
+      storage_basis: derived-from-parameters
+      storage_sourced: "no on-disk figure sourced for the FP8 build"
+      accelerator_requirement_reason: >-
+        An 8.1 B-class diffusion transformer on a processor is not a practical
+        path — no source was found even attempting it.
+      processor_viable: false
+      processor_viability_basis: sourced
+      serving_engine: "diffusers StableDiffusion3Pipeline"
+      catalogue_status: verified
+
+  - model_id: flux.1-schnell
+    variant: nvfp4
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 12000000000
+      quantisation: nvfp4
+      specialisations: [text-to-image, few-step]
+    memory_required_bytes: 7516192768
+    storage_required_bytes: 6549405696
+    requires_accelerator: true
+    source: https://huggingface.co/black-forest-labs/FLUX.1-schnell
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "COMMERCIAL-SAFE HALF OF A SIBLING PAIR. services/imagegen defaults to THIS model specifically because of licensing; flux.1-dev — identical in architecture, footprint and serving path — is a non-commercial opt-in. The licence is the only difference that matters to selection."
+      - "PENDING: memory_required_bytes is this repository's own IMAGEGEN_NEED_BYTES placeholder budget of 7 GiB, whose own source comment says PENDING first real-hardware calibration. The estimated co-resident peak is ~6 GB. It is a real configured value, NOT a measurement, and the 8 GB-class fit depends on it — so that fit is PENDING, not confirmed."
+      - "PENDING: the actual FLUX generation and the real accelerator-memory peak have NEVER been captured on hardware. docs/qa/phase4_imagegen_20260707/README.md is explicitly SCAFFOLD / PENDING. It needs an operator-authorised coder-pause window per §11.4.122."
+      - "UNVERIFIED: exact seconds per image on this repository's hardware."
+      - "UNVERIFIED: the full BF16 pipeline is not confirmed to fit 24 GB — community figures range ~22-33 GB depending on what is counted as resident. This entry offers the NVFP4 path only."
+      - "storage_required_bytes covers the NVFP4 transformer only (~6.1 GiB); the quantised T5 and CPU-offloaded idle stages are additional and unsourced, so it is a FLOOR."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        The image generator already wired as this repository's default, chosen
+        over its higher-quality sibling specifically on licensing grounds. Its
+        generation path has never been proven on hardware.
+      memory_basis: placeholder-pending-calibration
+      memory_sourced: "estimated co-resident peak ~6 GB; current placeholder budget 7 GiB, PENDING first real-hardware calibration"
+      storage_basis: sourced
+      storage_sourced: "NVFP4 transformer ~6.1 GiB"
+      accelerator_requirement_reason: >-
+        No practical processor path exists for the diffusers plus Nunchaku
+        pipeline this repository wires. stable-diffusion.cpp upstream claims
+        general Flux support in pure C/C++, which would be the processor
+        fallback route if pursued, but this repository does not wire it.
+      processor_viable: false
+      processor_viability_basis: sourced
+      quantisation_source: nunchaku-ai/nunchaku-flux.1-schnell
+      serving_engine: >-
+        diffusers FluxPipeline plus Nunchaku NunchakuFluxTransformer2dModel
+        (NVFP4 SVDQuant). It refuses to fabricate an image: a failed pipeline
+        load returns HTTP 503 with the exact reason.
+      already_wired: "services/imagegen/imagegen_server.py as the default IMAGEGEN_MODEL; cmd/imagegen-boot"
+      runtime_evidence: "NONE — docs/qa/phase4_imagegen_20260707/README.md is SCAFFOLD / PENDING"
+      catalogue_status: pending-runtime-proof
+
+  - model_id: flux.1-dev
+    variant: nvfp4
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 12000000000
+      quantisation: nvfp4
+      specialisations: [text-to-image]
+    memory_required_bytes: 7516192768
+    storage_required_bytes: 6549405696
+    requires_accelerator: true
+    source: https://huggingface.co/black-forest-labs/FLUX.1-dev
+    usage_terms:
+      license_id: flux-1-dev-non-commercial-license
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: non-commercial
+          excludes: [commercial]
+          reference: "flux-1-dev-non-commercial-license — flatly non-commercial, with no revenue threshold that would permit commercial use. The HF API confirms gated:auto, so an account must accept the licence before the weights can be fetched."
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "NON-COMMERCIAL HALF OF A SIBLING PAIR. Identical to flux.1-schnell in architecture, footprint and serving path; the LICENCE is the only thing that differs, and it is what must withhold this entry from a declared commercial use."
+      - "NOTE FOR IMPLEMENTERS: internal/catalogue/testdata/fixtures.go models flux.1-dev with a revenue-cap term and a $1M threshold. That fixture is illustrative test data. Research 02 records this licence as flatly NON-COMMERCIAL with no threshold, and that is what this entry encodes."
+      - "ACQUISITION GATE: the HF repository is gated (gated:auto); an account must accept the licence before the weights can be fetched."
+      - "PENDING: same unproven-on-hardware status as schnell — the NVFP4 path applies identically via the IMAGEGEN_NVFP4_TRANSFORMER auto-selection already in imagegen_server.py."
+      - "UNVERIFIED: exact seconds per image."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Higher-quality FLUX.1 sibling, wired here as an explicit opt-in only,
+        because its licence forbids commercial use.
+      memory_basis: placeholder-pending-calibration
+      memory_sourced: "same as schnell (~7-8 GB NVFP4; 24 GB+ unquantised, and per some sources even 24 GB is tight)"
+      storage_basis: sourced
+      storage_sourced: "same architecture and footprint class as schnell"
+      accelerator_requirement_reason: "Same as schnell — no wired processor path."
+      processor_viable: false
+      processor_viability_basis: sourced
+      quantisation_source: nunchaku-ai/nunchaku-flux.1-dev
+      serving_engine: "diffusers FluxPipeline plus Nunchaku"
+      already_wired: "services/imagegen/imagegen_server.py as an explicit IMAGEGEN_MODEL opt-in — NOT the default"
+      runtime_evidence: "NONE — same PENDING status as schnell"
+      catalogue_status: pending-runtime-proof
+
+  - model_id: flux.2-klein-4b
+    variant: fp16
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 4000000000
+      quantisation: fp16
+      specialisations: [text-to-image, interactive]
+    memory_required_bytes: 8000000000
+    storage_required_bytes: 8000000000
+    requires_accelerator: true
+    source: https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "COMMERCIAL-SAFE HALF of the second sibling pair, and the ONLY fully-permissive weight in the FLUX.2 family. Its 9B sibling is non-commercial (see the deferred block at the end of this file)."
+      - "SOURCES DISAGREE on accelerator memory and the disagreement is recorded rather than averaged: '~8.4 GB' versus 'fits in ~13 GB, suits RTX 3090/4070'. The 8 GB figure here follows the research's own tier table, which rates this model a comfortable fit at the 8 GB class. IF THE 13 GB READING IS CORRECT, OFFERING THIS MODEL ON AN 8 GB HOST IS WRONG. Resolve before offering."
+      - "UNVERIFIED: processor path. The architecture targets fast few-step accelerator inference and is not documented for processor use."
+      - "UNVERIFIED: no on-disk figure sourced. storage_required_bytes is DERIVED from parameter count (4 B x 2 bytes at fp16), never copied off the memory axis (D2). FP8 and NVFP4 builds exist — BFL and NVIDIA co-released both for the whole klein family — and would be smaller, but their exact figures are UNVERIFIED and they are not what this entry offers."
+      - "The vendor's sub-10-second generation claim is a vendor claim, not a measurement."
+      - "Released around mid-January 2026 per the vendor's own release notes; not yet wired in this repository."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Smallest-footprint fully-permissive image generator in the research,
+        and the fastest Apache-2.0 option that fits an 8 GB accelerator.
+      memory_basis: sourced-disputed
+      memory_sourced: "FP16 fits ~8-13 GB (sources vary: '~8.4 GB' vs 'fits in ~13 GB'); minimum stated as ~8 GB"
+      storage_basis: derived-from-parameters
+      storage_sourced: "no on-disk figure sourced"
+      accelerator_requirement_reason: >-
+        The architecture is optimised for fast few-step accelerator inference
+        and is not documented for processor use.
+      processor_viable: null
+      processor_viability_basis: absent
+      generation_time: "vendor-stated sub-10-second generation on consumer hardware (vendor claim, not a measurement)"
+      serving_engine: "diffusers — NOT yet wired in this repository"
+      catalogue_status: partial
+
+  - model_id: flux.2-dev
+    variant: gguf-q4_k
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 32000000000
+      quantisation: q4_k
+      specialisations: [text-to-image]
+    memory_required_bytes: 19000000000
+    storage_required_bytes: 19000000000
+    requires_accelerator: true
+    source: https://huggingface.co/black-forest-labs/FLUX.2-dev
+    usage_terms:
+      license_id: flux-2-dev-non-commercial-license
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: non-commercial
+          excludes: [commercial]
+          reference: "FLUX.2-dev Non-Commercial Licence (bfl.ai/licensing) — the same restriction class as FLUX.1-dev"
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 19000000000
+    notes:
+      - "Largest image generator in the research. Only the Q4 GGUF quantisation fits a 24 GB accelerator at all; the FP8 checkpoint is ~32-35 GB and fits a 24 GB card only with CPU offload."
+      - "Does not fit the 16 GB class at Q4 GGUF — it needs ~19 GB with no headroom."
+      - "UNVERIFIED: a 16 GB card was reported as the cheapest that fits it fully in memory at some quantisation level, but the source did not say WHICH level. Do NOT read that as a 16 GB offer."
+      - "UNVERIFIED: exact seconds per image."
+      - "The memory and storage figures coincide here because the Q4_K checkpoint is loaded whole. Both are independently sourced as that checkpoint's size; storage is NOT copied off the memory axis (D2)."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Largest image generator in the research; its licence bars commercial
+        use.
+      memory_basis: sourced
+      memory_sourced: "GGUF Q4_K ~19 GB fits a 24 GB card directly; FP8 checkpoint ~32-35 GB"
+      storage_basis: sourced
+      storage_sourced: "the Q4_K GGUF checkpoint, ~19 GB"
+      accelerator_requirement_reason: >-
+        No practical processor path was found; this is the largest
+        image-generation model in the research.
+      processor_viable: false
+      processor_viability_basis: sourced
+      serving_engine: "GGUF-based diffusion runner — NOT wired in this repository"
+      catalogue_status: verified
+
+  - model_id: qwen-image
+    variant: fp8
+    family: image-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 20000000000
+      quantisation: fp8
+      specialisations: [text-to-image]
+    memory_required_bytes: 16000000000
+    storage_required_bytes: 16000000000
+    requires_accelerator: true
+    source: https://huggingface.co/Qwen/Qwen-Image
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 16000000000
+    notes:
+      - "THE VARIANT IS LOAD-BEARING HERE, NOT DECORATIVE. This model spans a 5x memory range purely by quantisation choice — BF16 ~40 GB, FP8 ~16 GB, 4-bit plus a 4-step Lightning LoRA ~8 GB with 16 GB of system memory. Research 02 is explicit that the catalogue entry MUST record which variant it offers, not just 'Qwen-Image'. This entry offers FP8 and nothing else."
+      - "VARIANT NOT OFFERED — bf16: full BF16 is ~40 GB and does NOT fit a 24 GB host. The catalogue must never select the raw BF16 checkpoint, even on the largest host class."
+      - "VARIANT NOT OFFERED — int4-lightning: 4-bit plus a 4-step Lightning LoRA, ~8 GB of accelerator memory with 16 GB of system memory. An 8 GB-class option that needs its OWN entry with its own measured figures."
+      - "UNVERIFIED: exact seconds per image at any tier."
+      - "UNVERIFIED: search results indicate a 7B 'Qwen-Image 2.0' was announced separately; release status and date are unconfirmed. The 20B figure is the confirmed current entry — re-verify the 7B successor before relying on it."
+      - "UNVERIFIED: no direct processor-only benchmark. A layer-by-layer CPU-offload path claims inference within 4 GB of accelerator memory at a steep speed cost, which implies the model degrades rather than hard-fails on constrained hardware — the property FR-027 wants — but no source confirms processor-only feasibility."
+      - "The memory and storage figures coincide because the FP8 checkpoint is loaded whole; both are independently sourced as that checkpoint's size, not copied across axes (D2)."
+      - "Released 2025-08-04 per the vendor."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Large Apache-2.0 image generator whose footprint depends entirely on
+        which quantisation is served. This entry serves the FP8 build.
+      memory_basis: sourced
+      memory_sourced: "FP8 ~16 GB (full BF16 ~40 GB; 4-bit + Lightning LoRA down to ~8 GB with 16 GB system RAM)"
+      storage_basis: sourced
+      storage_sourced: "FP8 checkpoint ~16 GB"
+      accelerator_requirement_reason: >-
+        No direct processor-only benchmark exists, and the offered FP8 variant
+        needs 16 GB of accelerator memory.
+      processor_viable: null
+      processor_viability_basis: absent
+      serving_engine: "diffusers or Nunchaku — NOT wired in this repository"
+      catalogue_status: verified
+
+# ===========================================================================
+# DEFERRED — researched, NOT offered, and deliberately NOT entries above
+# ===========================================================================
+#
+# Each model below appears in research 02 but has NO honest memory figure: the
+# research marks it UNVERIFIED, estimated or extrapolated. `memory_required_
+# bytes` drives admission, this wire format cannot express "absent" (the field
+# is an unsigned integer and zero is refused by Entry.Validate), and inventing a
+# number would silently drive a wrong selection — the exact failure FR-056 and
+# §11.4.6 forbid. They are recorded here in full, with the measurement each one
+# needs, so nothing from the research is lost and the gap stays closeable.
+#
+# VISION — 9 deferred
+#
+#   internvl3-8b (8 B; InternViT-300M-448px-V2.5 tower + Qwen2.5-7B LM)
+#     Licence: project licence MIT — BUT it composes a Qwen2.5 component whose
+#       own sub-licence must be read before shipping; Qwen licensing has varied
+#       by size and series. Do not treat the MIT grant as settled.
+#     Memory: UNVERIFIED at GGUF Q4 (research estimate ~6-8 GB). The vendor's
+#       own BF16 reference numbers assume 80 GB-class GPUs and do NOT apply to
+#       the quantised local-serving path.
+#     Storage: UNVERIFIED — "treat as comparable to other 8B VLMs (~5 GB at
+#       Q4_K_M) pending a direct measurement". Five quantised variants exist via
+#       community requantisers but no size table was found.
+#     Processor: UNVERIFIED, no benchmark found. Accelerator would be required
+#       on the same 8B-class latency finding as qwen3-vl-8b-instruct.
+#     Source: https://huggingface.co/OpenGVLab/InternVL3-8B
+#     NEEDS: a measured Q4 GGUF size and accelerator-memory peak.
+#
+#   phi-4-multimodal-instruct (5.6 B; vision + speech adapters over Phi-4-Mini)
+#     Licence: MIT. Commercial use permitted.
+#     Memory: UNVERIFIED — no GGUF or llama.cpp quantisation sizes located at
+#       all; research says treat as an 8 GB+ candidate pending quantisation data.
+#     Storage: ~12.9 GB repository footprint (mixed vision + speech + text
+#       adapters) — a whole-repo figure, not a single weight file.
+#     Processor: UNVERIFIED. Architecture suggests viability similar to other
+#       5-8B models but no confirming source was found.
+#     Serving: UNVERIFIED — llama.cpp libmtmd support for Phi-4-multimodal
+#       specifically is NOT confirmed and MUST be re-checked against
+#       docs/multimodal.md in the pinned llama.cpp release.
+#     Source: https://huggingface.co/microsoft/Phi-4-multimodal-instruct
+#     NEEDS: a quantisation ladder, and confirmation of libmtmd support.
+#
+#   paligemma2-3b (pt-224 / 448 / 896; Gemma-2 2B LM + SigLIP tower)
+#   paligemma2-10b (pt-448; Gemma-2 9B LM)
+#   paligemma2-28b (pt-224; Gemma-2 27B LM)
+#     Licence (all three): Gemma Terms of Use — permissive-with-terms.
+#       Redistribution, COMMERCIAL USE, fine-tuning and derivatives are all
+#       allowed. Its use-based restrictions (Prohibited Use Policy) exclude no
+#       purpose and could never withhold these models.
+#     Memory: all UNVERIFIED. 3B estimated ~5-6 GB unquantised bf16; 10B
+#       "likely fits 12-16 GB unquantised bf16"; 28B "needs 24 GB+ class or
+#       heavy quantisation".
+#     CONTRADICTION carried forward for the 10B, not resolved: a 10 B model at
+#       bf16 is ~20 GB of weights alone, which cannot fit the sourced 12-16 GB
+#       estimate. Both readings are recorded; neither is a measurement.
+#     Storage: all UNVERIFIED — no VRAM/quantisation table found.
+#     Processor: 3B UNVERIFIED (plausible given the small backbone); 10B and
+#       28B rated not practical.
+#     Serving: UNVERIFIED — llama.cpp libmtmd support for PaliGemma2
+#       specifically is NOT confirmed and MUST be re-checked against
+#       docs/multimodal.md in the pinned llama.cpp release.
+#     Sources: https://huggingface.co/google/paligemma2-3b-pt-224
+#              https://huggingface.co/google/paligemma2-10b-pt-448
+#              https://huggingface.co/google/paligemma2-28b-pt-224
+#     NEEDS: measured footprints, and confirmation of libmtmd support.
+#
+#   qwen2.5-vl-32b-instruct (33 B vendor-stated) — Apache-2.0
+#   qwen3-vl-32b-instruct (32 B dense, Instruct and Thinking builds) — Apache-2.0
+#     Memory: EXTRAPOLATED, not measured — "estimated >=24 GB at Q4_K_M with
+#       little to no headroom", derived linearly from the 7B Q4_K_M figure
+#       (5.03 GB x 33/7). The research itself calls this "a rough estimate, not
+#       a measured figure".
+#     Storage: no exact size table found; same extrapolation.
+#     Processor: not viable — too large for practical processor-only serving.
+#       Memory-feasible at Q4 on a 32 GB host, but processor generation speed at
+#       this size was not found benchmarked anywhere and must be assumed
+#       impractically slow until measured.
+#     Research recommendation: do NOT offer on the 16 GB class until measured —
+#       the estimated need leaves no headroom there.
+#     Note: a qwen3-vl-32b entry would also have to distinguish the -Instruct
+#       and -Thinking builds if their footprints differ.
+#     Sources: https://huggingface.co/Qwen/Qwen2.5-VL-32B-Instruct
+#              https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct
+#     NEEDS: a measured Q4_K_M GGUF size and accelerator-memory peak.
+#
+#   qwen2.5-vl-72b-instruct (72 B dense) — Apache-2.0
+#   qwen3-vl-235b-a22b-instruct (235 B total / 22 B active, MoE) — Apache-2.0
+#     NO SERVING PATH AT ALL, which is why they are deferred rather than merely
+#     unmeasured. The 72B extrapolates to roughly 43 GB at Q4_K_M, exceeding the
+#     24 GB+ ceiling of every host class in the research. For the MoE, the TOTAL
+#     weight — not the active-parameter count — must be resident for GGUF-style
+#     serving, "on the order of 100+ GB", UNVERIFIED exact, "clearly beyond a
+#     single consumer/workstation GPU regardless of active-parameter count".
+#     Both are disk-streaming territory (User Story 4), not in-memory selection.
+#     STREAMING ELIGIBILITY IS NOT CLAIMED. Eligibility is roster membership and
+#     nothing else (D1). The streaming runtime's declared supported-family list
+#     was NOT read in this research pass, so the name it would use for either
+#     family is unknown, and inventing one would assert runtime support that may
+#     not exist. This matters most for the 235B: it is mixture-of-experts, and
+#     entry.go's D1 warning is precisely that several well-known MoE models have
+#     NO streaming support path — inferring eligibility from
+#     `architecture == mixture-of-experts` offers options that cannot run.
+#     Sources: https://huggingface.co/Qwen/Qwen2.5-VL-72B-Instruct
+#              https://huggingface.co/Qwen/Qwen3-VL-235B-A22B-Instruct
+#     NEEDS: the streaming runtime's roster read, then a `streaming_family:`
+#       naming the family it declares, plus measured figures.
+#
+# IMAGE GENERATION — 1 deferred
+#
+#   flux.2-klein-9b (9 B) — FLUX.2-dev Non-Commercial Licence
+#     NON-COMMERCIAL HALF of the second sibling pair: same family and vendor as
+#     the Apache-2.0 flux.2-klein-4b entry above, opposite commercial standing.
+#     Only the 4B klein variant is permissive (bfl.ai/licensing). Were it
+#     offered, `commercial` would be absent from `permitted` with a
+#     `non-commercial` restriction excluding it.
+#     Memory: UNVERIFIED — "scaling from the 4B (~8-13 GB) suggests roughly
+#       16-18 GB at FP16 — treat as an estimate, not measured". Smaller with
+#       FP8/NVFP4, exact numbers UNVERIFIED.
+#     Storage: UNVERIFIED, no on-disk figure sourced.
+#     Does not fit the 8 GB class; rated tight and UNVERIFIED even at 16 GB.
+#     Generation time: the vendor's sub-second-to-few-second claim covers the
+#       klein family generally, not the 9B specifically.
+#     Source: https://huggingface.co/black-forest-labs/FLUX.2-klein-9B
+#     NEEDS: a measured FP16 (or FP8/NVFP4) footprint.

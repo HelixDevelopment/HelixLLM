@@ -1,0 +1,38 @@
+# Catalogue data file — streaming-runtime entries.
+#
+# The roster below IS the streaming runtime's declared supported set. It lives
+# here, in data, precisely so that a runtime release adding a supported family
+# is a data change and never a code change (research.md D1). The loader resolves
+# each entry's streaming_family against the union of every file's roster; no
+# family name appears anywhere in Go source.
+streaming_roster:
+  - deepseek-r1
+
+entries:
+  - model_id: deepseek-r1-671b
+    variant: q4_k_m
+    family: text
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 671000000000
+      active_parameters: 37000000000
+      quantisation: q4_k_m
+      specialisations: [reasoning]
+    memory_required_bytes: 21474836480
+    storage_required_bytes: 399431958528
+    requires_accelerator: true
+    usage_terms:
+      license_id: MIT
+      permitted: [commercial, personal, research, evaluation]
+    runtime: streaming
+    streaming_family: deepseek-r1
+    expected_capability:
+      context_tokens: 65536
+      throughput_tokens_per_second: 3.4
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      digest: 0a5e93c186df427b0c8e5719ad3f6420b8c1de7395024fa6b8e07d1c3925fa64
+      size_bytes: 399431958528
+    notes:
+      - "UNVERIFIED: throughput figure is a vendor claim, not a host measurement"

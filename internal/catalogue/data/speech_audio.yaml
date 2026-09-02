@@ -1,0 +1,1479 @@
+# Speech & audio catalogue entries — speech-to-text, text-to-speech,
+# audio-classification, audio-generation.
+#
+# SOURCE OF TRUTH for every figure, licence and viability claim below:
+#   specs/002-adaptive-local-model-serving/research/03-speech-audio.md
+#   (research pass dated 2026-09-02; its own "Sources" section carries the
+#   per-claim citations).
+# Wire shape: internal/catalogue/load.go (strict — KnownFields(true); an
+#   unrecorded key refuses the WHOLE file, so `annotations` is the only place
+#   free-form material may go and `notes` is the only place provenance goes).
+# Field semantics: specs/002-adaptive-local-model-serving/data-model.md
+#   § "Model Option".
+#
+# ---------------------------------------------------------------------------
+# THREE RULES THIS FILE ENCODES, each of which the research made load-bearing
+# ---------------------------------------------------------------------------
+#
+# 1. LICENSING, NOT VRAM, IS THE BINDING CONSTRAINT HERE (research §B.2, §C.2).
+#    Several of the strongest models cannot be used commercially at all. Every
+#    entry states `usage_terms.permitted` and, where a term excludes a purpose,
+#    names that term so a caller can WITHHOLD the entry from a declared
+#    commercial use and cite the restricting clause rather than reporting a
+#    generic unavailability (FR-054/FR-055, D4/D6). Where the research did NOT
+#    re-confirm the licence text itself, that is recorded in `notes` as
+#    "LICENCE NOT RE-VERIFIED" — such an entry grants research/evaluation ONLY
+#    and must not be offered for commercial use until the licence is read at
+#    acquisition time. (The previous shape of this file carried that as a
+#    `license_verified` flag inside `usage_terms`; the wire format has no such
+#    field, and a flag beside the grant is easy to read past. In `notes` it is
+#    unmissable, and the grant itself already omits `commercial`.)
+#
+# 2. THE FOUR SUB-FAMILIES SPLIT SHARPLY ON ACCELERATOR NEED, so they are FOUR
+#    families here, not two (research §C.4). audio-classification is
+#    processor-viable on every host tier; audio-generation has NO
+#    processor-viable option at any RAM size surveyed. Lumping them into one
+#    "audio" family would force a choice between violating FR-003 (a no-GPU
+#    host MUST receive real options, never an empty set) for that family and
+#    quietly never surfacing generation at all. The per-family statement a
+#    no-accelerator host is owed INSTEAD of an offer is preserved verbatim in
+#    the FAMILY STATEMENTS block below — the wire format permits only `entries`
+#    and `streaming_roster` at the top level, so it cannot be data here.
+#    (The `audio-classification` family constant this file needs now EXISTS in
+#    internal/catalogue/entry.go, alongside `audio-generation`; the two are
+#    deliberately separate for exactly the reason above.)
+#
+# 3. UNVERIFIED FIGURES ARE CARRIED FORWARD AS UNVERIFIED, NEVER RESOLVED INTO
+#    A CONFIDENT NUMBER (§11.4.6). An ABSENT measurement is not a small number.
+#    This wire format has no way to say "absent": `memory_required_bytes` and
+#    `storage_required_bytes` are unsigned integers and zero is refused by
+#    Entry.Validate. A model whose required figure the research did not source
+#    therefore CANNOT BE AN ENTRY — and is not deleted either. It is moved
+#    verbatim, with every figure, source phrasing and UNVERIFIED note intact,
+#    to the DEFERRED block at the end of this file, with the measurement it
+#    needs named. The gap stays visible and closeable rather than papered over.
+#
+# ---------------------------------------------------------------------------
+# ONLY THREE OF THE 26 RESEARCHED MODELS LOAD — and the reason is one axis
+# ---------------------------------------------------------------------------
+# The research pass sourced a runtime MEMORY figure for 18 of the 26 models,
+# but an ON-DISK WEIGHT SIZE for only three: whisper-medium ("~1.5 GB on disk
+# (GGML)"), parakeet-tdt-0.6b-v3 int8 ("~670 MB on disk (CPU int8 build)") and
+# xtts-v2 ("1.88 GB weights at fp32"). Every other model's `storage_required`
+# reads "not sourced" or "not sourced separately from the memory figure".
+#
+# Storage is checked against free disk SEPARATELY and is NEVER derived from the
+# memory figure (D2) — the streaming path exists precisely for weights whose
+# on-disk size dwarfs memory. So a missing disk figure cannot be filled in from
+# the memory figure that IS present, and 23 models are deferred on that single
+# axis. Eight of them are additionally missing the memory figure too.
+#
+# This is the cheapest gap in the catalogue to close: for most of these models
+# the weight file is a published artefact whose size is one HTTP HEAD away.
+#
+# ---------------------------------------------------------------------------
+# STREAMING
+# ---------------------------------------------------------------------------
+# No entry in this file states a `streaming_family`, without exception: the
+# disk-streaming runtime serves a closed, named roster of text mixture-of-expert
+# families and names no speech or audio family (D1 — eligibility is roster
+# membership, never an architecture predicate). This file therefore declares no
+# `streaming_roster` either; stating no family is the accurate record, and an
+# entry that named one would have to be on the roster to load at all.
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY
+# ---------------------------------------------------------------------------
+# No digest appears anywhere in this file. The research gathered none, and
+# fabricating one would defeat the check it exists to perform (SC-011). Each
+# entry names the algorithm to use; the digest and size are captured from the
+# published weight file when it is acquired. An entry in this state LOADS and
+# may be OFFERED — Entry.Validate does not require an integrity expectation —
+# and is refused by Entry.ValidateForAcquisition, the gate that precedes
+# touching a weight file. The `status: pending-acquisition` marker each entry
+# carried is preserved in `notes`.
+#
+# ---------------------------------------------------------------------------
+# SOURCE
+# ---------------------------------------------------------------------------
+# This research pass recorded no weight-source URL for any model in this file,
+# so no entry states a `source`. That is the ordinary researched-but-unlocated
+# state: Entry.Validate does not require a source, and
+# Entry.ValidateForAcquisition does — which is the correct gate, since `source`
+# is what the acquisition allowlist is checked against (FR-012/SC-011).
+#
+# `annotations` is free-form and, per load.go, "never read for a decision" — it
+# carries provenance only. Nothing in it, and nothing in `notes`, is user-facing
+# text: per CONST-046 what a user sees is composed at the presentation boundary
+# from `descriptor` facts plus host measurement, in the user's language.
+#
+# ---------------------------------------------------------------------------
+# FAMILY STATEMENTS + RESEARCH SOURCE — preserved verbatim from the previous
+# shape of this file. The wire format permits only `entries` and
+# `streaming_roster` at the top level, so these cannot be data here; nothing
+# in them was read for a decision, and every word is kept.
+#
+# What a no-accelerator host is owed INSTEAD of an offer is the
+# `no_accelerator_gap` / `no_accelerator_reason` text below — it is the
+# stated limit of the offer, not a withheld option.
+# ---------------------------------------------------------------------------
+#
+# source:
+#   research: specs/002-adaptive-local-model-serving/research/03-speech-audio.md
+#   research_date: "2026-09-02"
+#   data_model: specs/002-adaptive-local-model-serving/data-model.md
+#
+# families:
+#
+#   speech-to-text:
+#     processor_viable: true
+#     statement: >-
+#       Small Whisper variants and Parakeet int8 serve acceptably on a host with
+#       no accelerator. Whisper small (99 languages, ~6-8x real-time on a modern
+#       CPU) is the no-GPU pick; Parakeet int8 fits the same tier but is
+#       batch-oriented (RTF 0.3-0.5) and covers 25 European languages only.
+#     no_accelerator_gap: >-
+#       Full 99-language REAL-TIME INTERACTIVE transcription on a processor-only
+#       host does not exist at any RAM tier surveyed. Anything larger than
+#       Whisper small or Parakeet 0.6B drops below real-time on CPU and is
+#       batch-only. This is a stated limit of the offer, not a withheld option.
+#     existing_implementation: >-
+#       Not greenfield. container/whisper_stt_server.py (faster-whisper,
+#       device=cpu, compute_type=int8, OpenAI-compatible
+#       POST /v1/audio/transcriptions, VAD + no_speech_prob hallucination
+#       guards) plus container/Containerfile.whisper already serve this family's
+#       Whisper entries on the processor path; WHISPER_MODEL / WHISPER_DEVICE /
+#       WHISPER_COMPUTE_TYPE select the entry at runtime. What does not exist is
+#       the hardware-aware selection, naming and discovery integration — that is
+#       unbuilt for this family exactly as it is for the other three.
+#
+#   text-to-speech:
+#     processor_viable: true
+#     statement: >-
+#       Kokoro-82M (Apache-2.0) and Piper (GPL-3.0) serve on a host with no
+#       accelerator. Kokoro is the commercial-safe processor default; Piper is
+#       the lighter-weight fallback where a Raspberry-Pi-class footprint matters
+#       more than avoiding copyleft.
+#     no_accelerator_gap: >-
+#       Commercially-licensed, high-fidelity VOICE CLONING is unavailable on a
+#       processor-only host at any RAM tier surveyed. Every cloning-capable model
+#       (Chatterbox, XTTS-v2, F5-TTS, Fish Speech, CosyVoice2, OpenVoice V2) is
+#       GPU-oriented and no CPU real-time factor was sourced for any of them. A
+#       no-accelerator host gets fast, natural, NON-cloning speech — and this
+#       sentence, rather than a cloning offer it cannot run.
+#
+#   audio-classification:
+#     processor_viable: true
+#     statement: >-
+#       Mature, cheap and processor-viable on EVERY host class including the
+#       smallest (no accelerator, 8 GB RAM). This family is deliberately not
+#       gated behind an accelerator tier; every entry sets
+#       requires_accelerator false.
+#     no_accelerator_gap: none
+#
+#   audio-generation:
+#     processor_viable: false
+#     statement: >-
+#       Every entry sets requires_accelerator true. There is NO mature,
+#       processor-viable, low-VRAM open-weight option for music or sound-effect
+#       generation. The cheapest candidate surveyed (ACE-Step 2B) still needs
+#       roughly 4 GB of accelerator memory, and more host RAM does not substitute
+#       for an accelerator here.
+#     no_accelerator_reason: >-
+#       A host with no accelerator MUST be given this reason — "no candidate
+#       surveyed runs acceptably on a processor at any RAM size" — and never an
+#       offer from this family (FR-028). The withheld reason is
+#       unsupported_configuration, not insufficient_resources: adding RAM does
+#       not make these entries servable.
+#
+#
+entries:
+
+  # ---------------------------------------------------------------- speech-to-text
+
+  - model_id: whisper-medium
+    family: speech-to-text
+    descriptor:
+      parameter_count: 769000000
+      specialisations: [transcription, multilingual]
+    memory_required_bytes: 5368709120
+    storage_required_bytes: 1610612736
+    requires_accelerator: false
+    usage_terms:
+      license_id: MIT
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [audio]
+    notes:
+      - "Memory: '~5 GB VRAM; ~2.1 GB RAM at runtime under int8/ggml'. The 5 GB figure is the conservative accelerator requirement and is what is recorded. The int8 processor path needs materially less (~2.1 GB) — the two paths differ and the lower figure applies ONLY to the quantised build, so it is not the admission figure for this entry."
+      - "Storage: '~1.5 GB on disk (GGML)'. One of only three on-disk figures the research sourced in this family — checked against free disk in its own right, never derived from the memory figure (D2)."
+      - "Processor-viable but SLOWER THAN REAL-TIME on mid-range processors — batch use only without an accelerator. `requires_accelerator: false` records that it runs, not that it is interactive."
+      - "Licence re-verified in the research pass: MIT, commercial use safe."
+      - "PENDING-ACQUISITION: no weight digest and no weight-file size recorded; ValidateForAcquisition refuses this entry until both are captured (SC-011)."
+    annotations:
+      summary: >-
+        769M-parameter Whisper, 99 languages. Accelerator-comfortable; on a
+        processor it runs slower than real-time on mid-range hardware, so it
+        serves batch work rather than interactive transcription.
+      languages: 99
+      memory_basis: sourced
+      memory_sourced: "~5 GB VRAM; ~2.1 GB RAM at runtime under int8/ggml"
+      storage_basis: sourced
+      storage_sourced: "~1.5 GB on disk (GGML)"
+      accelerator_note: >-
+        Processor-viable but slower than real-time on mid-range CPUs — batch use
+        only without an accelerator.
+      throughput_note: "Below real-time on CPU; batch + wrapper streaming."
+      streaming_note: "Speech families are absent from the streaming runtime's roster."
+      integrity_status: pending-acquisition
+      catalogue_status: verified
+
+  - model_id: parakeet-tdt-0.6b-v3
+    variant: int8
+    family: speech-to-text
+    descriptor:
+      parameter_count: 627000000
+      quantisation: int8
+      specialisations: [transcription, batch]
+    memory_required_bytes: 2147483648
+    storage_required_bytes: 702545920
+    requires_accelerator: false
+    usage_terms:
+      license_id: CC-BY-4.0
+      permitted: [commercial, personal, research, evaluation]
+      restrictions:
+        - term: attribution-required
+          reference: "CC-BY-4.0 attribution clause"
+    notes:
+      - "The `attribution-required` restriction is NON-EXCLUSIONARY and states no `excludes`: it constrains how output is used, excludes no purpose, and therefore must NEVER be reported as a reason this entry was withheld."
+      - "Memory: '~2 GB RAM under CPU int8'. Storage: '~670 MB on disk (CPU int8 build)' — one of only three on-disk figures the research sourced in this family."
+      - "Processor-viable, batch-oriented: real-time factor ~0.3-0.5 on a recent x86 processor with int8 quantisation and 4-thread inference (2-3x real-time) — usable for offline batch, NOT for real-time interactive use."
+      - "Covers 25 European languages, NOT Whisper's 99. Preferred over Whisper small on a no-accelerator host only when the workload is English/European batch transcription."
+      - "Licence re-verified in the research pass: CC-BY-4.0, commercial use safe with attribution."
+      - "A sherpa-onnx streaming int8 build exists but is a separate two-model pattern (research §A.2), not this entry."
+      - "PENDING-ACQUISITION: no weight digest and no weight-file size recorded."
+    runtime: in-memory
+    expected_capability:
+      modalities: [audio]
+    annotations:
+      summary: >-
+        NVIDIA Parakeet TDT, 627M parameters, quantised to int8 for processor
+        inference. Covers 25 European languages — not Whisper's 99 — and is
+        batch-oriented.
+      languages: 25
+      memory_basis: sourced
+      memory_sourced: "~2 GB RAM under CPU int8"
+      storage_basis: sourced
+      storage_sourced: "~670 MB on disk (CPU int8 build)"
+      accelerator_note: >-
+        Processor-viable, batch-oriented: real-time factor ~0.3-0.5 on a recent
+        x86 CPU with int8 quantisation and 4-thread inference (2-3x real-time).
+      streaming_note: "Speech families are absent from the streaming runtime's roster."
+      integrity_status: pending-acquisition
+      catalogue_status: verified
+
+  # ---------------------------------------------------------------- text-to-speech
+
+  - model_id: xtts-v2
+    family: text-to-speech
+    descriptor:
+      quantisation: fp32
+      specialisations: [voice-cloning, multilingual]
+    memory_required_bytes: 6442450944
+    storage_required_bytes: 2018634138
+    requires_accelerator: true
+    usage_terms:
+      license_id: CPML
+      permitted: [research, evaluation, personal]
+      restrictions:
+        - term: non-commercial
+          excludes: [commercial]
+          reference: "Coqui Public Model License (CPML)"
+    runtime: in-memory
+    expected_capability:
+      modalities: [text, audio]
+    notes:
+      - "NON-COMMERCIAL IN PRACTICE, and unusually so: CPML contemplates a commercial licence, but Coqui Inc shut down in January 2024, so there is no longer anyone who can sell one. This entry MUST be withheld from any declared commercial usage, citing CPML as the restricting term. Its cloning quality is not a reason to relax that."
+      - "Memory: '~3-4 GB VRAM at fp16 per worker; 6+ GB recommended; 8 GB for stable faster-than-real-time'. Recorded at the 6 GB RECOMMENDED figure rather than the 3-4 GB floor. Processor inference is reported to use 2-3x the accelerator memory figure and is not the intended path."
+      - "Storage: '1.88 GB weights at fp32' — one of only three on-disk figures the research sourced in this family."
+      - "Licence re-verified in the research pass: CPML, commercial use NOT safe."
+      - "PENDING-ACQUISITION: no weight digest and no weight-file size recorded."
+    annotations:
+      summary: >-
+        Coqui XTTS v2 — the best cloning quality among consumer-tier models per
+        multiple sources, cloning from a ~6-second sample across 17 languages
+        with cross-language transfer and ~200 ms time to first chunk.
+        COMMERCIALLY UNUSABLE in practice; a research and self-hosting option
+        only.
+      voice_cloning: true
+      cloning_sample_seconds: 6
+      languages: 17
+      latency_note: "~200 ms time to first chunk; full streaming support."
+      memory_basis: sourced
+      memory_sourced: "~3-4 GB VRAM at fp16 per worker; 6+ GB recommended; 8 GB for stable faster-than-real-time"
+      storage_basis: sourced
+      storage_sourced: "1.88 GB weights at fp32"
+      accelerator_note: >-
+        Accelerator-oriented. Processor inference exists but uses 2-3x the RAM
+        of the accelerator figure and is not the supported path.
+      streaming_note: "Speech families are absent from the streaming runtime's roster."
+      integrity_status: pending-acquisition
+      catalogue_status: verified
+
+# ===========================================================================
+# DEFERRED — researched, NOT loadable, nothing discarded
+# ===========================================================================
+#
+# Each record below is the ENTRY EXACTLY AS RESEARCHED, commented out verbatim:
+# every figure, every source phrasing, every UNVERIFIED note and every licence
+# position is preserved as written. They are comments and not entries for one
+# reason only — each is missing a value Entry.Validate requires, and the honest
+# options are to invent that value or to not be an entry. Inventing it would
+# produce a wrong admission decision at runtime, so none is invented.
+#
+# 23 of the 26 researched models are here. 15 are blocked ONLY on a missing
+# on-disk weight size and carry a sourced memory figure; 8 are missing both.
+# NONE is blocked on its licence — every licence position in this family was
+# recorded, including the ones that withhold commercial use.
+#
+# The `NEEDS:` line on each record names the exact measurement that would let it
+# become an entry. Restoring one is mechanical: supply the named figure, then
+# reshape the record to the wire format above (`memory_required.bytes` ->
+# `memory_required_bytes`, `storage_required.bytes` -> `storage_required_bytes`,
+# `integrity_expectation` -> `integrity`, `description` -> `annotations.summary`,
+# source phrasings and UNVERIFIED markers -> `notes` / `annotations`, and drop
+# `streaming_eligible` — listedness is resolved by the loader against the
+# roster, never asserted by the entry).
+#
+# In the order they appeared in this file.
+#
+# ---------------------------------------------------------------------------
+# 1. whisper-tiny  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~1 GB VRAM fp16; ~1 GB minimum usable GPU VRAM", 1073741824 B); storage reads "not sourced separately from the memory figure". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: whisper-tiny
+#     variant: ""
+#     family: speech-to-text
+#     description: >-
+#       Smallest Whisper transcription model, 39M parameters, 99 languages. Runs
+#       on almost any host including single-board computers. Lowest accuracy of
+#       the Whisper line; chosen for reach, not quality.
+#     memory_required:
+#       bytes: 1073741824
+#       source_figure: "~1 GB VRAM fp16; ~1 GB minimum usable GPU VRAM"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced separately from the memory figure"
+#       unverified: true
+#       note: "UNVERIFIED: on-disk weight size not gathered in the research pass."
+#     requires_accelerator: false
+#     accelerator_note: "Processor-viable on essentially any host."
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     streaming_note: "Speech families are absent from the streaming runtime's roster."
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 99
+#       throughput_note: "Batch/chunk transcription; live streaming needs a wrapper (research §A.2)."
+#       quality_note: "Lowest accuracy in the Whisper line."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#       note: "Digest and size captured from the published weight file at acquisition (SC-011)."
+#
+# ---------------------------------------------------------------------------
+# 2. whisper-base  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~1 GB", 1073741824 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: whisper-base
+#     variant: ""
+#     family: speech-to-text
+#     description: >-
+#       74M-parameter Whisper, 99 languages, processor-viable everywhere. This is
+#       the default the existing faster-whisper server ships with
+#       (WHISPER_MODEL defaults to "base").
+#     memory_required:
+#       bytes: 1073741824
+#       source_figure: "~1 GB"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#       note: "UNVERIFIED: on-disk weight size not gathered in the research pass."
+#     requires_accelerator: false
+#     accelerator_note: "Processor-viable everywhere."
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 99
+#       throughput_note: "Batch + wrapper streaming."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 3. whisper-small (int8)  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~2 GB; ~2 GB RAM under faster-whisper int8 on CPU", 2147483648 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: whisper-small
+#     variant: int8
+#     family: speech-to-text
+#     description: >-
+#       244M-parameter Whisper quantised to int8 for processor inference — the
+#       only path surveyed that reaches better-than-real-time transcription with
+#       full 99-language coverage on a host with no accelerator. The recommended
+#       pick for the no-accelerator, 8 GB RAM tier.
+#     memory_required:
+#       bytes: 2147483648
+#       source_figure: "~2 GB; ~2 GB RAM under faster-whisper int8 on CPU"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#       note: "UNVERIFIED: on-disk weight size not gathered in the research pass."
+#     requires_accelerator: false
+#     accelerator_note: >-
+#       Processor-viable at usable speed: ~6-8x real-time on a modern
+#       12th/13th-gen i7-class CPU; ~0.35 real-time factor (~2.9x real-time)
+#       CPU-only on Apple M2.
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 99
+#       throughput_note: "~6-8x real-time on CPU; batch + wrapper streaming."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 4. whisper-large-v3  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~10 GB VRAM fp16 (conservative HF/native figure). Some sources cite ~3.4 GB fp16 including KV cache for the CTranslate2 path.", 10737418240 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: whisper-large-v3
+#     variant: ""
+#     family: speech-to-text
+#     description: >-
+#       1.55B-parameter Whisper, 99 languages, the accuracy ceiling of the
+#       Whisper line. Suited to 16 GB-class accelerators, or to overnight batch
+#       work on a large-RAM processor host.
+#     memory_required:
+#       bytes: 10737418240
+#       source_figure: >-
+#         ~10 GB VRAM fp16 (conservative HF/native figure). Some sources cite
+#         ~3.4 GB fp16 including KV cache for the CTranslate2 path.
+#       unverified: false
+#       note: >-
+#         UNVERIFIED which figure applies to a given serving path — the sources
+#         diverge by framework and the divergence was not resolved. The
+#         conservative 10 GB figure is recorded; a CTranslate2 build may need
+#         far less and MUST be measured rather than assumed.
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: >-
+#       Processor-viable but slow: real-time factor ~2.5-3.0 on an i9-12900K or
+#       mid-range Ryzen, i.e. slower than real-time. Batch only without an
+#       accelerator.
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 99
+#       throughput_note: "Natively batch; no wrapper-streaming path noted for this variant."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 5. whisper-large-v3 (turbo)  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~6 GB VRAM", 6442450944 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: whisper-large-v3
+#     variant: turbo
+#     family: speech-to-text
+#     description: >-
+#       Distilled turbo build of Whisper large-v3 retaining 99-language coverage
+#       at roughly 6 GB of accelerator memory — the full-multilingual pick for
+#       the 8 GB accelerator tier.
+#     memory_required:
+#       bytes: 6442450944
+#       source_figure: "~6 GB VRAM"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: >-
+#       UNVERIFIED: no processor real-time factor was sourced for this variant.
+#       Planned accelerator-only until a processor figure is measured — an
+#       unmeasured path is not an offerable one.
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 99
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 6. distil-whisper-large-v3  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("roughly half of large-v3's footprint; ~5 GB (approximate)", 5368709120 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: distil-whisper-large-v3
+#     variant: ""
+#     family: speech-to-text
+#     description: >-
+#       Distillation of Whisper large-v3, roughly half its footprint, ~6x faster
+#       than large-v3 and within ~1% word error rate on long-form audio. The
+#       recommended processor pick for a large-RAM, no-accelerator host.
+#     memory_required:
+#       bytes: 5368709120
+#       source_figure: "roughly half of large-v3's footprint; ~5 GB (approximate)"
+#       unverified: true
+#       note: "UNVERIFIED: the ~5 GB figure was not separately re-verified in the research pass."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: "Better processor fit than large-v3 — ~6x faster."
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#       note: "MIT by inheritance — a distillation of MIT-licensed Whisper."
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 99
+#       quality_note: >-
+#         UNVERIFIED: the exact per-language word-error-rate delta against
+#         large-v3 was not sourced. Distillation typically narrows robustness on
+#         tail languages, so 99-language parity must not be assumed.
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 7. parakeet-tdt-0.6b-v3 (fp16)  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("FP16 ~1-1.4 GB VRAM; ~1 GB minimum usable", 1610612736 B); storage reads "not sourced for the fp16 build (the int8 build is ~670 MB)". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: parakeet-tdt-0.6b-v3
+#     variant: fp16
+#     family: speech-to-text
+#     description: >-
+#       Accelerator build of NVIDIA Parakeet TDT. Its footprint is small enough
+#       that an 8 GB accelerator can run it alongside a concurrent text-to-speech
+#       model — the reason it is the 8 GB-tier pick for English/European work.
+#     memory_required:
+#       bytes: 1610612736
+#       source_figure: "FP16 ~1-1.4 GB VRAM; ~1 GB minimum usable"
+#       unverified: false
+#       note: "Recorded as the conservative round-up of the sourced 1-1.4 GB range."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced for the fp16 build (the int8 build is ~670 MB)"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: >-
+#       An accelerator is preferred, not mandatory — the int8 build of the same
+#       model serves the processor path. This entry is the accelerator build.
+#     usage_terms:
+#       license_id: CC-BY-4.0
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions:
+#         - term: attribution-required
+#           excludes: []
+#           reference: "CC-BY-4.0 attribution clause"
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 25
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 8. canary-qwen-2.5b  [speech-to-text]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~8 GB VRAM", 8589934592 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: canary-qwen-2.5b
+#     variant: ""
+#     family: speech-to-text
+#     description: >-
+#       NVIDIA Canary-Qwen, 2.5B parameters, English only, leadership-grade
+#       English accuracy (5.63% average word error rate). A 16 GB-tier
+#       accelerator option where English accuracy outranks language coverage.
+#     memory_required:
+#       bytes: 8589934592
+#       source_figure: "~8 GB VRAM"
+#       unverified: false
+#       note: "A tight fit on an 8 GB card once any other model is loaded."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: >-
+#       UNVERIFIED: no processor real-time factor was found in the research pass.
+#       Planned accelerator-only (>=8 GB) until processor viability is
+#       independently verified.
+#     usage_terms:
+#       license_id: "NVIDIA model card terms — identifier not confirmed"
+#       license_verified: false
+#       commercial_safe: false
+#       permitted: [research, evaluation]
+#       restrictions:
+#         - term: research-only
+#           excludes: [commercial, personal]
+#           reference: "NVIDIA model card, to be read at acquisition time"
+#           note: >-
+#             UNVERIFIED: the exact licence terms were not independently
+#             re-confirmed beyond source claims. Commercial and personal use are
+#             withheld PENDING LICENCE VERIFICATION, not because a restriction
+#             was found — the distinction matters when the withheld reason is
+#             reported. Read the NVIDIA model card at acquisition and replace
+#             this block with the actual terms.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       languages: 1
+#       quality_note: "5.63% average word error rate (English), leaderboard-topping at time of research."
+#       throughput_note: "Batch."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+#   # Follow-up candidate, deliberately NOT rostered above: Mistral Voxtral
+#   # Transcribe (Feb 2026, Apache-2.0, 4B) is a genuinely streaming-native
+#   # architecture rather than a chunking wrapper over a batch model, which would
+#   # remove the two-model RealtimeSTT pattern. UNVERIFIED: no memory, storage or
+#   # processor figures were gathered, so it cannot be sized and therefore cannot
+#   # be offered. It is named here so the follow-up research pass has a target,
+#   # not entered as a roster member on guessed numbers.
+#
+#   # ---------------------------------------------------------------- text-to-speech
+#
+# ---------------------------------------------------------------------------
+# 9. kokoro-82m  [text-to-speech]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("<2 GB VRAM; processor-viable", 2147483648 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: kokoro-82m
+#     variant: ""
+#     family: text-to-speech
+#     description: >-
+#       82M-parameter speech synthesis with 54 baked-in voices and the lowest
+#       first-audio latency of any model surveyed. No voice cloning of any kind.
+#       The commercial-safe processor default for this family.
+#     memory_required:
+#       bytes: 2147483648
+#       source_figure: "<2 GB VRAM; processor-viable"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: >-
+#       Processor-viable at usable speed: ~5x real-time on a 32-core CPU; 36x
+#       real-time on an entry-level T4 accelerator.
+#     usage_terms:
+#       license_id: Apache-2.0
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       voice_cloning: false
+#       voices: 54
+#       latency_note: >-
+#         ~28 ms first audio on an RTX 5090; ~46 ms server-side on its own tier.
+#         UNVERIFIED: the processor first-chunk latency was not separately
+#         sourced — the accelerator figures must not be read as processor
+#         figures.
+#       quality_note: "High naturalness for its size; leads UTMOS among the models surveyed per one source."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 10. piper  [text-to-speech]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads ""minimal — runs on a Raspberry Pi 5"; per-voice models are tens of MB"; storage reads "tens of MB per-voice ONNX model". This is the single most valuable measurement in the file: Piper is the research's RECOMMENDED PICK for the no-accelerator, 8 GB RAM tier, and it cannot be offered on an absent figure (FR-056). The research recorded only the qualitative claim 'minimal — runs on a Raspberry Pi 5'.
+#
+#   - model_id: piper
+#     variant: ""
+#     family: text-to-speech
+#     description: >-
+#       Per-voice ONNX synthesis designed processor-first, small enough for
+#       single-board computers, with ~30-50 ms first-audio latency. Fixed voices;
+#       cloning requires 20-60 minutes of target-voice recordings and an
+#       accelerator fine-tune job, so it is not a cloning option in practice.
+#     memory_required:
+#       bytes: null
+#       source_figure: "\"minimal — runs on a Raspberry Pi 5\"; per-voice models are tens of MB"
+#       unverified: true
+#       note: >-
+#         UNVERIFIED: no runtime memory figure was sourced, only the qualitative
+#         claim. This is a STATED GAP with consequence — Piper is the research's
+#         recommended pick for the no-accelerator, 8 GB RAM tier, and it cannot
+#         be offered on a null figure (FR-056). Measure before offering.
+#     storage_required:
+#       bytes: null
+#       source_figure: "tens of MB per-voice ONNX model"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: >-
+#       Processor-first by design: real-time factor ~0.192 on a Raspberry Pi 5
+#       (~5x real-time), no accelerator needed.
+#     usage_terms:
+#       license_id: GPL-3.0
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions:
+#         - term: share-alike
+#           excludes: []
+#           reference: "GPL-3.0 copyleft terms (OHF-Voice/piper1-gpl v1.6.0, 2026-07-23)"
+#           note: >-
+#             Commercial use IS permitted — the copyleft terms constrain
+#             DISTRIBUTION, not use, so this restriction excludes no purpose and
+#             must never be reported as a reason the entry was withheld. It does
+#             need honouring if Piper is bundled into a closed-source
+#             distribution. The original rhasspy/piper repository was MIT but
+#             went read-only in October 2025; the active fork is GPL-3.0.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       voice_cloning: false
+#       latency_note: "~30-50 ms to first audio; real-time streaming supported."
+#       quality_note: "Good for embedded and assistant-style use; not state-of-the-art naturalness."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 11. chatterbox  [text-to-speech]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~8 GB VRAM", 8589934592 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: chatterbox
+#     variant: ""
+#     family: text-to-speech
+#     description: >-
+#       Resemble AI's ~500M-parameter synthesiser with zero-shot voice cloning
+#       from roughly five seconds of reference audio, emotion control and 23
+#       languages. The commercial-safe cloning default — the only cloning model
+#       surveyed that is both permissively licensed and sized for an 8 GB
+#       accelerator.
+#     memory_required:
+#       bytes: 8589934592
+#       source_figure: "~8 GB VRAM"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: >-
+#       UNVERIFIED: no processor real-time factor was sourced. Accelerator-only
+#       until measured — consistent with the finding that no cloning-capable
+#       model surveyed has a demonstrated processor path.
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text, audio]
+#       voice_cloning: true
+#       cloning_sample_seconds: 5
+#       languages: 23
+#       streaming_note: "UNVERIFIED: streaming capability was not confirmed in the sources gathered."
+#       latency_note: "UNVERIFIED: not sourced."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 12. f5-tts  [text-to-speech]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~3 GB VRAM (2,994 MB reported)", 3139436544 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: f5-tts
+#     variant: ""
+#     family: text-to-speech
+#     description: >-
+#       The most resource-efficient cloning-capable synthesiser surveyed, at
+#       roughly 3 GB of accelerator memory. Non-commercial licence — a research
+#       and self-hosting option only.
+#     memory_required:
+#       bytes: 3139436544
+#       source_figure: "~3 GB VRAM (2,994 MB reported)"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: "Accelerator-oriented; no processor figure sourced."
+#     usage_terms:
+#       license_id: CC-BY-NC-4.0
+#       license_verified: true
+#       commercial_safe: false
+#       permitted: [research, evaluation, personal]
+#       restrictions:
+#         - term: non-commercial
+#           excludes: [commercial]
+#           reference: "CC-BY-NC-4.0 NonCommercial clause"
+#           note: >-
+#             Must be withheld from any declared commercial usage, citing
+#             CC-BY-NC-4.0 as the restricting term.
+#         - term: attribution-required
+#           excludes: []
+#           reference: "CC-BY-NC-4.0 attribution clause"
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text, audio]
+#       voice_cloning: true
+#       cloning_sample_seconds: null
+#       streaming_note: "UNVERIFIED: streaming capability not confirmed in the sources gathered."
+#       note: "UNVERIFIED: the zero-shot reference-sample length was not sourced."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 13. fish-speech (1.5)  [text-to-speech]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads "tested on RTX 3060-class hardware — implies a ~12 GB-class card, not a measured figure"; storage reads "not sourced". The 'tested on RTX 3060-class hardware' note implies a ~12 GB-class card; it is not a measured figure and is not treated as one.
+#
+#   - model_id: fish-speech
+#     variant: "1.5"
+#     family: text-to-speech
+#     description: >-
+#       Multilingual synthesiser with cloning, cited as industry-leading on
+#       multilingual performance. Both its licence and its footprint are
+#       unverified, so it is recorded as a candidate rather than an offerable
+#       entry.
+#     memory_required:
+#       bytes: null
+#       source_figure: "tested on RTX 3060-class hardware — implies a ~12 GB-class card, not a measured figure"
+#       unverified: true
+#       note: "UNVERIFIED: no memory figure. Cannot be sized, therefore cannot be offered (FR-056)."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: "Accelerator-oriented; no processor figure sourced."
+#     usage_terms:
+#       license_id: "Apache-2.0 (claimed in one comparison table, NOT re-confirmed)"
+#       license_verified: false
+#       commercial_safe: false
+#       permitted: [research, evaluation]
+#       restrictions:
+#         - term: research-only
+#           excludes: [commercial, personal]
+#           reference: "Fish Speech repository licence, to be read at acquisition time"
+#           note: >-
+#             UNVERIFIED: Apache-2.0 was cited in one third-party comparison
+#             table and was NOT re-confirmed against the project's own
+#             repository. Commercial use is withheld PENDING LICENCE
+#             VERIFICATION — do not adopt this as a commercial default on the
+#             strength of the secondary citation.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text, audio]
+#       voice_cloning: true
+#       streaming_note: "UNVERIFIED: not confirmed."
+#       latency_note: "UNVERIFIED: not sourced."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 14. cosyvoice2-0.5b  [text-to-speech]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads "tested on RTX 3060-class hardware — not a measured figure"; storage reads "not sourced". As fish-speech: 'tested on RTX 3060-class hardware' is not a measurement.
+#
+#   - model_id: cosyvoice2-0.5b
+#     variant: ""
+#     family: text-to-speech
+#     description: >-
+#       Alibaba's 0.5B-parameter synthesiser, explicitly designed as a unified
+#       streaming and non-streaming framework with emotional control — the only
+#       model surveyed whose streaming support is architectural rather than
+#       wrapped. Licence and footprint unverified.
+#     memory_required:
+#       bytes: null
+#       source_figure: "tested on RTX 3060-class hardware — not a measured figure"
+#       unverified: true
+#       note: "UNVERIFIED: no memory figure. Cannot be sized, therefore cannot be offered (FR-056)."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: "Accelerator-oriented; no processor figure sourced."
+#     usage_terms:
+#       license_id: "CosyVoice2 repository terms — identifier not confirmed"
+#       license_verified: false
+#       commercial_safe: false
+#       permitted: [research, evaluation]
+#       restrictions:
+#         - term: research-only
+#           excludes: [commercial, personal]
+#           reference: "Alibaba CosyVoice2 repository licence, to be read at acquisition time"
+#           note: "UNVERIFIED: licence not re-confirmed in the research pass. Commercial use withheld pending verification."
+#     runtime: in-memory
+#     streaming_eligible: false
+#     streaming_note: >-
+#       The model's own unified streaming framework is a property of the model,
+#       NOT membership of HelixLLM's disk-streaming runtime roster. The two are
+#       unrelated and this entry is not on that roster (D1).
+#     expected_capability:
+#       modalities: [text, audio]
+#       voice_cloning: null
+#       note: >-
+#         UNVERIFIED: voice conversion / cloning-adjacent capability is cited but
+#         a zero-shot cloning claim was not separately confirmed.
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 15. openvoice-v2  [text-to-speech]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads ""lightweight" per source; no specific figure"; storage reads "not sourced". Worth measuring: this is one of only TWO commercial-safe cloning options in this family, and it is blocked on an absent figure rather than on its licence.
+#
+#   - model_id: openvoice-v2
+#     variant: ""
+#     family: text-to-speech
+#     description: >-
+#       Permissively licensed real-time zero-shot voice cloning, suited to
+#       prototyping and live demonstration. Commercially safe by licence, but
+#       unsized — no memory figure was sourced.
+#     memory_required:
+#       bytes: null
+#       source_figure: "\"lightweight\" per source; no specific figure"
+#       unverified: true
+#       note: >-
+#         UNVERIFIED: no memory figure. Cannot be sized, therefore cannot be
+#         offered (FR-056) — despite being one of only two commercial-safe
+#         cloning options in this family. Measuring it is worth doing.
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: >-
+#       UNVERIFIED: cited as suited to real-time use, but processor viability was
+#       not confirmed. Accelerator-only until measured.
+#     usage_terms:
+#       license_id: MIT
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text, audio]
+#       voice_cloning: true
+#       latency_note: "UNVERIFIED: cited as low-latency-oriented; no figure sourced."
+#       quality_note: "Good for prototyping and live-demo use per source."
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+#   # ---------------------------------------------------------- audio-classification
+#   #
+#   # See the KNOWN GAP note in the file header: entry.go has no
+#   # `audio-classification` family constant yet, so these three entries do not
+#   # currently pass Entry.Validate(). The family is kept distinct anyway —
+#   # folding it into audio-generation would hide the fact that these run
+#   # everywhere while generation runs nowhere without an accelerator.
+#
+# ---------------------------------------------------------------------------
+# 16. panns-cnn14  [audio-classification]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads "~21G multiply-accumulate operations per 10-second clip; no VRAM requirement of note"; storage reads "not sourced". The sources characterise the model as small enough to have no meaningful memory requirement, and CONFIRM it runs on the no-accelerator, 8 GB RAM tier — but state no figure. Deriving one from the parameter count would be a guess.
+#
+#   - model_id: panns-cnn14
+#     variant: ""
+#     family: audio-classification
+#     description: >-
+#       Pre-trained Audio Neural Network (CNN14, ~81M parameters) trained on
+#       AudioSet's 527 sound-event classes — doorbell, glass breaking, engine,
+#       speech-versus-music and so on. This answers "what sound is this", not
+#       "what words were spoken".
+#     memory_required:
+#       bytes: null
+#       source_figure: "~21G multiply-accumulate operations per 10-second clip; no VRAM requirement of note"
+#       unverified: true
+#       note: >-
+#         UNVERIFIED: the sources characterise the model as small enough to have
+#         no meaningful memory requirement, and confirm it runs on the
+#         no-accelerator, 8 GB RAM tier, but state no figure. Deriving one from
+#         the parameter count would be a guess; measure it.
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: >-
+#       Processor-viable on essentially any host, including the no-accelerator,
+#       8 GB RAM tier.
+#     usage_terms:
+#       license_id: "research release — licence file not read"
+#       license_verified: false
+#       commercial_safe: false
+#       permitted: [research, evaluation]
+#       restrictions:
+#         - term: research-only
+#           excludes: [commercial, personal]
+#           reference: "qiuqiangkong/audioset_tagging_cnn licence file, to be read at acquisition time"
+#           note: >-
+#             UNVERIFIED-LICENCE-TEXT-NOT-READ. The original repository is
+#             widely self-hosted and is not believed to impose restrictive
+#             commercial terms beyond attribution, but the licence file itself
+#             was NOT read in the research pass. Commercial use is withheld
+#             pending that reading — a belief about a licence is not a licence.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       classes: 527
+#       task: audio-tagging
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 17. clap-cnn14  [audio-classification]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads "comparable to PANNs — small"; storage reads "not sourced". Described only as 'comparable to PANNs — small'.
+#
+#   - model_id: clap-cnn14
+#     variant: ""
+#     family: audio-classification
+#     description: >-
+#       Contrastive Language-Audio Pretraining with a ~80.8M-parameter audio
+#       encoder. Adds zero-shot audio-to-text-concept matching on top of
+#       PANNs-class tagging, so audio can be searched or classified by a
+#       natural-language description rather than a fixed class list.
+#     memory_required:
+#       bytes: null
+#       source_figure: "comparable to PANNs — small"
+#       unverified: true
+#       note: "UNVERIFIED: no figure sourced. Measure before offering."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: "Processor-viable everywhere."
+#     usage_terms:
+#       license_id: "open-research release (LAION / Microsoft variants) — identifier not confirmed"
+#       license_verified: false
+#       commercial_safe: false
+#       permitted: [research, evaluation]
+#       restrictions:
+#         - term: research-only
+#           excludes: [commercial, personal]
+#           reference: "the specific CLAP variant's licence, to be read at acquisition time"
+#           note: >-
+#             UNVERIFIED: multiple variants exist under different releases and
+#             the exact licence was not re-verified. Which variant is acquired
+#             determines the terms — resolve before any commercial offer.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio, text]
+#       task: zero-shot-audio-classification
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 18. yamnet  [audio-classification]
+#    NEEDS: a measured runtime memory figure AND an on-disk weight size. Memory reads ""tiny — mobile-targeted"; no figure sourced"; storage reads "not sourced". This is the audio-classification family's commercial-safe pick and the one most worth measuring first.
+#
+#   - model_id: yamnet
+#     variant: ""
+#     family: audio-classification
+#     description: >-
+#       MobileNet-based AudioSet event tagger, mobile-targeted and tiny. Same
+#       class-tagging use case as PANNs, TensorFlow-native, and the only entry in
+#       this family whose licence is confirmed — the commercial-safe default here.
+#     memory_required:
+#       bytes: null
+#       source_figure: "\"tiny — mobile-targeted\"; no figure sourced"
+#       unverified: true
+#       note: >-
+#         UNVERIFIED: no figure sourced. This is the family's commercial-safe
+#         pick and the one most worth measuring first.
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: false
+#     accelerator_note: "Processor-viable everywhere, including edge and mobile hosts."
+#     usage_terms:
+#       license_id: Apache-2.0
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#       note: "Apache-2.0 via the TensorFlow Model Garden."
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [audio]
+#       task: audio-tagging
+#       classes: 527
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+#   # -------------------------------------------------------------- audio-generation
+#   #
+#   # EVERY entry below sets requires_accelerator: true. That is not caution — it
+#   # is the finding. No processor-viable candidate exists at any RAM tier, so a
+#   # host with no accelerator receives the families.audio-generation
+#   # no_accelerator_reason statement instead of an offer.
+#
+# ---------------------------------------------------------------------------
+# 19. ace-step-2b  [audio-generation]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("<4 GB VRAM", 4294967296 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: ace-step-2b
+#     variant: ""
+#     family: audio-generation
+#     description: >-
+#       2B-parameter music and sound-effect generation with the lowest
+#       accelerator-memory floor of any generation model surveyed, under a
+#       licence that places no restriction on the generated output. The
+#       recommended sole default if this family ships at all.
+#     memory_required:
+#       bytes: 4294967296
+#       source_figure: "<4 GB VRAM"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: >-
+#       Accelerator-oriented, and the cheapest entry point in this family at
+#       roughly 4 GB. No processor path exists.
+#     usage_terms:
+#       license_id: Apache-2.0
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#       note: >-
+#         Fully commercial with NO output restriction — the distinguishing
+#         property in this family, where two of the three strongest alternatives
+#         restrict what may be done with generated audio.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       output: audio
+#       task: music-and-sound-effect-generation
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 20. ace-step-xl (4b)  [audio-generation]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~12 GB VRAM minimum, 20 GB+ recommended", 12884901888 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: ace-step-xl
+#     variant: 4b
+#     family: audio-generation
+#     description: >-
+#       4B-parameter diffusion-transformer variant of ACE-Step — higher quality
+#       than the 2B build, gated to 16 GB-class accelerators and above by its
+#       memory floor.
+#     memory_required:
+#       bytes: 12884901888
+#       source_figure: "~12 GB VRAM minimum, 20 GB+ recommended"
+#       unverified: false
+#       note: "The 12 GB figure is the minimum; 20 GB+ is the recommended figure for comfortable service."
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: "Accelerator-oriented, high tier only. No processor path exists."
+#     usage_terms:
+#       license_id: Apache-2.0
+#       license_verified: true
+#       commercial_safe: true
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       output: audio
+#       task: music-and-sound-effect-generation
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 21. stable-audio-open (1.5)  [audio-generation]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~12 GB VRAM", 12884901888 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: stable-audio-open
+#     variant: "1.5"
+#     family: audio-generation
+#     description: >-
+#       Stability AI's open audio generation model, trained on Freesound
+#       material. Commercial use is permitted only BELOW a revenue threshold, so
+#       it is conditionally rather than freely commercial.
+#     memory_required:
+#       bytes: 12884901888
+#       source_figure: "~12 GB VRAM"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: "Accelerator-oriented. No processor path exists."
+#     usage_terms:
+#       license_id: "Stability AI Community License"
+#       license_verified: true
+#       commercial_safe: conditional
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions:
+#         - term: revenue-cap
+#           excludes: []
+#           threshold:
+#             value: null
+#             currency: ""
+#             period: ""
+#             unverified: true
+#             note: >-
+#               UNVERIFIED: the research established that a revenue threshold
+#               EXISTS but did not record its value. The cap must be read from
+#               the Community License before this entry is offered for
+#               commercial use — an unknown threshold cannot be checked against a
+#               declared usage.
+#           reference: "Stability AI Community License, revenue threshold clause"
+#           note: >-
+#             Excludes no purpose outright, so it must not be reported as a
+#             withholding reason on its own — but a caller whose declared
+#             commercial use exceeds the (unread) cap is outside the licence.
+#             Resolve the threshold before defaulting to this entry.
+#       training_data_note: >-
+#         Trained on Freesound material of mixed CC0 / CC-BY / CC-BY-NC
+#         provenance — a second licensing consideration independent of the model
+#         licence itself.
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       output: audio
+#       task: music-and-sound-effect-generation
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 22. musicgen (small)  [audio-generation]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~8 GB VRAM (small variant)", 8589934592 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: musicgen
+#     variant: small
+#     family: audio-generation
+#     description: >-
+#       Meta's music generation model, small variant. Freely downloadable
+#       weights, but the licence restricts the OUTPUT — using generated audio in
+#       a commercial product is out of licence regardless of self-hosting.
+#       Research and self-hosting only.
+#     memory_required:
+#       bytes: 8589934592
+#       source_figure: "~8 GB VRAM (small variant)"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: >-
+#       UNVERIFIED: no processor real-time factor was found, and
+#       diffusion/transformer audio-generation models are not typically
+#       processor-real-time-viable. Accelerator-only.
+#     usage_terms:
+#       license_id: CC-BY-NC-4.0
+#       license_verified: true
+#       commercial_safe: false
+#       permitted: [research, evaluation, personal]
+#       restrictions:
+#         - term: non-commercial
+#           excludes: [commercial]
+#           reference: "CC-BY-NC-4.0 NonCommercial clause"
+#           note: >-
+#             The restriction reaches the OUTPUT, not just the weights: shipping
+#             generated audio in a commercial product is out of licence even
+#             when the model is self-hosted. Withhold from any declared
+#             commercial usage citing CC-BY-NC-4.0, and do not treat free
+#             downloadability as permission.
+#         - term: attribution-required
+#           excludes: []
+#           reference: "CC-BY-NC-4.0 attribution clause"
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       output: audio
+#       task: music-generation
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#
+# ---------------------------------------------------------------------------
+# 23. musicgen (large-stereo)  [audio-generation]
+#    NEEDS: an on-disk weight size. The memory figure IS sourced ("~12 GB VRAM at fp16 (large/stereo variant)", 12884901888 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
+#
+#   - model_id: musicgen
+#     variant: large-stereo
+#     family: audio-generation
+#     description: >-
+#       Meta's music generation model, large/stereo variant. Same output-reaching
+#       non-commercial restriction as the small variant, at roughly 12 GB of
+#       accelerator memory.
+#     memory_required:
+#       bytes: 12884901888
+#       source_figure: "~12 GB VRAM at fp16 (large/stereo variant)"
+#       unverified: false
+#     storage_required:
+#       bytes: null
+#       source_figure: "not sourced"
+#       unverified: true
+#     requires_accelerator: true
+#     accelerator_note: "Accelerator-only; no processor real-time factor sourced (UNVERIFIED)."
+#     usage_terms:
+#       license_id: CC-BY-NC-4.0
+#       license_verified: true
+#       commercial_safe: false
+#       permitted: [research, evaluation, personal]
+#       restrictions:
+#         - term: non-commercial
+#           excludes: [commercial]
+#           reference: "CC-BY-NC-4.0 NonCommercial clause"
+#           note: "Restriction reaches the generated output, not only the weights."
+#         - term: attribution-required
+#           excludes: []
+#           reference: "CC-BY-NC-4.0 attribution clause"
+#     runtime: in-memory
+#     streaming_eligible: false
+#     expected_capability:
+#       modalities: [text]
+#       output: audio
+#       task: music-generation
+#     integrity_expectation:
+#       algorithm: sha256
+#       digest: ""
+#       size_bytes: null
+#       status: pending-acquisition
+#

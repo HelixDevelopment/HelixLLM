@@ -1,0 +1,1509 @@
+# Text-generation model catalogue.
+#
+# EVERY figure in this file comes from:
+#   specs/002-adaptive-local-model-serving/research/01-text-llm.md
+#   (research pass dated 2026-09-02; each figure cited there, sources listed in
+#   that file's "Sources" section)
+# Wire shape: internal/catalogue/load.go (strict — KnownFields(true); an
+#   unrecorded key refuses the WHOLE file, so `annotations` is the only place
+#   free-form material may go and `notes` is the only place provenance goes).
+# Field semantics: specs/002-adaptive-local-model-serving/data-model.md
+#   § "Model Option".
+#
+# ---------------------------------------------------------------------------
+# THREE INVARIANTS THIS FILE ENCODES — each one is a defect already found and
+# must not be reintroduced by a later edit.
+# ---------------------------------------------------------------------------
+#
+#  1. STREAMING ELIGIBILITY IS ROSTER MEMBERSHIP, never an architecture
+#     predicate (D1). The disk-streaming runtime (Colibri) supports a CLOSED,
+#     NAMED list of 8 model families — the `streaming_roster` list below.
+#     An entry states the family name it would be served under in
+#     `streaming_family`, and the LOADER resolves that name against the roster;
+#     the entry does not get to assert its own listedness. That is the point:
+#     data asserting its own membership can drift from the roster, and the
+#     roster is the thing the runtime actually has.
+#     Several well-known mixture-of-experts models are on NO support path at
+#     all (deepseek-v3.2, llama-4-scout, llama-4-maverick, gpt-oss-120b,
+#     qwen3-30b-a3b, qwen3-235b-a22b, glm-4.6, gemma-4-26b-a4b): every one of
+#     them carries `architecture: mixture-of-experts` and a `streaming_family`
+#     that the roster does NOT name, so each resolves to not-eligible.
+#     Any code that infers eligibility from `architecture` will offer options
+#     that cannot run.
+#
+#  2. `storage_required_bytes` is a GENUINELY INDEPENDENT axis and is NEVER
+#     derived from `memory_required_bytes` (D2). The proof case in this file is
+#     glm-5.2: 16 GiB of memory and ~372 GiB of disk — over twenty times the
+#     memory figure, and in no way implied by it. Any code that checks only
+#     memory headroom will offer that model to a host that cannot store it.
+#
+#  3. UNVERIFIED FIGURES ARE NEVER RESOLVED INTO A CONFIDENT NUMBER. An
+#     invented figure here becomes a wrong selection decision later.
+#     This wire format has no way to say "absent": `memory_required_bytes` and
+#     `storage_required_bytes` are unsigned integers and zero is refused by
+#     Entry.Validate, so a model whose required figure the research did not
+#     source CANNOT BE AN ENTRY. Such models are NOT deleted — they are moved
+#     verbatim, with every figure, comment and UNVERIFIED marker intact, to the
+#     DEFERRED block at the end of this file, each with the measurement it
+#     needs. 24 of this file's 30 researched models are deferred that way.
+#     Nothing from the research is lost, and nothing is asserted that was not
+#     sourced.
+#
+# ---------------------------------------------------------------------------
+# WHY SO MANY ARE DEFERRED — the four blocking conditions, stated plainly
+# ---------------------------------------------------------------------------
+# Entry.Validate refuses an entry that has any of: no memory figure, no storage
+# figure, no licence id, or no permitted purpose. The research pass sourced
+# per-quant weight-file sizes for only part of the roster, and recorded no
+# licence at all for two families. So:
+#   * 17 models have a memory figure but NO sourced on-disk weight size. The
+#     research's own estimates ("scaling from the 14B point implies ~20 GB")
+#     are its extrapolations, and committing one would be inventing an
+#     admission figure. Deriving disk from the memory figure would break
+#     invariant 2 outright.
+#   *  7 models have neither figure.
+#   *  2 models (llama-3.2-1b, llama-3.2-3b) have both figures and NO licence:
+#     the research established the Llama 4 licence in detail and recorded
+#     nothing about Llama 3.2's own terms.
+#   *  1 model (olmoe-7b-a1b) has both figures, is ON the streaming roster, and
+#     has NO licence recorded — the runtime's supported-family table gave RAM
+#     and disk but no licence.
+#   *  4 Gemma models carry a licence id with an EMPTY permitted set: the
+#     research established the terms are source-available and not OSI-approved
+#     but did not enumerate which purposes they grant, so no purpose is claimed.
+# (Some models are blocked by more than one condition; each deferred record
+# below names its own.)
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY: NO DIGEST EXISTS ANYWHERE IN THIS FILE
+# ---------------------------------------------------------------------------
+# The research gathered no weight-file digest for any model, and fabricating
+# one would defeat the check it exists to perform (SC-011). Each entry names
+# the algorithm and carries `size_bytes` only where a real file size was
+# sourced. Entries in this state LOAD and may be OFFERED; they are refused by
+# Entry.ValidateForAcquisition, which is the gate that precedes touching a
+# weight file. The `digest_key` each entry carried before is retained under
+# `annotations.digest_key` — it is a fetch-time lookup key, not a digest.
+#
+# ---------------------------------------------------------------------------
+# THROUGHPUT
+# ---------------------------------------------------------------------------
+# No entry states `throughput_tokens_per_second`. The research pass benchmarked
+# nothing; it reasoned about relative processor throughput for MoE models but
+# produced no measured tokens/second figure for any model here. An absent field
+# is the honest record; a zero would read as a measurement of zero.
+#
+# ---------------------------------------------------------------------------
+# UNITS
+# ---------------------------------------------------------------------------
+# Byte values are the research's figure read as BINARY units (MiB = 2^20,
+# GiB = 2^30). Each figure's verbatim source phrasing is preserved in
+# `annotations.memory_sourced` / `annotations.storage_sourced`, so a
+# re-verification pass can correct a reading without re-deriving the source
+# number.
+#
+# `annotations` is free-form and, per load.go, "never read for a decision" — it
+# carries provenance only. Nothing in it, and nothing in `notes`, is user-facing
+# text: per CONST-046 what a user sees is composed at the presentation boundary
+# from `descriptor` facts plus host measurement, in the user's language.
+#
+# ---------------------------------------------------------------------------
+# The disk-streaming runtime's closed, named supported set (research §1.8).
+#
+# This is DATA. A runtime release that adds a family is an edit to this list,
+# never a code change. Rosters from every data file are unioned before any
+# entry is resolved, so which file declares a family cannot change the answer.
+#
+# Recorded here because every member of the roster is a text-family model; it
+# is nonetheless the runtime-wide list, not a text-only one.
+#
+# Runtime: colibri — https://github.com/JustVugg/colibri — closed list.
+# The per-family figures the research recorded for each roster member, which
+# the previous shape of this file carried inline (the loader's roster is a list
+# of NAMES and takes no per-family record):
+#
+#   glm-5.2             744B total / 40B active
+#                       min RAM 17179869184 B  "16 GB min, 24 GB comfortable RAM"
+#                       disk    399431958528 B "~372 GB disk storage"
+#                       HAS a catalogue entry below.
+#   glm-5.3-flash       321B total; active parameters UNVERIFIED (not stated in
+#                       the fetched excerpt); min RAM UNVERIFIED; disk UNVERIFIED.
+#                       No catalogue entry.
+#   inkling             975B total / 41B active; min RAM UNVERIFIED; disk UNVERIFIED.
+#                       No catalogue entry.
+#   kimi-k3             2.8T total / 104B active; min RAM UNVERIFIED; disk UNVERIFIED.
+#                       No catalogue entry.
+#   deepseek-v4-flash   284B total / 13B active; min RAM UNVERIFIED; disk UNVERIFIED.
+#                       No catalogue entry.
+#   qwen3.8-flash-next  125B total ("125B + 51B n-gram"); active UNVERIFIED;
+#                       min RAM UNVERIFIED; disk UNVERIFIED. No catalogue entry.
+#   qwen3.6             35B total / 3B active; min RAM 25769803776 B
+#                       "24 GB RAM minimum"; disk UNVERIFIED.
+#                       HAS a catalogue entry below.
+#   olmoe               7B total / 1B active; min RAM 8589934592 B "8 GB RAM";
+#                       disk 7516192768 B "~7 GB".
+#                       Its entry is DEFERRED below for a missing licence.
+#
+# The five families with no catalogue entry are ON the roster but have NO entry
+# below: the research recorded no RAM or disk figure for them, and inventing one
+# would violate invariant 3. They are rostered, not offerable — recorded here so
+# the gap is visible rather than silent.
+# ---------------------------------------------------------------------------
+
+streaming_roster:
+  - glm-5.2
+  - glm-5.3-flash
+  - inkling
+  - kimi-k3
+  - deepseek-v4-flash
+  - qwen3.8-flash-next
+  - qwen3.6
+  - olmoe
+
+entries:
+
+  # =========================================================================
+  # Qwen3 / Qwen3.6 — Alibaba. Apache 2.0 across the family (research §1.1).
+  # =========================================================================
+
+  - model_id: qwen3-0.6b
+    variant: q4_0
+    family: text
+    architecture: dense
+    descriptor:
+      parameter_count: 600000000
+      quantisation: q4_0
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 2147483648
+    storage_required_bytes: 449839104
+    requires_accelerator: false
+    source: https://huggingface.co/Qwen/Qwen3-0.6B
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      context_tokens: 32768
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 449839104
+    notes:
+      - "UNVERIFIED: no measured throughput figure — the research pass benchmarked nothing."
+      - "PENDING-ACQUISITION: no weight digest recorded; ValidateForAcquisition refuses this entry until one is captured (SC-011)."
+    annotations:
+      summary: >-
+        Smallest Qwen3 dense model. The floor-tier option: runs on a no-GPU host
+        with 8 GiB of system RAM with comfortable headroom.
+      memory_sourced: '"~2 GB, usable" (CPU-only)'
+      storage_sourced: '"~429 MB (Q4_0 cited)"'
+      context_sourced: '"32K native (YaRN to 128K)"'
+      digest_key: qwen3-0.6b.q4_0.gguf.sha256
+      catalogue_status: verified
+
+  - model_id: qwen3-30b-a3b
+    variant: q4_k_m
+    family: text
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 30000000000
+      active_parameters: 3000000000
+      quantisation: q4_k_m
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 21474836480
+    storage_required_bytes: 20078972109
+    requires_accelerator: false
+    source: https://huggingface.co/Qwen/Qwen3-30B-A3B
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    streaming_family: qwen3-moe
+    expected_capability:
+      context_tokens: 32768
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 20078972109
+    notes:
+      - "INVARIANT 1 CASE: architecturally mixture-of-experts, and NOT on the streaming roster. The research names it explicitly among models with 'no confirmed Colibri support path even though each is architecturally MoE'. `streaming_family: qwen3-moe` is not among the roster's 8 names, so it resolves to not-eligible."
+      - "UNVERIFIED: no measured throughput figure."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Mixture-of-experts Qwen3 with only 3B parameters active per token, so
+        processor throughput is far closer to a small dense model than its 30B
+        total suggests — while the full weight set must still be resident.
+      memory_sourced: '"20 GB (comfortable)"'
+      storage_sourced: '"18.7 GB (Q4_K_M)" weight-file listing'
+      digest_key: qwen3-30b-a3b.q4_k_m.gguf.sha256
+      catalogue_status: verified
+
+  - model_id: qwen3.6-27b
+    variant: q4_k_m
+    family: text
+    architecture: dense
+    descriptor:
+      parameter_count: 27000000000
+      quantisation: q4_k_m
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 20937965568
+    storage_required_bytes: 18038862643
+    requires_accelerator: false
+    source: https://huggingface.co/Qwen/Qwen3.6-27B
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      context_tokens: 32768
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 18038862643
+    notes:
+      - "No `streaming_family` is claimed: the roster names qwen3.6 as the 35B-A3B mixture-of-experts build, not this dense one."
+      - "UNVERIFIED: no measured throughput figure."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Qwen3.6 dense release. Sits at the edge of a 16 GiB accelerator and
+        should be offered there only at a capped context length; comfortable at
+        24 GiB.
+      memory_sourced: '"16.8-19.5 GB comfortable"; upper bound taken'
+      storage_sourced: '"Q4_K_M ~16.8 GB" from the published quant table'
+      context_sourced: '"32K/128K (YaRN 1M adds 20-40GB KV)"'
+      digest_key: qwen3.6-27b.q4_k_m.gguf.sha256
+      catalogue_status: verified
+
+  - model_id: qwen3.6-35b-a3b
+    variant: q4_k_m
+    family: text
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 35000000000
+      active_parameters: 3000000000
+      quantisation: q4_k_m
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 25769803776
+    storage_required_bytes: 22548578304
+    requires_accelerator: false
+    source: https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    streaming_family: qwen3.6
+    expected_capability:
+      context_tokens: 32768
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 22548578304
+    notes:
+      - "This row is the vendor GGUF artifact served IN MEMORY. Its family IS on the streaming roster, so `streaming_family: qwen3.6` resolves to eligible — but the runtime this row is served by is in-memory. Research §3: 'Two distinct artifact shapes per model' — the Colibri pre-converted container is a separate row with its own source and integrity value, and that row is DEFERRED below for a missing disk figure."
+      - "UNVERIFIED: no measured throughput figure."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Qwen3.6 mixture-of-experts held entirely in memory. Only 3B parameters
+        are active per token, so a no-GPU host with generous RAM serves it at a
+        speed its 35B total would not suggest.
+      memory_sourced: '"21-24 GB comfortable"; upper bound taken'
+      storage_sourced: '"~21 GB (Q4_K_M)"'
+      digest_key: qwen3.6-35b-a3b.q4_k_m.gguf.sha256
+      catalogue_status: verified
+
+  - model_id: qwen3-235b-a22b
+    variant: q4_k_m
+    family: text
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 235000000000
+      active_parameters: 22000000000
+      quantisation: q4_k_m
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 153545080832
+    storage_required_bytes: 153545080832
+    requires_accelerator: true
+    source: https://huggingface.co/Qwen/Qwen3-235B-A22B
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    streaming_family: qwen3-moe
+    expected_capability:
+      context_tokens: 32768
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 153545080832
+    notes:
+      - "INVARIANT 1 CASE: mixture-of-experts, named by the research as having no confirmed streaming support path. `qwen3-moe` is not among the roster's 8 names."
+      - "The memory and storage figures happen to be EQUAL and are NOT derived from one another — they are two independent citations that coincide because the accelerator requirement is stated as a floor set by the weight size."
+      - "UNVERIFIED: no measured throughput figure."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        Very large Qwen3 mixture-of-experts. Multi-accelerator or high-RAM
+        processor-offload only; with 22B parameters active per token it is not a
+        practical processor-only option.
+      memory_sourced: '"Multi-GPU (143 GB+) or CPU-offload hybrid"'
+      storage_sourced: '"~143 GB (Q4_K_M, weights only, no KV cache)"'
+      digest_key: qwen3-235b-a22b.q4_k_m.gguf.sha256
+      catalogue_status: verified
+
+  # =========================================================================
+  # Zhipu GLM (research §1.7) — the streaming runtime's flagship family.
+  # =========================================================================
+
+  - model_id: glm-5.2
+    variant: colibri-int4-g64
+    family: text
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 744000000000
+      active_parameters: 40000000000
+      quantisation: int4
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 17179869184
+    storage_required_bytes: 399431958528
+    requires_accelerator: false
+    source: https://huggingface.co/mastouri/GLM-5.2-colibri-int4-g64-with-int8-mtp
+    usage_terms:
+      license_id: MIT
+      permitted: [commercial, personal, research, evaluation]
+    runtime: streaming
+    streaming_family: glm-5.2
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      size_bytes: 399431958528
+    notes:
+      - "INVARIANT 2 — THE PROOF CASE. Memory 16 GiB, storage ~372 GiB: the storage figure is over twenty times the memory figure and is in no way implied by it. Any code that checks only memory headroom will offer this model to a host that cannot store it."
+      - "Research §1.7, quoted from the runtime's own repository: 'GLM-5.2 (744B): 16 GB min, 24 GB comfortable RAM; ~372 GB disk storage. Dense layers (~17B parameters) stay resident in RAM at int4 (~9.9 GB); the ~19,456 routed experts stream from disk on-demand.'"
+      - "UNVERIFIED: context window — 'not directly re-confirmed'. No `context_tokens` is stated rather than a guessed one."
+      - "UNVERIFIED: no measured throughput figure."
+      - "A Colibri container is a DIFFERENT artifact from the vendor's own GGUF/safetensors release and needs its own source and integrity value (FR-012)."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        A 744B mixture-of-experts model made runnable on a 16 GiB no-GPU host:
+        only the dense backbone stays resident while the routed experts stream
+        from local disk. An accelerator speeds it up but is not required.
+      memory_sourced: '"16 GB min" (24 GiB = 25769803776 is the comfortable figure)'
+      storage_sourced: '"~372 GB disk storage" — INDEPENDENT of the memory figure'
+      accelerator_note: '"GPU is explicitly optional for Colibri — it accelerates but does not gate functionality"'
+      digest_key: glm-5.2.colibri-int4-g64.sha256
+      catalogue_status: verified
+
+# ===========================================================================
+# DEFERRED — researched, NOT loadable, nothing discarded
+# ===========================================================================
+#
+# Each record below is the ENTRY EXACTLY AS RESEARCHED, commented out verbatim:
+# every figure, every inline UNVERIFIED marker and every explanatory comment is
+# preserved as written. They are comments and not entries for one reason only —
+# each is missing a value Entry.Validate requires, and the honest options are to
+# invent that value or to not be an entry. Inventing it would produce a wrong
+# admission decision at runtime, so none is invented.
+#
+# The `NEEDS:` line on each record names the exact measurement that would let it
+# become an entry. Restoring one is mechanical: supply the named figure, then
+# reshape the record to the wire format above (drop `description` into
+# `annotations.summary`, `catalogue_status` into `annotations.catalogue_status`,
+# `weight_source` into `source`, `streaming_roster.family_name` into
+# `streaming_family`, inline comments into `notes`, and remove null-valued keys —
+# `null` is not a byte count and the loader has no field that accepts it).
+#
+# 24 records, in the order they appeared in this file.
+#
+# ---------------------------------------------------------------------------
+# 1. qwen3-1.7b (q4_k_m)
+#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced (4294967296 B); storage is not, and the research's own linear-scaling estimate is not committed (invariant 3).
+#
+#   - model_id: qwen3-1.7b
+#     variant: q4_k_m
+#     description: >-
+#       Small Qwen3 dense model for the no-GPU floor tier, one step up in
+#       capability from the 0.6B.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 1700000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 4294967296     # "~4 GB, usable" (CPU-only)
+#     # UNVERIFIED: research gives "~1.1 GB (est. from linear scaling of 0.6B/8B
+#     # points)" and states "exact Q4_K_M byte count not directly sourced".
+#     # Held null rather than committing the estimate (invariant 3).
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 32768               # "32K/128K"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: qwen3-1.7b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED: see storage_required_bytes
+#     weight_source: https://huggingface.co/Qwen/Qwen3-1.7B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 2. qwen3-4b (q4_k_m)
+#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced; the ~2.5 GB figure in the comment is the research's own industry-convention estimate, explicitly not committed.
+#
+#   - model_id: qwen3-4b
+#     variant: q4_k_m
+#     description: >-
+#       Mid-small Qwen3 dense model; a low-end-tier candidate alongside
+#       Llama 3.2 3B and Phi-4-mini.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 4000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 6442450944     # "~6-8 GB, usable" (CPU-only), lower bound
+#     # UNVERIFIED: "no direct Q4_K_M byte figure found this pass; industry
+#     # convention (~0.6 GB per B at Q4_K_M) implies ~2.5 GB — treat as estimate
+#     # only". The estimate is deliberately NOT committed here.
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 32768
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: qwen3-4b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED: see storage_required_bytes
+#     weight_source: https://huggingface.co/Qwen/Qwen3-4B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 3. qwen3-8b (q4_k_m)
+#    NEEDS: a sourced Q4_K_M weight-file size. The cited 6-8 GB is an explicitly whole-stack MEMORY figure (weights + KV cache); deriving disk from it would break invariant 2.
+#
+#   - model_id: qwen3-8b
+#     variant: q4_k_m
+#     description: >-
+#       Qwen3 dense model at the ceiling of pure in-VRAM residency for an 8 GiB
+#       accelerator; also servable on a 32 GiB no-GPU host at CPU speed.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 8000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 8589934592     # "6-8GB VRAM at Q4_K_M (whole-stack incl. KV cache)"; upper bound taken
+#     # UNVERIFIED: the cited 6-8 GB is an explicitly whole-stack MEMORY figure
+#     # (weights + KV cache), not a stated weight-file size. Deriving disk from it
+#     # would violate invariant 2.
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 32768
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: qwen3-8b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED: see storage_required_bytes
+#     weight_source: https://huggingface.co/Qwen/Qwen3-8B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 4. qwen3-14b (q4_k_m)
+#    NEEDS: a sourced Q4_K_M weight-file size. The cited figure is a VRAM figure, not a weight-file size.
+#
+#   - model_id: qwen3-14b
+#     variant: q4_k_m
+#     description: >-
+#       Qwen3 dense model sized for a 16 GiB accelerator; usable but slow on a
+#       32 GiB no-GPU host.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 14000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 12884901888    # "ideal for 10-12GB VRAM at Q4_K_M"; upper bound taken
+#     storage_required_bytes: null          # UNVERIFIED: cited figure is a VRAM figure, not a weight-file size
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 32768
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: qwen3-14b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/Qwen/Qwen3-14B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 5. qwen3-32b (q4_k_m)
+#    NEEDS: a measured memory figure AND a measured Q4_K_M weight-file size. Both figures in the research are its own extrapolations from the 14B point.
+#
+#   - model_id: qwen3-32b
+#     variant: q4_k_m
+#     description: >-
+#       Largest Qwen3 dense model; the ceiling dense option for a 24 GiB-class
+#       accelerator.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 32000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     # UNVERIFIED: "not directly sourced this pass; scaling from 14B point
+#     # implies ~20 GB" (storage) and "~22-24 GB" (min VRAM). Both are the
+#     # research's own extrapolations, so neither is committed.
+#     memory_required_bytes: null
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 32768
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: qwen3-32b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/Qwen/Qwen3-32B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 6. qwen3.6-35b-a3b (colibri-int4)
+#    NEEDS: a disk footprint for the Colibri container. Memory IS sourced (Colibri's own '24 GB RAM minimum'); the runtime states no disk figure, and this is precisely the axis that CANNOT be inferred from RAM (invariant 2) — cf. glm-5.2 at 16 GiB RAM / 372 GiB disk. Its in-memory sibling row (variant q4_k_m) IS an entry above.
+#
+#   - model_id: qwen3.6-35b-a3b
+#     variant: colibri-int4
+#     description: >-
+#       The same Qwen3.6 mixture-of-experts model as the row above, but as the
+#       streaming runtime's own pre-converted container: a separate artifact with
+#       its own source and its own integrity value.
+#     # Research §3: "Two distinct artifact shapes per model" — a vendor GGUF and a
+#     # Colibri-specific pre-converted container "need separate catalogue rows with
+#     # separate integrity values (FR-012) even when they represent the same model
+#     # to the end user."
+#     architecture: mixture-of-experts
+#     descriptor:
+#       parameter_count: 35000000000
+#       active_parameters: 3000000000
+#       quantisation: int4
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 25769803776    # Colibri's own figure: "24 GB RAM minimum"
+#     # UNVERIFIED: Colibri states a RAM minimum for this family but no disk
+#     # footprint. Note this is precisely the axis that CANNOT be inferred from the
+#     # RAM figure (invariant 2) — cf. glm-5.2 at 16 GiB RAM / 372 GiB disk.
+#     storage_required_bytes: null
+#     requires_accelerator: false           # GPU accelerates Colibri but does not gate it
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: streaming
+#     streaming_roster:
+#       family_name: qwen3.6
+#       listed: true
+#     expected_capability:
+#       context_tokens: 32768
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: qwen3.6-35b-a3b.colibri-int4.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED: see storage_required_bytes
+#     weight_source: null                   # UNVERIFIED: no published Colibri container URL for this family this pass
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 7. llama-3.2-1b (q4_k_m)
+#    NEEDS: the Llama 3.2 community licence read, then a `license_id` and a `permitted` set. BOTH byte figures are sourced and complete — this entry is blocked ONLY on licence. Offering a model whose terms are unknown is exactly what FR-054/FR-055 forbid.
+#
+#   - model_id: llama-3.2-1b
+#     variant: q4_k_m
+#     description: >-
+#       Meta's smallest current dense model with a long context window. Runs on
+#       effectively any host, including the no-GPU 8 GiB floor tier.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 1000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 2147483648     # "<1 GB VRAM; runs on nearly anything"; floor-tier headroom figure
+#     storage_required_bytes: 846200832     # "Q4_K_M ≈ 807 MB"
+#     requires_accelerator: false
+#     usage_terms:
+#       # UNVERIFIED: the research established the LLAMA 4 licence in detail but
+#       # recorded nothing about Llama 3.2's own community licence terms. The
+#       # permitted set below is therefore NOT asserted, and the entry is held
+#       # partial until the licence is verified.
+#       license_id: null
+#       permitted: []
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072              # "128K"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: llama-3.2-1b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: 846200832
+#     weight_source: https://huggingface.co/meta-llama/Llama-3.2-1B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 8. llama-3.2-3b (q4_k_m)
+#    NEEDS: the Llama 3.2 community licence read. As llama-3.2-1b: both byte figures are sourced; the licence is not.
+#
+#   - model_id: llama-3.2-3b
+#     variant: q4_k_m
+#     description: >-
+#       Meta dense model for the low-end tier, with headroom for a
+#       short-to-medium context on an 8 GiB no-GPU host.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 3000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 4294967296     # "~2-3 GB VRAM or 4 GB RAM CPU-only"
+#     storage_required_bytes: 2147483648    # "Q4_K_M ≈ 2.0 GB"
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: null                    # UNVERIFIED: as llama-3.2-1b above
+#       permitted: []
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: llama-3.2-3b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: 2147483648
+#     weight_source: https://huggingface.co/meta-llama/Llama-3.2-3B
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 9. llama-4-scout (q4_k_m)
+#    NEEDS: measured memory and weight-file figures.
+#
+#   - model_id: llama-4-scout
+#     variant: q4_k_m
+#     description: >-
+#       Meta's 16-expert mixture-of-experts model. Its routing needs every expert
+#       resident regardless of how few are active per token, so it is a
+#       multi-accelerator or high-RAM offload option only.
+#     architecture: mixture-of-experts
+#     # INVARIANT 1 CASE: MoE, explicitly named by the research as having no
+#     # confirmed streaming support path.
+#     descriptor:
+#       parameter_count: 109000000000
+#       active_parameters: 17000000000
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following, long-context]
+#     # UNVERIFIED: "no single authoritative Q4_K_M byte figure found this pass —
+#     # treat as 'large, multi-GPU or high-RAM CPU-offload only' until re-verified".
+#     memory_required_bytes: null
+#     storage_required_bytes: null
+#     requires_accelerator: true
+#     usage_terms:
+#       license_id: Llama-4-Community-License
+#       # Commercial use IS permitted below the stated ceiling, so the restriction
+#       # below excludes no purpose and must never be reported as a reason this
+#       # entry was withheld (catalogue.Restriction.Excludable() == false).
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions:
+#         - term: revenue-cap
+#           excludes: []
+#           threshold:
+#             value: 700000000
+#             # NOTE: the ceiling is a USER count, not a monetary amount — the
+#             # licence caps free commercial use at 700M monthly active users.
+#             currency: monthly-active-users
+#             period: month
+#           reference: https://www.llama.com/llama4/license/
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: llama-4
+#       listed: false
+#     expected_capability:
+#       # UNVERIFIED: "marketed up to 10M (practical serving context far lower;
+#       # KV cache cost scales with actual context used)". The marketing figure is
+#       # not a usable context window, so nothing is recorded.
+#       context_tokens: null
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: llama-4-scout.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 10. llama-4-maverick (q4_k_m)
+#    NEEDS: measured memory and weight-file figures.
+#
+#   - model_id: llama-4-maverick
+#     variant: q4_k_m
+#     description: >-
+#       Meta's 128-expert mixture-of-experts model. Larger than Scout and not a
+#       fit for any single consumer accelerator.
+#     architecture: mixture-of-experts
+#     # INVARIANT 1 CASE: MoE, no confirmed streaming support path.
+#     descriptor:
+#       parameter_count: 400000000000
+#       active_parameters: 17000000000
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following, long-context]
+#     memory_required_bytes: null           # UNVERIFIED: "Larger than Scout; multi-GPU territory" — no figure given
+#     storage_required_bytes: null          # UNVERIFIED
+#     requires_accelerator: true
+#     usage_terms:
+#       license_id: Llama-4-Community-License
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions:
+#         - term: revenue-cap
+#           excludes: []
+#           threshold:
+#             value: 700000000
+#             currency: monthly-active-users
+#             period: month
+#           reference: https://www.llama.com/llama4/license/
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: llama-4
+#       listed: false
+#     expected_capability:
+#       context_tokens: null                # UNVERIFIED: "same context caveat as Scout"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: llama-4-maverick.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/unsloth/Llama-4-Maverick-17B-128E-Instruct-GGUF
+#     catalogue_status: partial
+#
+#   # =========================================================================
+#   # Google Gemma 3 / Gemma 4 (research §1.3).
+#   #
+#   # LICENCE POSTURE DIFFERS BY GENERATION: Gemma 3 ships under the
+#   # source-available Gemma Terms of Use (not OSI-approved); Gemma 4 switched to
+#   # Apache 2.0. This is a materially different allowlist posture between two
+#   # generations of the same family.
+#   #
+#   # Gemma 3 4B/12B/27B are vision-language weights. They are recorded here as
+#   # text entries because the text research tiers them; the same weights may also
+#   # be recorded in the vision catalogue.
+#   # =========================================================================
+#
+# ---------------------------------------------------------------------------
+# 11. gemma-3-1b (q4_k_m)
+#    NEEDS: a per-quant weight-file size AND the Gemma Terms of Use read for which purposes they grant. Memory IS sourced. Blocked on TWO conditions.
+#
+#   - model_id: gemma-3-1b
+#     variant: q4_k_m
+#     description: >-
+#       Google's smallest Gemma 3 release and the only text-only member of that
+#       generation. A floor-tier option.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 1000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 1073741824     # "<1 GB"
+#     # UNVERIFIED: research §1.3 records architecture and approximate minimum
+#     # hardware but explicitly not a per-quant byte table for any Gemma model.
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Gemma-Terms-of-Use
+#       # UNVERIFIED: the research established the licence is source-available and
+#       # NOT OSI-approved, but did not enumerate which purposes it grants.
+#       # Nothing is asserted — commercial use in particular is NOT claimed.
+#       permitted: []
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 32768               # "32K"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gemma-3-1b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/google/gemma-3-1b-it
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 12. gemma-3-4b (q4_k_m)
+#    NEEDS: a per-quant weight-file size AND the Gemma Terms of Use enumerated. Blocked on TWO conditions.
+#
+#   - model_id: gemma-3-4b
+#     variant: q4_k_m
+#     description: >-
+#       Gemma 3 vision-language weights at 4B, used here for text. Fits an 8 GiB
+#       accelerator with strong headroom.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 4000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 4294967296     # "~3-4 GB VRAM"; upper bound taken
+#     storage_required_bytes: null          # UNVERIFIED: no per-quant byte table retrieved
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Gemma-Terms-of-Use
+#       permitted: []                       # UNVERIFIED: as gemma-3-1b above
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072              # "128K"
+#       throughput_tokens_per_second: null
+#       modalities: [text, image]           # vision-language weights
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gemma-3-4b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/google/gemma-3-4b-it
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 13. gemma-3-12b (q4_k_m)
+#    NEEDS: a per-quant weight-file size AND the Gemma Terms of Use enumerated. Blocked on TWO conditions.
+#
+#   - model_id: gemma-3-12b
+#     variant: q4_k_m
+#     description: >-
+#       Gemma 3 vision-language weights at 12B, used here for text. Sized for a
+#       16 GiB accelerator or a 32 GiB no-GPU host.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 12000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 9663676416     # "~8-9 GB VRAM"; upper bound taken
+#     storage_required_bytes: null          # UNVERIFIED
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Gemma-Terms-of-Use
+#       permitted: []                       # UNVERIFIED
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072
+#       throughput_tokens_per_second: null
+#       modalities: [text, image]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gemma-3-12b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/google/gemma-3-12b-it
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 14. gemma-3-27b (q4_k_m)
+#    NEEDS: a per-quant weight-file size AND the Gemma Terms of Use enumerated. Blocked on TWO conditions.
+#
+#   - model_id: gemma-3-27b
+#     variant: q4_k_m
+#     description: >-
+#       Largest Gemma 3 release, for a 24 GiB-class accelerator.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 27000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 20401094656    # "~17-19 GB VRAM"; upper bound taken
+#     storage_required_bytes: null          # UNVERIFIED
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Gemma-Terms-of-Use
+#       permitted: []                       # UNVERIFIED
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072
+#       throughput_tokens_per_second: null
+#       modalities: [text, image]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gemma-3-27b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/google/gemma-3-27b-it
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 15. gemma-4-26b-a4b (q4_k_m)
+#    NEEDS: measured memory and weight-file figures (and the Gemma terms enumerated).
+#
+#   - model_id: gemma-4-26b-a4b
+#     variant: q4_k_m
+#     description: >-
+#       Gemma 4 mixture-of-experts with roughly 4B parameters active per token —
+#       the same active-parameter advantage as the Qwen A3B line, and Apache 2.0
+#       rather than the source-available terms of the previous generation.
+#     architecture: mixture-of-experts
+#     # INVARIANT 1 CASE: MoE, not among Colibri's 8 named families.
+#     descriptor:
+#       parameter_count: 25200000000
+#       active_parameters: 3800000000
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     # UNVERIFIED: "precise Gemma 4 GGUF byte-size-per-quant table was not
+#     # directly retrieved this pass... re-verify against the unsloth GGUF file
+#     # listing before hardcoding numbers into the catalogue." The tiering note
+#     # that it "fits the 32 GB budget by the same reasoning as the Qwen
+#     # equivalent" is reasoning, not a figure, so nothing is committed.
+#     memory_required_bytes: null
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0              # Gemma 4 switched to Apache 2.0 (2026-04-03)
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: gemma-4-moe
+#       listed: false
+#     expected_capability:
+#       context_tokens: null                # UNVERIFIED: exact context not found this pass
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gemma-4-26b-a4b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/unsloth/gemma-4-26B-A4B-GGUF
+#     catalogue_status: partial
+#
+#   # =========================================================================
+#   # OpenAI gpt-oss (research §1.4). Apache 2.0; natively MXFP4-quantised — the
+#   # quantised weights ARE the primary distribution, not a community conversion.
+#   # =========================================================================
+#
+# ---------------------------------------------------------------------------
+# 16. gpt-oss-20b (mxfp4)
+#    NEEDS: a sourced MXFP4 weight-file size. Memory IS sourced.
+#
+#   - model_id: gpt-oss-20b
+#     variant: mxfp4
+#     description: >-
+#       Mixture-of-experts model published with a stated 16 GiB local-inference
+#       target — the strongest first-party hardware figure in the text research.
+#       3.6B parameters active per token.
+#     architecture: mixture-of-experts
+#     descriptor:
+#       parameter_count: 20900000000
+#       active_parameters: 3600000000
+#       quantisation: mxfp4
+#       specialisations: [general, instruction-following, reasoning]
+#     memory_required_bytes: 17179869184    # "16 GB unified/VRAM — explicitly stated by OpenAI as edge/local-inference target"
+#     # UNVERIFIED: OpenAI states the memory target but the research recorded no
+#     # weight-file size. Inferring one from the 16 GiB figure would violate
+#     # invariant 2.
+#     storage_required_bytes: null
+#     requires_accelerator: false           # "unified/VRAM" — unified memory is an explicit target
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: gpt-oss
+#       listed: false                       # gpt-oss is named as absent from Colibri's supported list
+#     expected_capability:
+#       # UNVERIFIED: "128K (industry-standard figure at launch; not independently
+#       # re-confirmed this pass — exact figure not re-fetched from the model card
+#       # this session)".
+#       context_tokens: null
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gpt-oss-20b.mxfp4.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/openai/gpt-oss-20b
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 17. gpt-oss-120b (mxfp4)
+#    NEEDS: a sourced MXFP4 weight-file size. Memory IS sourced.
+#
+#   - model_id: gpt-oss-120b
+#     variant: mxfp4
+#     description: >-
+#       The large gpt-oss model. Its publisher's guidance is a single 80 GiB
+#       datacentre accelerator; it is not a consumer-accelerator fit and has no
+#       streaming path.
+#     architecture: mixture-of-experts
+#     # INVARIANT 1 CASE: 5.1B active parameters make it look like a streaming
+#     # candidate, but the research states Colibri's supported list "does not
+#     # currently name gpt-oss". Architecture must not be read as eligibility.
+#     descriptor:
+#       parameter_count: 116800000000
+#       active_parameters: 5100000000
+#       quantisation: mxfp4
+#       specialisations: [general, instruction-following, reasoning]
+#     memory_required_bytes: 85899345920    # "Fits a single 80GB GPU (H100/MI300X class) per OpenAI's own guidance"
+#     storage_required_bytes: null          # UNVERIFIED: no weight-file size recorded
+#     requires_accelerator: true
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: gpt-oss
+#       listed: false
+#     expected_capability:
+#       context_tokens: null                # UNVERIFIED: "same caveat as above"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: gpt-oss-120b.mxfp4.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/openai/gpt-oss-120b
+#     catalogue_status: partial
+#
+#   # =========================================================================
+#   # Mistral (research §1.5). Apache 2.0 for the models recorded here.
+#   # =========================================================================
+#
+# ---------------------------------------------------------------------------
+# 18. mistral-nemo-12b (q4_k_m)
+#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced.
+#
+#   - model_id: mistral-nemo-12b
+#     variant: q4_k_m
+#     description: >-
+#       Dense Mistral model with a long context window; fits an 8 GiB accelerator
+#       and a 32 GiB no-GPU host.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 12000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 7623566950     # "~7.1 GB" Q4_K_M VRAM
+#     # UNVERIFIED: the cited 7.1 GB is published as a VRAM figure. No separate
+#     # weight-file size was recorded, and disk must not be read off memory.
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072              # "128K"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: mistral-nemo-12b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/mistralai/Mistral-Nemo-Instruct-2407
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 19. mistral-small-3.2-24b (q4_k_m)
+#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced.
+#
+#   - model_id: mistral-small-3.2-24b
+#     variant: q4_k_m
+#     description: >-
+#       Dense Mistral model that fits a 16 GiB accelerator comfortably but exceeds
+#       an 8 GiB one outright.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 24000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: 14388140442    # "~13.4 GB" Q4_K_M VRAM
+#     storage_required_bytes: null          # UNVERIFIED: cited figure is a VRAM figure, not a weight-file size
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: Apache-2.0
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072              # "131K"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: mistral-small-3.2-24b.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506
+#     catalogue_status: partial
+#
+#   # =========================================================================
+#   # DeepSeek (research §1.6).
+#   # =========================================================================
+#
+# ---------------------------------------------------------------------------
+# 20. deepseek-v3.2 (gguf)
+#    NEEDS: measured memory and weight-file figures.
+#
+#   - model_id: deepseek-v3.2
+#     variant: gguf
+#     description: >-
+#       Very large mixture-of-experts model under an MIT licence. Not a fit for a
+#       single consumer accelerator at any quantisation, and its 37B active
+#       parameters put it beyond usable CPU speed even with disk streaming.
+#     architecture: mixture-of-experts
+#     # INVARIANT 1 CASE — THE CLEAREST ONE IN THE RESEARCH: "architecturally MoE
+#     # (so technically disk-streaming-eligible per FR-026..028) but likely fails
+#     # the 'no performance glitches' bar on anything short of a well-resourced
+#     # multi-GPU or very high-RAM host." It is NOT on Colibri's roster (which
+#     # lists deepseek-v4-flash, a different model), so listed is false.
+#     #
+#     # INTEGRATION RISK, not merely a memory one: "GGUF conversion of the MoE
+#     # routing requires a specific llama.cpp patch/PR and is not a stock feature."
+#     descriptor:
+#       parameter_count: 675200000000
+#       active_parameters: 37000000000
+#       quantisation: null                  # UNVERIFIED: no quantisation/footprint table sourced
+#       specialisations: [general, instruction-following, reasoning]
+#     memory_required_bytes: null           # UNVERIFIED: "Not a single-consumer-GPU fit at any quantization" — no figure
+#     storage_required_bytes: null          # UNVERIFIED
+#     requires_accelerator: true
+#     usage_terms:
+#       license_id: MIT
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: deepseek-v3.2
+#       listed: false
+#     expected_capability:
+#       # UNVERIFIED: "not directly re-confirmed this pass; the V3 lineage has
+#       # shipped 128K historically" — history is not confirmation.
+#       context_tokens: null
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: deepseek-v3.2.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/deepseek-ai/DeepSeek-V3.2
+#     catalogue_status: partial
+#
+#   # =========================================================================
+#   # GLM — Z.ai / Zhipu (research §1.7). MIT across the family.
+#   # =========================================================================
+#
+# ---------------------------------------------------------------------------
+# 21. glm-4.6 (q4_k_m)
+#    NEEDS: measured memory and weight-file figures.
+#
+#   - model_id: glm-4.6
+#     variant: q4_k_m
+#     description: >-
+#       Large mixture-of-experts model with a confirmed 200K context window.
+#       Multi-accelerator territory, and not on the streaming runtime's roster —
+#       the roster names GLM-5.2 and GLM-5.3-Flash, not this release.
+#     architecture: mixture-of-experts
+#     # INVARIANT 1 CASE: same FAMILY NAME PREFIX as two rostered models, and still
+#     # not rostered. Roster membership is by exact name, never by family prefix.
+#     descriptor:
+#       parameter_count: 357000000000
+#       active_parameters: null             # UNVERIFIED: "active-parameter count not directly re-confirmed this pass"
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following]
+#     memory_required_bytes: null           # UNVERIFIED: "Large — multi-GPU or disk-streaming territory" — no figure
+#     storage_required_bytes: null          # UNVERIFIED
+#     requires_accelerator: true
+#     usage_terms:
+#       license_id: MIT
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: glm-4.6
+#       listed: false
+#     expected_capability:
+#       context_tokens: 204800              # "200K (confirmed, expanded from 128K)"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: glm-4.6.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/zai-org/GLM-4.6
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 22. olmoe-7b-a1b (colibri-int4)
+#    NEEDS: OLMoE's licence recorded. BOTH byte figures are sourced from the streaming runtime's own supported-family table, and the family IS on the roster — this is the cheapest streaming entry in the research and the only one rated for the 8 GiB no-GPU floor tier. It is blocked ONLY on a missing licence, which makes it the highest-value single measurement in this file.
+#
+#   - model_id: olmoe-7b-a1b
+#     variant: colibri-int4
+#     description: >-
+#       Small mixture-of-experts model on the streaming runtime's roster, rated
+#       for an 8 GiB no-GPU host — the proof that a streaming option exists even
+#       at the floor tier.
+#     architecture: mixture-of-experts
+#     descriptor:
+#       parameter_count: 7000000000
+#       active_parameters: 1000000000
+#       quantisation: int4
+#       specialisations: [general]
+#     memory_required_bytes: 8589934592     # "8 GB RAM" (Colibri's own figure)
+#     storage_required_bytes: 7516192768    # "~7 GB"
+#     requires_accelerator: false
+#     usage_terms:
+#       # UNVERIFIED: research §1.8 records OLMoE's parameters, RAM and disk from
+#       # the runtime's supported-family table but recorded NO licence for it.
+#       # Nothing is asserted; this blocks the entry until the licence is verified.
+#       license_id: null
+#       permitted: []
+#       restrictions: []
+#     runtime: streaming
+#     streaming_roster:
+#       family_name: olmoe
+#       listed: true
+#     expected_capability:
+#       context_tokens: null                # UNVERIFIED: not recorded
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: olmoe-7b-a1b.colibri-int4.sha256
+#       digest: null
+#       size_bytes: 7516192768
+#     weight_source: null                   # UNVERIFIED: no published container URL recorded for this family
+#     catalogue_status: partial
+#
+#   # =========================================================================
+#   # Microsoft Phi-4 (research §1.9). MIT across the family.
+#   # =========================================================================
+#
+# ---------------------------------------------------------------------------
+# 23. phi-4-mini (q4_k_m)
+#    NEEDS: measured memory and weight-file figures.
+#
+#   - model_id: phi-4-mini
+#     variant: q4_k_m
+#     description: >-
+#       Small reasoning-tuned dense model, cited as the strongest option in its
+#       size class for an 8 GiB host. Its context should be capped well below the
+#       full window to stay inside the free-memory margin on that tier.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 3800000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following, reasoning]
+#     # UNVERIFIED: the only sourced statement is qualitative — "the only viable
+#     # option for 8GB machines" and "fits with modest headroom". That is a
+#     # statement about a MACHINE size, not a memory requirement, and is not
+#     # convertible into one.
+#     memory_required_bytes: null
+#     storage_required_bytes: null          # UNVERIFIED: no footprint figure recorded
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: MIT
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: 131072              # "128K"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: phi-4-mini.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/microsoft/Phi-4-mini-instruct
+#     catalogue_status: partial
+#
+# ---------------------------------------------------------------------------
+# 24. phi-4 (q4_k_m)
+#    NEEDS: measured memory and weight-file figures.
+#
+#   - model_id: phi-4
+#     variant: q4_k_m
+#     description: >-
+#       Dense reasoning-tuned model in the same footprint class as Qwen3-14B and
+#       Mistral NeMo.
+#     architecture: dense
+#     descriptor:
+#       parameter_count: 14000000000
+#       active_parameters: 0
+#       quantisation: q4_k_m
+#       specialisations: [general, instruction-following, reasoning]
+#     # UNVERIFIED: research gives only "Comparable footprint class to Qwen3-14B /
+#     # Mistral NeMo". Copying a comparable model's figure across would be exactly
+#     # the silent resolution invariant 3 forbids.
+#     memory_required_bytes: null
+#     storage_required_bytes: null
+#     requires_accelerator: false
+#     usage_terms:
+#       license_id: MIT
+#       permitted: [commercial, personal, research, evaluation]
+#       restrictions: []
+#     runtime: in-memory
+#     streaming_roster:
+#       family_name: ""
+#       listed: false
+#     expected_capability:
+#       context_tokens: null                # UNVERIFIED: "not re-confirmed this pass"
+#       throughput_tokens_per_second: null
+#       modalities: [text]
+#     integrity:
+#       algorithm: sha256
+#       digest_key: phi-4.q4_k_m.gguf.sha256
+#       digest: null
+#       size_bytes: null                    # UNVERIFIED
+#     weight_source: https://huggingface.co/microsoft/phi-4
+#     catalogue_status: partial
+#
+# # ---------------------------------------------------------------------------
+# # Models the research covers but that are DELIBERATELY not entries above.
+# # Recorded so the omission is visible rather than looking like an oversight.
+# # ---------------------------------------------------------------------------
+#
+# ---------------------------------------------------------------------------
+# ALREADY-DEFERRED IN THE RESEARCH PASS — the file's original
+# `deferred_entries:` block, preserved verbatim. These were never entries:
+# the research recorded them as models it could not size at all.
+# ---------------------------------------------------------------------------
+#
+# deferred_entries:
+#   - model_id: qwen3.5-27b
+#     reason: >-
+#       UNVERIFIED on every axis: "no direct figure found; treat as between
+#       Qwen3-32B and Qwen3.6-27B points". An entry would carry no committed
+#       figure at all.
+#   - model_id: qwen3.5-397b-a17b
+#     reason: UNVERIFIED on every axis, as qwen3.5-27b.
+#   - model_id: gemma-4-e2b
+#     reason: >-
+#       UNVERIFIED context and footprint; only an approximate memory figure
+#       ("~2 GB") and an effective-parameter count were recorded.
+#   - model_id: gemma-4-e4b
+#     reason: UNVERIFIED context and footprint, as gemma-4-e2b.
+#   - model_id: gemma-4-31b
+#     reason: >-
+#       UNVERIFIED context and footprint; only "~20 GB VRAM class" was recorded,
+#       and the research explicitly says to re-verify Gemma 4 quant sizes before
+#       hardcoding them.
+#   - model_id: mistral-small-4
+#     reason: >-
+#       "exact parameter counts and GGUF quant footprints were not retrieved this
+#       pass; re-check Small 4/Large 3 specifically before catalogue entry."
+#   - model_id: mistral-large-3
+#     reason: As mistral-small-4.
+#   - model_id: phi-4-reasoning-vision-15b
+#     reason: >-
+#       Vision-capable and UNVERIFIED — "text-only footprint likely close to
+#       Phi-4 14B — UNVERIFIED, do not hardcode." Belongs to the vision research.

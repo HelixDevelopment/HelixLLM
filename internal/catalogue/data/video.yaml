@@ -1,0 +1,345 @@
+# HelixLLM adaptive-model-serving catalogue — VIDEO-GENERATION family.
+#
+# Wire shape: internal/catalogue/load.go (strict — KnownFields(true); an
+#   unrecorded key refuses the WHOLE file). Only `entries` and
+#   `streaming_roster` are permitted at the top level, so this file is a MAPPING
+#   with an `entries:` key — not, as it was written, a bare YAML list.
+# Field semantics: specs/002-adaptive-local-model-serving/data-model.md
+#   § "Model Option" (the Go carrier is internal/catalogue/entry.go).
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE IS DIFFERENT FROM ITS SIBLINGS
+# ---------------------------------------------------------------------------
+# Unlike most families in this catalogue, video generation ALREADY SHIPS a real
+# serving path in this repository. Every entry below describes a model that
+# `services/videogen/videogen_server.py` can actually load and serve — nothing
+# aspirational is listed. The service is real infrastructure, not a test double:
+# its own header records that every clip comes from an actual `pipe(...)`
+# diffusion call over real weights, and that a load failure returns HTTP 503
+# with the exact reason rather than a fabricated clip.
+#
+# All three researched models are entries. Nothing in this file is deferred:
+# every one carries both a memory figure and a storage figure, a licence id and
+# a permitted set, which is everything Entry.Validate requires.
+#
+# ---------------------------------------------------------------------------
+# IN-REPO SOURCES (primary — preferred over anything inferred)
+# ---------------------------------------------------------------------------
+#   services/videogen/.gitignore-meta/wan_ltx_gguf.yaml
+#       The §11.4.77 weight-regeneration manifest. It names the three sources
+#       the shipped service is built around; this file carries exactly those
+#       three and no more. Records `integrity_hash: "PENDING: capture resolved
+#       HF revision sha at first authorized download"` — which is why every
+#       `integrity.digest` below is absent (see INTEGRITY note).
+#   services/videogen/videogen_server.py
+#       The real WanPipeline / LTXPipeline + export_to_video serving path, and
+#       the SERVED defaults: VIDEOGEN_MODEL=Wan-AI/Wan2.2-TI2V-5B-Diffusers,
+#       PRECISION=fp8, SIZE=832x480, NUM_FRAMES=49, FPS=16, MAX_STEPS=30,
+#       CPU_OFFLOAD=1.
+#   services/videogen/requirements.txt
+#       Pinned stack: torch 2.8.0 (cu128/sm_120), diffusers 0.35.1,
+#       transformers 4.57.1 — the runtime these entries are served by.
+#   cmd/videogen-boot/main.go
+#       The admission logic this catalogue replaces. `needBytes()` returns a
+#       STATIC 10 GiB (`VIDEOGEN_NEED_BYTES`) as the vrambroker ClassVideo
+#       admission figure. Its own comment calls that a "co-resident PEAK
+#       placeholder ... PENDING first-run calibration on THIS card". The
+#       per-model memory values below are what that single static number was
+#       standing in for.
+#   docs/qa/phase4_videogen_20260707/README.md
+#       Captured evidence + the no-pause / must-pause VRAM table. Status is
+#       SCAFFOLD: the video ANALYZER self-validation is real captured evidence
+#       (golden-good LIVE, golden-bad frozen+solid DEGENERATE, 3 consecutive
+#       runs, this host, 2026-07-07); the end-to-end WAN/LTX generation and the
+#       first-run VRAM calibration are explicitly PENDING.
+#
+# ---------------------------------------------------------------------------
+# EXTERNAL SOURCES (accessed 2026-09-02, §11.4.99)
+# ---------------------------------------------------------------------------
+#   https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B          (card: 5B, 720P@24fps, 5s; Apache-2.0)
+#   https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B         (card: 27B total / 14B active MoE, 480P+720P@24fps, 5s; Apache-2.0)
+#   https://huggingface.co/Lightricks/LTX-Video           (card: 1216x704 @30fps; <=257 frames; license "other")
+#   https://huggingface.co/Lightricks/LTX-Video/resolve/main/LTX-Video-Open-Weights-License-0.X.txt
+#       §2 verbatim: "entities with annual revenues of at least $10,000,000
+#       (the 'Commercial Entities') are eligible to obtain a paid commercial use
+#       license, subject to the terms ... of a different license". Any
+#       commercial use by such an entity outside that agreement is "strictly
+#       prohibited". This is the revenue cap encoded below.
+#   HF model API (`?blobs=true`), 2026-09-02 — MEASURED repository byte totals:
+#       Wan-AI/Wan2.2-TI2V-5B-Diffusers   34_203_021_834 B (31.85 GiB, 29 files)
+#       Wan-AI/Wan2.2-T2V-A14B-Diffusers 126_200_628_126 B (117.53 GiB, 49 files)
+#       Lightricks/LTX-Video             254_107_005_436 B (236.66 GiB, 63 files;
+#           all variants. The diffusers `from_pretrained` subtree is
+#           text_encoder 17.74 + transformer 7.17 + vae 1.56 ~= 26.5 GiB.)
+#
+# ---------------------------------------------------------------------------
+# TWO THINGS THIS FILE ASSERTS
+# ---------------------------------------------------------------------------
+# 1. NO PROCESSOR-VIABLE OPTION EXISTS. `requires_accelerator: true` on every
+#    entry, without exception. Diffusion video generation on a processor is not
+#    slow-but-usable, it is unusable, and the shipped service proves it: with no
+#    CUDA device `/health` reports `engine_ready=false` with reason "no CUDA
+#    device visible to the container", and `/v1/videos/generations` returns 503.
+#    A no-accelerator host must therefore be told what it LACKS
+#    (`annotations.accelerator_requirement` below) and offered nothing. That
+#    refusal is CORRECT BEHAVIOUR, not a coverage gap: an offer that would
+#    technically start and then be unusable is the failure mode being avoided.
+# 2. MEASURED BEATS INFERRED. Figures taken from the manifest, the boot logic,
+#    the QA README, or the HF blob API are stated as fact with their source
+#    named in `annotations`. Everything else carries an explicit `UNVERIFIED:`
+#    marker in `notes` naming the exact figure it affects. An invented memory
+#    figure here becomes a wrong admission decision later, so none is stated as
+#    though measured.
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY (§11.4.6 honest boundary)
+# ---------------------------------------------------------------------------
+# No `integrity.digest` is stated and no unmeasured `size_bytes` is stated,
+# because no weight digest has been captured yet: the manifest defers it to
+# first authorized download. An entry in this state LOADS and may be OFFERED —
+# Entry.Validate does not require an integrity expectation — and is refused by
+# Entry.ValidateForAcquisition, which is the gate that precedes touching a
+# weight file. That is the honest and desired outcome; inventing a digest here
+# would defeat SC-011 entirely. Populate each digest from the resolved HF
+# revision at download time, in the same change that pins the revision sha into
+# the manifest.
+#
+# ---------------------------------------------------------------------------
+# WHAT THE CARRIER DOES AND DOES NOT MODEL
+# ---------------------------------------------------------------------------
+# * `family: video-generation` is a recorded CapabilityFamily. (It was not when
+#   this data was first written; the constant now exists.)
+# * `expected_capability` carries video's own terms — `resolution`, `num_frames`,
+#   `fps` — because those are the comparable terms FR-005 requires for this
+#   family; token throughput is not the meaningful unit and is not faked into
+#   one. `duration_seconds` is ACCEPTED but not stored: the loader checks it
+#   against the frame count and rate and then discards it, so it cannot become a
+#   second, disagreeing source of truth. 49 frames at 16 fps is 3.0625 s and is
+#   recorded as 3.06, inside the loader's rounding tolerance.
+# * `streaming_family` is stated on NO entry here. The streaming runtime serves
+#   a closed roster of TEXT model families only; no video family is on it, and
+#   none is inferable from `architecture: diffusion` — eligibility is roster
+#   membership and nothing else (D1). Stating no family is the accurate record;
+#   this file therefore declares no `streaming_roster` either.
+# * `source` is stated on NO entry here, and that is a deliberate abstention
+#   rather than an oversight: this research pass recorded no per-entry weight
+#   source key. The HF repository each entry's MEASURED figures were read from
+#   is carried in `annotations.weights_repo` — for the WAN 5B entry that repo is
+#   also the shipped default the service loads, so promoting it to `source` is a
+#   one-line change. It is not made here because `source` is the value the
+#   acquisition allowlist is checked against (FR-012/SC-011), and what that gate
+#   sees is a data decision, not a reshape.
+#
+# ---------------------------------------------------------------------------
+# DELIBERATELY ABSENT: the MUST-PAUSE configurations
+# ---------------------------------------------------------------------------
+# WAN-14B FP8+T5-CPU (~14-16 GB @720p), WAN-14B FP16 (~28 GB), LTX-13B FP8
+# (15.7 GB) and LTX-13B full (28.6 GB) are all serveable by the shim but exceed
+# the ~10.4 GiB co-resident ceiling, so `vrambroker.Acquire` refuses them
+# alongside the live coder (ErrBudgetExceeded) and an operator-gated coder-pause
+# (§11.4.122) is required. They are not catalogued as offerable options because
+# the catalogue must not offer what admission will refuse. Source: the QA README
+# VRAM table.
+# ---------------------------------------------------------------------------
+
+entries:
+
+  - model_id: wan2.2-ti2v-5b
+    variant: fp8-480p
+    family: video-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 5000000000
+      quantisation: fp8
+      specialisations: [text-to-video, image-to-video]
+    memory_required_bytes: 10737418240
+    storage_required_bytes: 34203021834
+    requires_accelerator: true
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text, image]
+      resolution: 832x480
+      num_frames: 49
+      fps: 16
+      duration_seconds: 3.06
+    integrity:
+      algorithm: sha256
+      size_bytes: 34203021834
+    notes:
+      - "Memory SOURCE: cmd/videogen-boot/main.go needBytes() default == 10 GiB, the value actually passed to vrambroker.Acquire(ClassVideo) today; corroborated by the QA README no-pause table ('WAN 2.2 TI2V-5B FP8 @480p — cited peak ~8-10 GB'). This is the load-bearing number the static VIDEOGEN_NEED_BYTES stood in for."
+      - "PENDING: the memory figure sits CLOSE TO the ~10.4 GiB co-resident ceiling, so the margin is thin by design and the first-run calibration is load-bearing. Replace with the measured first-run peak on this card (torch.cuda.max_memory_allocated / nvidia-smi free-delta), §11.4.6/§11.4.108."
+      - "Storage MEASURED 2026-09-02 via the HF blob API: the full byte total of Wan-AI/Wan2.2-TI2V-5B-Diffusers, the repo the shipped default VIDEOGEN_MODEL points WanPipeline.from_pretrained at. Separate axis from memory (D2): the on-disk footprint is ~3x the VRAM requirement, because the UMT5-XXL text encoder (10.58 GiB of shards) is downloaded in full and then processor-offloaded at run time."
+      - "The manifest's '~18 GiB' expected_disk_usage UNDERSTATES this default path by ~14 GiB — worth correcting there in a separate change."
+      - "The model's headline capability is HIGHER than the served configuration: the HF card states 720P (1280x704) @24fps, 5s. That is NOT what is offered here — 720p pushes the peak over the ~10.4 GiB co-resident ceiling into the operator-gated coder-pause path (QA README VRAM table). `expected_capability` states the configuration actually served."
+      - "PENDING-ACQUISITION: no weight digest recorded; the manifest defers it to first authorized download (SC-011)."
+    annotations:
+      summary: >-
+        The shipped default video model: WAN 2.2 TI2V-5B at fp8, served at 480p
+        as the only shape that fits the co-resident VRAM budget alongside a live
+        coder.
+      weights_repo: https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers
+      memory_basis: in-repo-boot-logic
+      memory_sourced: "cmd/videogen-boot/main.go needBytes() default 10 GiB; QA README 'cited peak ~8-10 GB'"
+      storage_basis: measured
+      storage_sourced: "HF blob API 2026-09-02: 34_203_021_834 B (31.85 GiB, 29 files)"
+      served_config_source: "services/videogen/videogen_server.py env defaults SIZE=832x480 NUM_FRAMES=49 FPS=16"
+      max_supported_resolution: 1280x704
+      frame_count_rule: 4n+1
+      frame_count_rule_source: "WAN requires (4n+1) frame counts, per the videogen_server.py comment"
+      accelerator_requirement:
+        reason_key: video_generation_requires_cuda_accelerator
+        lacks: [cuda_accelerator_absent, vram_below_requirement]
+        withheld_reason: insufficient_resources
+        minimum_free_vram_bytes: 10737418240
+        headroom_bytes: 2147483648
+        headroom_source: vrambroker.HeadroomBytes, 2 GiB
+        evidence: services/videogen/videogen_server.py
+        evidence_note: >-
+          Runtime evidence this refusal is real, not policy: /health returns
+          engine_ready=false with reason "no CUDA device visible to the
+          container (GPU not admitted / CDI not wired)", and
+          /v1/videos/generations returns HTTP 503.
+      streaming_note: >-
+        The streaming runtime serves a closed roster of TEXT model families
+        only. No video family is on it, and none is inferable from
+        `architecture: diffusion` — eligibility is roster membership and nothing
+        else (D1).
+      catalogue_status: verified
+
+  - model_id: wan2.2-t2v-a14b
+    variant: gguf-q4-480p
+    family: video-generation
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 27000000000
+      active_parameters: 14000000000
+      quantisation: gguf-q4
+      specialisations: [text-to-video]
+    memory_required_bytes: 8589934592
+    storage_required_bytes: 27917287424
+    requires_accelerator: true
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+      resolution: 832x480
+      num_frames: 49
+      fps: 16
+      duration_seconds: 3.06
+    integrity:
+      algorithm: sha256
+    notes:
+      - "ARCHITECTURE IS DESCRIPTIVE ONLY. This entry is deliberately the mixture-of-experts case in this family: an implementation that infers streaming eligibility from architecture will get this one wrong, which is exactly the D1 bug. It states no `streaming_family` for the same reason as every other entry here — the roster does not name it."
+      - "Memory SOURCE: QA README no-pause table, 'WAN 2.2 14B — GGUF-Q4 + T5-CPU @480p, cited peak ~6-8 GB'. Upper bound of the cited band taken, so admission errs toward refusing rather than admitting a job that then OOMs."
+      - "The manifest is explicit that T5-XXL MUST be processor-offloaded for the memory figure to hold — VIDEOGEN_CPU_OFFLOAD=1 is not optional on this path."
+      - "UNVERIFIED: the memory figure was never measured on this card; the band is research-cited, PENDING the same first-run calibration as the default path."
+      - "UNVERIFIED: the storage figure is a COMPOSED ESTIMATE, not a measurement. The GGUF-Q4 quant asset is env-injected (the server hardcodes no weight id) and is NOT present in the Diffusers repo, so its true size could not be measured. Estimate = 27B total weights at Q4_K (~0.55 B/param) ~= 14.8 GiB, plus the UMT5-XXL text encoder, which is downloaded in full and only then processor-offloaded (MEASURED at 10.58 GiB of shards in the sibling 5B repo, same encoder family), plus VAE ~0.5 GiB."
+      - "MEASURED for contrast, if this entry is ever pointed at the unquantised repo instead: Wan-AI/Wan2.2-T2V-A14B-Diffusers totals 126_200_628_126 B (117.53 GiB) — an order of magnitude more disk, and a different entry."
+      - "UNVERIFIED: no `integrity.size_bytes` is stated — the env-injected GGUF asset's size is not measurable in-repo. A zero would read as a measured zero-length file."
+      - "The HF card supports 480P and 720P at 24 fps, 5-second clips. 720P on this model is a MUST-PAUSE path (~14-16 GB) and is not offered; `expected_capability` states the served 480p configuration."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        WAN 2.2 T2V-A14B as a GGUF-Q4 quant with the text encoder
+        processor-offloaded — the mixture-of-experts member of this family, and
+        the cheapest of the three in VRAM.
+      weights_repo_unquantised: https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B-Diffusers
+      weights_repo_note: "The served GGUF-Q4 asset is env-injected and not present in any in-repo manifest; its source is unrecorded."
+      memory_basis: research-cited-band-upper-bound
+      memory_sourced: "QA README no-pause table: 'cited peak ~6-8 GB'"
+      storage_basis: composed-estimate
+      storage_sourced: "27B at Q4_K ~14.8 GiB + UMT5-XXL encoder 10.58 GiB (measured in sibling repo) + VAE ~0.5 GiB"
+      served_config_source: "services/videogen/videogen_server.py env defaults; 480p is the no-pause path for this variant per the QA README table"
+      max_supported_resolution: 1280x704
+      frame_count_rule: 4n+1
+      accelerator_requirement:
+        reason_key: video_generation_requires_cuda_accelerator
+        lacks: [cuda_accelerator_absent, vram_below_requirement]
+        withheld_reason: insufficient_resources
+        minimum_free_vram_bytes: 8589934592
+        headroom_bytes: 2147483648
+        evidence: services/videogen/videogen_server.py
+      catalogue_status: partial
+
+  - model_id: ltx-video-13b
+    variant: gguf-q4
+    family: video-generation
+    architecture: diffusion
+    descriptor:
+      parameter_count: 13000000000
+      quantisation: gguf-q4
+      specialisations: [text-to-video]
+    memory_required_bytes: 10737418240
+    storage_required_bytes: 28454670336
+    requires_accelerator: true
+    usage_terms:
+      license_id: LTX-Video-Open-Weights-License-0.X
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: revenue-cap
+          excludes: [commercial]
+          threshold:
+            value: 10000000
+            currency: USD
+            period: annual
+          reference: LTX-Video-Open-Weights-License-0.X §2
+        - term: attribution-required
+          reference: LTX-Video-Open-Weights-License-0.X §3.1
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+      resolution: 832x480
+      num_frames: 49
+      fps: 16
+      duration_seconds: 3.06
+    integrity:
+      algorithm: sha256
+    notes:
+      - "LICENCE: HF API cardData.license == 'other' (2026-09-02); the repo ships LTX-Video-Open-Weights-License-0.X.txt. NOT an open-source licence and NOT interchangeable with the Apache-2.0 WAN entries — this is the restrictive-terms case the family carries."
+      - "`commercial` is deliberately ABSENT from `permitted`: under this licence an entity at or above the revenue threshold needs a separate paid Commercial Use Agreement from Lightricks, so commercial use is not granted by these terms alone. A below-threshold entity may still qualify — that is a declared-usage + threshold decision at the selection boundary, which is what `threshold` is carried for; it must not be collapsed into a flat permitted/forbidden (FR-054/FR-055, D4)."
+      - "The `attribution-required` restriction is NON-EXCLUSIONARY and states no `excludes`: §3.1 requires the use-based restrictions of §4 to be passed through in any downstream agreement. It constrains how output is used; it never withholds this entry and must not be reported as the reason one was withheld."
+      - "Memory SOURCE: QA README no-pause table, 'LTX-Video 13B — GGUF-Q4 (short clip), cited peak ~6-10 GB, needs 32 GB+ SYSTEM RAM'. Upper bound taken."
+      - "UNVERIFIED: the memory figure was never measured on this card."
+      - "GAP WITH CONSEQUENCE: this entry additionally requires >= 32 GiB SYSTEM RAM (34359738368 B). That is a genuine second admission axis and no schema field carries it, so it is recorded here rather than silently lost. A host with the VRAM but not the system RAM will thrash."
+      - "UNVERIFIED: the storage figure is an ESTIMATE. Two MEASURED facts bound it (HF blob API, 2026-09-02), one of which contradicts the manifest: (1) Lightricks/LTX-Video contains NO .gguf file at all — the GGUF-Q4 asset the manifest names must come from an external, env-injected source, so its size is unmeasurable from here; worth reconciling in the manifest, which reads as though the quant lives in this repo. (2) LTXPipeline.from_pretrained('Lightricks/LTX-Video') — what the shim actually calls on the ltx backend — resolves the DIFFUSERS-format subtree, not the root 13B single-file checkpoints: text_encoder 17.74 GiB + transformer 7.17 GiB + vae 1.56 GiB ~= 26.5 GiB. That transformer is the smaller diffusers-format model, NOT the 13B; the root-level 13B checkpoints (ltxv-13b-0.9.8-dev.safetensors 26.62 GiB, -fp8 14.62 GiB) are single files the default path does not select. So the shipped ltx backend as configured does not serve 13B without an explicit VIDEOGEN_MODEL override."
+      - "Storage estimate = 13B at Q4_K (~7.2 GiB) + the MEASURED T5 text_encoder (17.74 GiB, downloaded in full) + MEASURED vae (1.56 GiB)."
+      - "UNVERIFIED: no `integrity.size_bytes` is stated — the env-injected GGUF asset is not present in the HF repo."
+      - "The HF card states native 1216x704 at 30 fps, best under 720x1280 and below 257 frames (~8.5 s at 30 fps), with frame counts divisible by 8 plus 1. `expected_capability` states the served short-clip 480p configuration, which is the only shape the no-pause budget admits."
+      - "PENDING-ACQUISITION: no weight digest recorded."
+    annotations:
+      summary: >-
+        LTX-Video 13B as a GGUF-Q4 quant, served as a short 480p clip — the
+        restrictive-licence member of this family, and the one with a second
+        admission axis (system RAM) the schema cannot express.
+      weights_repo: https://huggingface.co/Lightricks/LTX-Video
+      weights_repo_note: "Contains no .gguf file; the served GGUF-Q4 asset is env-injected from an unrecorded external source."
+      licence_text: https://huggingface.co/Lightricks/LTX-Video/resolve/main/LTX-Video-Open-Weights-License-0.X.txt
+      licence_quote: >-
+        §2 verbatim: "entities with annual revenues of at least $10,000,000
+        (the 'Commercial Entities') are eligible to obtain a paid commercial use
+        license, subject to the terms ... of a different license". Any
+        commercial use by such an entity outside that agreement is "strictly
+        prohibited".
+      memory_basis: research-cited-band-upper-bound
+      memory_sourced: "QA README no-pause table: 'cited peak ~6-10 GB, needs 32 GB+ SYSTEM RAM'"
+      storage_basis: composed-estimate
+      storage_sourced: "13B at Q4_K ~7.2 GiB + measured text_encoder 17.74 GiB + measured vae 1.56 GiB"
+      minimum_system_memory_bytes: 34359738368
+      minimum_system_memory_note: "32 GiB, per the QA README note. No schema field carries a system-RAM axis."
+      max_supported_resolution: 1216x704
+      max_supported_frames: 257
+      frame_count_rule: 8n+1
+      accelerator_requirement:
+        reason_key: video_generation_requires_cuda_accelerator
+        lacks: [cuda_accelerator_absent, vram_below_requirement, system_memory_below_requirement]
+        withheld_reason: insufficient_resources
+        minimum_free_vram_bytes: 10737418240
+        minimum_system_memory_bytes: 34359738368
+        headroom_bytes: 2147483648
+        evidence: services/videogen/videogen_server.py
+      catalogue_status: partial

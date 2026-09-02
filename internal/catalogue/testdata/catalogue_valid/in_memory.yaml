@@ -1,0 +1,82 @@
+# Catalogue data file — in-memory-runtime entries.
+#
+# This file declares no roster of its own. qwen3-30b-a3b names a streaming
+# family so a reader can see WHICH name was looked up; that name is absent from
+# every roster in the set, so the lookup misses and the entry is not streaming
+# eligible — despite being the same architecture as deepseek-r1-671b.
+entries:
+  - model_id: qwen2.5-coder-7b-instruct
+    variant: q4_k_m
+    family: text
+    architecture: dense
+    descriptor:
+      parameter_count: 7620000000
+      quantisation: q4_k_m
+      specialisations: [code, instruction-following]
+    memory_required_bytes: 6442450944
+    storage_required_bytes: 5028970496
+    requires_accelerator: false
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      context_tokens: 32768
+      throughput_tokens_per_second: 22.5
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      digest: 3f1c0a9d7b52e84c6f0d1a3b8e57c2049da6b13f7e08c5a24bd93f6017ce48ab
+      size_bytes: 5028970496
+
+  - model_id: qwen3-30b-a3b
+    variant: q4_k_m
+    family: text
+    architecture: mixture-of-experts
+    descriptor:
+      parameter_count: 30500000000
+      active_parameters: 3300000000
+      quantisation: q4_k_m
+      specialisations: [reasoning, multilingual]
+    memory_required_bytes: 21474836480
+    storage_required_bytes: 19956498432
+    requires_accelerator: false
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    streaming_family: qwen3-moe
+    expected_capability:
+      context_tokens: 32768
+      throughput_tokens_per_second: 11.2
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      digest: c41b7e26908da35f1728be04c9d6350fa87e1b204c6d95837fe0a2b41d709c58
+      size_bytes: 19956498432
+
+  - model_id: xtts-v2
+    family: text-to-speech
+    architecture: encoder-decoder
+    descriptor:
+      parameter_count: 467000000
+      specialisations: [voice-cloning, multilingual]
+    memory_required_bytes: 3221225472
+    storage_required_bytes: 2036334592
+    requires_accelerator: false
+    usage_terms:
+      license_id: coqui-public-model-license-1.0
+      permitted: [personal, research, evaluation]
+      restrictions:
+        - term: attribution-required
+          reference: cpml-1.0 attribution clause
+        - term: non-commercial
+          excludes: [commercial]
+          reference: cpml-1.0 non-commercial clause
+    runtime: in-memory
+    expected_capability:
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      digest: 9b7d4f0e2a61c853ff0e47d21b9c6a5308e4d17c9026fb35ae81d5c740f3629e
+      size_bytes: 2036334592

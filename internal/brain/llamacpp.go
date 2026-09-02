@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -37,6 +38,34 @@ func NewLlamaCppProvider(baseURL string, models []string) *LlamaCppProvider {
 }
 
 func (p *LlamaCppProvider) Name() string { return "llamacpp" }
+
+// ServingHost reports the machine this llama.cpp instance runs on, taken from
+// the configured base URL. It is what makes the models it serves nameable as
+// helixllm/<host>/<model> (FR-014, FR-023): without it they would be
+// indistinguishable from a remote vendor's models in a user's model list.
+//
+// The port is deliberately dropped — the identity names the HOST, and two
+// instances on one machine are told apart by the models they serve, not by a
+// port number the user never sees. A base URL with no parseable host yields "",
+// which leaves the models un-prefixed rather than inventing a hostname.
+func (p *LlamaCppProvider) ServingHost() string {
+	u, err := url.Parse(p.baseURL)
+	if err != nil {
+		return ""
+	}
+	if u.Hostname() != "" {
+		return u.Hostname()
+	}
+	// A bare "host:port" with no scheme does not parse as an authority.
+	host := p.baseURL
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	if i := strings.LastIndex(host, ":"); i > 0 {
+		host = host[:i]
+	}
+	return host
+}
 
 func (p *LlamaCppProvider) Models() []string {
 	if p.registry != nil {

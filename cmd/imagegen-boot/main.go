@@ -24,16 +24,29 @@
 //  4. Single-owner teardown (compose down) + Release the burst lease — the
 //     coder (:18434) is never touched.
 //
-// The needBytes passed to Acquire is a CONFIG-INJECTED placeholder derived from
-// the §11.4.150 research (NVFP4 6.1 GiB transformer + quantized-T5 + CPU-offload
-// ~6 GB peak) — it MUST be replaced by the MEASURED first-run peak on THIS card
-// (torch.cuda.max_memory_allocated / nvidia-smi delta) before it is treated as
-// fact (§11.4.6/§11.4.108). See README "PENDING runtime-proof".
+// WHICH MODEL RUNS IS MEASURED, NOT CONFIGURED (FR-056)
+//
+// This harness does not have a default model and cannot be told which model to
+// run. Every boot measures this host, joins the measurement against the
+// recorded catalogue under the declared usage, and serves an option the host
+// was proven able to run. See modelchoice.go for the decision and the three
+// distinct reasons a candidate can be withheld.
+//
+//   - IMAGEGEN_MODEL and IMAGEGEN_PRECISION are OUTPUTS of that decision,
+//     written here for compose to interpolate. They are no longer inputs: a
+//     value found in the environment is reported and overwritten, because a
+//     configured name would defeat the measurement. Previously the model was
+//     whatever the ambient environment happened to hold — nothing measured the
+//     host, so nothing could refuse a model this card cannot run.
+//   - The VRAM figure admitted by the broker comes from the CHOSEN option's
+//     recorded requirement. IMAGEGEN_NEED_BYTES is no longer honoured: a static
+//     footprint implies a model, which is the static selection FR-056 forbids.
 //
 // Subcommands:
 //
+//	plan   [--pin id[:variant]]     measure + decide + report; boots nothing
 //	admit-check                     broker-only VRAM admission verdict (no boot)
-//	boot   <compose-file> <project> admit -> compose up -> health poll (no gen)
+//	boot   <compose-file> <project> measure -> choose -> admit -> up -> health
 //	down   <compose-file> <project> single-owner teardown (compose down)
 //	status <compose-file> <project> compose service status
 package main
@@ -43,40 +56,167 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"digital.vasic.containers/pkg/compose"
 	"digital.vasic.containers/pkg/health"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
 	"github.com/HelixDevelopment/HelixLLM/internal/vrambroker"
 )
 
 const (
 	service    = "imagegen"
 	healthPort = "18442" // OWN port — coder :18434 + siblings :18435-18441 untouched
+
+	// family is the capability this lane serves. It selects WITHIN the
+	// catalogue; it never names a model.
+	family = catalogue.FamilyImageGeneration
+
+	// forbidKey is the operator's forbid-list. Forbidding can only remove an
+	// option the measurement offered, never add one it did not.
+	forbidKey = "IMAGEGEN_FORBID_MODELS"
+
+	// modelKey and precisionKey are compose interpolation OUTPUTS, written from
+	// the measured decision.
+	modelKey     = "IMAGEGEN_MODEL"
+	precisionKey = "IMAGEGEN_PRECISION"
 )
 
 // GiB is one gibibyte in bytes.
 const GiB int64 = 1024 * 1024 * 1024
 
-// defaultNeedBytes is the NVFP4 min-mem co-resident PEAK placeholder (~6 GB
-// weights + activation margin, rounded to 7 GiB). PENDING first-run calibration
-// on THIS card (§11.4.6) — override with IMAGEGEN_NEED_BYTES.
-func needBytes() int64 {
-	if v := os.Getenv("IMAGEGEN_NEED_BYTES"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			return n
-		}
+// chooseModel measures the host and decides which image-generation model this
+// host can actually serve.
+//
+// Unlike the vision lane there are no local weight files to locate: the runtime
+// pulls the chosen model's weights by repository. What must still be resolved
+// is that the chosen build is one this runtime can serve at all — an entry
+// whose precision the runtime does not implement is reported, not coerced.
+func chooseModel(ctx context.Context) (choice, error) {
+	pin, err := parsePin(os.Args[1:])
+	if err != nil {
+		return choice{}, exitErr(exitNoOptionOffered, "CANNOT-CHOOSE: %v", err)
 	}
-	return 7 * GiB
+
+	offered, loaded, profile, purpose, err := decide(ctx, family, "", pin, forbidKey)
+	if err != nil {
+		return choice{}, err
+	}
+
+	var unservable []string
+	for _, option := range prefer(offered) {
+		precision, perr := precisionFor(option)
+		if perr != nil {
+			unservable = append(unservable, fmt.Sprintf("%s (%v)", option.Identity, perr))
+			continue
+		}
+		entry, ok := entryFor(loaded, option)
+		if !ok {
+			unservable = append(unservable, fmt.Sprintf("%s (no catalogue entry to take a weight source from)", option.Identity))
+			continue
+		}
+		repo, rerr := repositoryFor(entry)
+		if rerr != nil {
+			unservable = append(unservable, fmt.Sprintf("%s (%v)", option.Identity, rerr))
+			continue
+		}
+		return choice{
+			Option:     option,
+			Entry:      entry,
+			Profile:    profile,
+			Usage:      purpose,
+			Repository: repo,
+			Precision:  precision,
+		}, nil
+	}
+
+	return choice{}, exitErr(exitNotServable,
+		"CANNOT-CHOOSE: this host was measured and can serve %d %s model(s), but none of them is servable "+
+			"by this runtime:\n  %s\n"+
+			"  No model is started: falling back to whatever default the runtime carries would be a model "+
+			"nobody chose.\n  Remedy: extend the runtime to serve one of the builds above, or record a "+
+			"servable build in the catalogue.",
+		len(offered), family, joinLines(unservable))
+}
+
+// reportChoice prints the decision and the measurement it rests on.
+func reportChoice(c choice) {
+	fmt.Printf("CHOSEN %s — decided from the measured host %q, not from configuration.\n",
+		c.Option.Identity, c.Option.HostIdentity)
+	fmt.Printf("  requires: memory=%dMiB storage=%dMiB accelerator=%t\n",
+		c.Option.Cost.MemoryRequiredBytes/(1024*1024),
+		c.Option.Cost.StorageRequiredBytes/(1024*1024),
+		c.Option.Cost.RequiresAccelerator)
+	fmt.Printf("  leaves:   memory=%dMiB (%.1f%% of total) storage=%dMiB\n",
+		c.Option.Headroom.MemoryRemainingBytes/(1024*1024),
+		c.Option.Headroom.MemoryRemainingFraction*100,
+		c.Option.Headroom.StorageRemainingBytes/(1024*1024))
+	fmt.Printf("  licence:  %s permits the declared usage %q\n", c.Option.Terms.LicenseID, c.Usage)
+	fmt.Printf("  weights:  %s (precision %s)\n", c.Repository, c.Precision)
+}
+
+// applyChoice writes the decision into the environment compose interpolates.
+//
+// These variables are OUTPUTS. A value already present in the environment named
+// a model that no measurement chose, so it is reported and overwritten rather
+// than honoured.
+func applyChoice(c choice) {
+	for key, value := range map[string]string{
+		modelKey:     c.Repository,
+		precisionKey: c.Precision,
+	} {
+		if existing := os.Getenv(key); existing != "" && existing != value {
+			fmt.Printf("IGNORED-CONFIG: %s=%q named a model that no measurement chose; "+
+				"overwritten with the measured choice %q (FR-056).\n", key, existing, value)
+		}
+		os.Setenv(key, value)
+	}
+	if legacy := os.Getenv("IMAGEGEN_NEED_BYTES"); legacy != "" {
+		fmt.Printf("IGNORED-CONFIG: IMAGEGEN_NEED_BYTES=%q is no longer honoured — it implied a model. "+
+			"The admitted figure comes from the chosen option's recorded requirement (FR-056).\n", legacy)
+	}
+}
+
+// needBytesFor is the VRAM footprint to admit for the chosen option: its
+// recorded memory requirement. The broker adds its own headroom on top.
+func needBytesFor(c choice) int64 {
+	return int64(c.Option.Cost.MemoryRequiredBytes)
+}
+
+// cmdPlan measures, decides and reports — and boots nothing.
+func cmdPlan() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	c, err := chooseModel(ctx)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exitCodeFor(err))
+	}
+	reportChoice(c)
+	fmt.Printf("PLAN-OK: this host would serve %s (nothing was booted).\n", c.Option.Identity)
+}
+
+// joinLines renders a list one per indented line, for refusals that name every
+// option they considered.
+func joinLines(items []string) string {
+	out := ""
+	for i, s := range items {
+		if i > 0 {
+			out += "\n  "
+		}
+		out += s
+	}
+	return out
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: imagegen-boot <admit-check|boot|down|status> [compose-file] [project]")
+		fatal("usage: imagegen-boot <plan|admit-check|boot|down|status> [compose-file] [project] [--pin id[:variant]]")
 	}
 	switch os.Args[1] {
+	case "plan":
+		cmdPlan()
 	case "admit-check":
 		cmdAdmitCheck()
 	case "boot":
@@ -90,13 +230,12 @@ func main() {
 	}
 }
 
-// admit acquires a burst (ClassImage) lease for the NVFP4 footprint, returning
-// the lease or a classified reason. It NEVER pauses the coder — an
+// admit acquires a burst (ClassImage) lease for the chosen model's footprint,
+// returning the lease or a classified reason. It NEVER pauses the coder — an
 // ErrBudgetExceeded is surfaced as a BLOCKED verdict (coder-pause is operator
 // gated, §11.4.122).
-func admit(ctx context.Context) (*vrambroker.Lease, error) {
+func admit(ctx context.Context, need int64) (*vrambroker.Lease, error) {
 	broker := vrambroker.New() // real nvidia-smi-backed admission (§11.4.6 fail-closed)
-	need := needBytes()
 	total, used, free := broker.Budget()
 	fmt.Printf("VRAM budget (nvidia-smi): total=%dMiB used=%dMiB free=%dMiB need=%dMiB headroom=%dMiB\n",
 		total/(1024*1024), used/(1024*1024), free/(1024*1024),
@@ -110,10 +249,10 @@ func admit(ctx context.Context) (*vrambroker.Lease, error) {
 func classifyAdmit(err error) int {
 	switch {
 	case err == nil:
-		fmt.Println("ADMIT-OK: NVFP4 footprint admitted co-resident (coder stays live) — fast path")
+		fmt.Println("ADMIT-OK: chosen model's footprint admitted co-resident (coder stays live) — fast path")
 		return 0
 	case errors.Is(err, vrambroker.ErrBudgetExceeded):
-		fmt.Println("BLOCKED: ErrBudgetExceeded — NVFP4 min-mem config does not fit alongside the live coder right now.")
+		fmt.Println("BLOCKED: ErrBudgetExceeded — the chosen model does not fit alongside the live coder right now.")
 		fmt.Println("         The coder-pause path is required (operator-gated §11.4.122); this harness does NOT")
 		fmt.Println("         pause the live coder autonomously. Coder untouched.")
 		return 10
@@ -132,10 +271,19 @@ func classifyAdmit(err error) int {
 	}
 }
 
+// cmdAdmitCheck tests the admission gate for the model this host would actually
+// serve. It measures first, because the footprint to admit is the chosen
+// model's — there is no fixed figure to test against.
 func cmdAdmitCheck() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	lease, err := admit(ctx)
+	c, cerr := chooseModel(ctx)
+	if cerr != nil {
+		fmt.Println(cerr)
+		os.Exit(exitCodeFor(cerr))
+	}
+	reportChoice(c)
+	lease, err := admit(ctx, needBytesFor(c))
 	code := classifyAdmit(err)
 	if lease != nil {
 		// admit-check only tests the gate — release immediately (§11.4.119).
@@ -160,14 +308,24 @@ func cmdBoot() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// (1) admit BEFORE boot — the whole point (§11.4.119 / broker).
-	lease, err := admit(ctx)
+	// (1) WHICH model — measured, never configured. A refusal here exits
+	// non-zero with the reason; no default model stands in for a measurement.
+	c, cerr := chooseModel(ctx)
+	if cerr != nil {
+		fmt.Println(cerr)
+		os.Exit(exitCodeFor(cerr))
+	}
+	reportChoice(c)
+	applyChoice(c)
+
+	// (2) admit the CHOSEN model's footprint BEFORE boot (§11.4.119 / broker).
+	lease, err := admit(ctx, needBytesFor(c))
 	if code := classifyAdmit(err); code != 0 {
 		os.Exit(code)
 	}
 	defer lease.Release() // single-owner slot freed on exit no matter what
 
-	// (2) boot on :18442 through the containers submodule orchestrator.
+	// (3) boot on :18442 through the containers submodule orchestrator.
 	orch, oerr := compose.NewDefaultOrchestrator(".", nil)
 	if oerr != nil {
 		fatal("orchestrator: %v", oerr)
@@ -178,12 +336,13 @@ func cmdBoot() {
 	); err != nil {
 		fatal("compose up: %v", err)
 	}
-	fmt.Printf("UP-OK: %s imagegen via containers submodule orchestrator (:%s)\n", p.Name, healthPort)
+	fmt.Printf("UP-OK: %s imagegen via containers submodule orchestrator (:%s) serving %s\n",
+		p.Name, healthPort, c.Option.Identity)
 
-	// (3) health poll.
+	// (4) health poll.
 	ok := pollHealth(ctx, 5*time.Minute)
 
-	// (4) single-owner teardown — coder untouched.
+	// (5) single-owner teardown — coder untouched.
 	dctx, dcancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer dcancel()
 	if derr := orch.Down(dctx, p,

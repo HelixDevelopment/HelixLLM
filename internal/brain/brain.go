@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
+	"github.com/HelixDevelopment/HelixLLM/internal/naming"
 	"github.com/HelixDevelopment/HelixLLM/internal/shared/metrics"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
@@ -23,6 +24,7 @@ type Brain struct {
 	complexity *ComplexityAnalyzer
 	registry   *models.Registry
 	kvCache    KVCacher // optional context-persistence cache
+	names      *naming.Registry
 }
 
 // Config holds the provider credentials and URLs needed to build a Brain.
@@ -53,6 +55,7 @@ func New(cfg Config) *Brain {
 	b := &Brain{
 		router:    NewRouter(cfg.DefaultProvider),
 		providers: make(map[string]Provider),
+		names:     naming.NewRegistry(),
 	}
 
 	if cfg.MaxConcurrent > 0 {
@@ -182,6 +185,13 @@ func (b *Brain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 		defer b.sem.Release(1)
 	}
 
+	// A client that read the listing asks for the identifier it was given;
+	// routing matches provider model names. Translate before routing, or the
+	// request misses every exact match and lands on an unrelated provider.
+	if name, ok := b.ResolveModelName(req.Model); ok {
+		req.Model = name
+	}
+
 	// Prepend behavior guide to the first system message (or add one)
 	// so small models don't get overwhelmed by tool definitions.
 	if len(req.Messages) > 0 {
@@ -258,6 +268,12 @@ func (b *Brain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 		}
 	}
 
+	// See Complete: the listed identifier and the provider's own model name are
+	// two vocabularies, and routing only understands the latter.
+	if name, ok := b.ResolveModelName(req.Model); ok {
+		req.Model = name
+	}
+
 	if b.complexity != nil && b.registry != nil && req.Model == "" {
 		result := b.complexity.Analyze(req)
 		if !result.ModelOverride {
@@ -316,21 +332,57 @@ func (b *Brain) Providers() map[string]Provider {
 	return out
 }
 
-// Models returns the aggregated list of models from all available providers.
+// Models returns the OpenAI-shaped listing of models that are ACTUALLY being
+// served right now.
+//
+// Two properties matter here, and they pull in opposite directions.
+//
+// The ID published for a HelixLLM-served model is the DERIVED, charset-safe
+// identifier, not the raw model name. The raw name routinely fails a consumer's
+// validation — an Ollama-style "llama3:8b" is rejected by the Claude Toolkit's
+// alias check and by its provider-id shell-injection guard — so publishing it
+// was never usable by those consumers in the first place. The identifier the
+// listing now carries satisfies those checks as they stand (FR-014a), and the
+// human-readable identity it stands for is published alongside it by
+// [Brain.ModelOptions]. A remote vendor's model keeps its upstream id exactly
+// as before, so nothing that talks to OpenAI or Anthropic sees a change at all.
+//
+// Because the published id changed for locally-served models, both vocabularies
+// resolve: [Brain.ResolveModelName] maps a published identifier back to the name
+// the provider answers to, and a raw name already written into an existing
+// configuration still routes untouched. That pairing is the migration path the
+// listing contract requires for a non-additive change to `id`.
+//
+// Unavailable options are OMITTED here rather than flagged, because the caller
+// of this listing is the OpenAI-compatible surface, where every entry is an
+// offer the client may act on immediately: a stopped model presented as usable
+// costs the user a failed request, so it is the more harmful of the two errors.
+// A consuming tool that needs to SEE the unavailable options and why they are
+// withheld calls [Brain.ModelOptions], which lists them with their reasons.
 func (b *Brain) Models() []api.Model {
+	return modelsFromOptions(b.ModelOptions())
+}
+
+// modelsFromOptions renders the listed options onto the wire type. Unavailable
+// options are omitted rather than listed: a model shown as usable that is not
+// being served costs the caller a failed request. ModelOptions() still reports
+// them WITH their withheld reason, so a consumer that wants to distinguish "not
+// served right now" from "does not exist" can.
+func modelsFromOptions(opts []ModelOption) []api.Model {
 	var models []api.Model
-	for _, p := range b.providers {
-		if !p.Available() {
+	for _, opt := range opts {
+		if !opt.Available {
 			continue
 		}
-		for _, m := range p.Models() {
-			models = append(models, api.Model{
-				ID:      m,
-				Object:  "model",
-				Created: 1700000000,
-				OwnedBy: p.Name(),
-			})
-		}
+		models = append(models, api.Model{
+			ID:            opt.Identifier,
+			Object:        "model",
+			Created:       1700000000,
+			OwnedBy:       opt.OwnedBy,
+			ModelIdentity: opt.Identity,
+			Host:          opt.Host,
+			Availability:  "serving",
+		})
 	}
 	return models
 }

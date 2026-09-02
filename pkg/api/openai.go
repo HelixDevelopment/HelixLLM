@@ -107,6 +107,28 @@ type Model struct {
 	Object  string `json:"object"` // model
 	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
+	// ModelIdentity is the human-readable helixllm/<host>/<model>[:<variant>]
+	// value for a locally-served model. It is a VALUE, never an identifier: ID
+	// carries the derived, charset-safe identifier a consumer can actually use.
+	//
+	// Omitted for remote vendor models, deliberately. Stamping the helixllm
+	// identity on a vendor's model would destroy the one distinction the identity
+	// exists to draw.
+	ModelIdentity string `json:"model_identity,omitempty"`
+	// Host is the machine serving this model. Omitted for a remote provider's
+	// model, which has no HelixLLM host — inventing one would be a fabricated
+	// finding, not a convenience.
+	Host string `json:"host,omitempty"`
+	// Availability is the serving layer's affirmative report: "serving" for a
+	// model being served now. An EMPTY value means the serving layer reported
+	// nothing, which a consumer must not read as "serving" — "it said yes" and
+	// "it said nothing" are different claims, and only the first is a basis for
+	// routing a request.
+	Availability string `json:"availability,omitempty"`
+	// WithheldReason names why a model is not served, as one of the three
+	// recorded machine keys. The three are kept distinct because their remedies
+	// differ; collapsing them destroys what the user needs to act on.
+	WithheldReason string `json:"withheld_reason,omitempty"`
 }
 
 type ModelList struct {

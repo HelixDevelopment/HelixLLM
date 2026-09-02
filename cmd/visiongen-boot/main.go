@@ -1,13 +1,32 @@
 // Command visiongen-boot is the on-demand boot + health harness for the
-// HelixLLM VISION (VLM) service — a Qwen2.5-VL multimodal server (GGUF +
-// mmproj / libmtmd) on the host RTX 5090, co-resident WITH the live resident
-// coder (:18434, never touched). Unlike the image/video BURST lanes, the VLM
-// is a WARM tier (vrambroker.ClassVLM): once booted it STAYS UP to answer
-// vision requests — boot does NOT tear the service down. Teardown is the
-// separate `down` subcommand (single-owner cleanup §11.4.119).
+// HelixLLM VISION (VLM) service — a multimodal server (GGUF + mmproj /
+// libmtmd) on the host accelerator, co-resident WITH the live resident coder
+// (:18434, never touched). Unlike the image/video BURST lanes, the VLM is a
+// WARM tier (vrambroker.ClassVLM): once booted it STAYS UP to answer vision
+// requests — boot does NOT tear the service down. Teardown is the separate
+// `down` subcommand (single-owner cleanup §11.4.119).
 //
-// The load-bearing discipline (design scratchpad/design_gpu_generative*.md +
-// docs/qa/phase3_vision_20260707):
+// WHICH MODEL RUNS IS MEASURED, NOT CONFIGURED (FR-056)
+//
+// This harness does not have a default model and cannot be told which model to
+// run. Every boot measures this host, joins the measurement against the
+// recorded catalogue under the declared usage, and serves an option the host
+// was proven able to run. See modelchoice.go for the decision and the three
+// distinct reasons a candidate can be withheld.
+//
+//   - VISIONGEN_MODEL_GGUF and VISIONGEN_MMPROJ are OUTPUTS of that decision,
+//     written here for compose to interpolate. They are no longer inputs: a
+//     value found in the environment is reported and overwritten, because a
+//     configured name would defeat the measurement.
+//   - VISIONGEN_MODEL_DIR remains an INPUT. It says WHERE model files live on
+//     this host, never which of them runs.
+//   - The VRAM figure admitted by the broker comes from the CHOSEN option's
+//     recorded requirement. VISIONGEN_NEED_BYTES is no longer honoured: it
+//     implied a model ("~9 GiB means the 7B"), which is the static selection
+//     FR-056 forbids.
+//
+// The rest of the discipline is unchanged (design scratchpad/
+// design_gpu_generative*.md + docs/qa/phase3_vision_20260707):
 //
 //  1. BEFORE booting the container, the VLM VRAM footprint MUST be admitted by
 //     the vrambroker (ClassVLM, WARM/co-resident) — NEVER a raw VRAM grab.
@@ -27,19 +46,11 @@
 //  4. `down` is the explicit single-owner teardown (compose down) + it never
 //     touches the coder (:18434) or any sibling lane (:18435-18443).
 //
-// The needBytes passed to Acquire is a CONFIG-INJECTED placeholder. The
-// default (5 GiB) is sized for the DEFAULT provisioned model — the 3B Q4_K_M +
-// Q8_0 mmproj measured ~4.1 GiB actual peak in the phase3 proof, +~1 GiB
-// margin. Booting the larger 7B variant (once its GGUF+mmproj are downloaded,
-// §11.4.122 nothing removed — see VISIONGEN_MODEL_GGUF/VISIONGEN_MMPROJ below)
-// REQUIRES a matching VISIONGEN_NEED_BYTES override (~9 GiB: 7B Q4_K_M + f16
-// mmproj + KV budgets peak) — the two env vars MUST be changed together, per
-// §11.4.6/§11.4.108 (never assume a bigger model fits the smaller default).
-//
 // Subcommands:
 //
+//	plan   [--pin id[:variant]]     measure + decide + report; boots nothing
 //	admit-check                     broker-only VRAM admission verdict (no boot)
-//	boot   <compose-file> <project> admit -> compose up -> health poll (STAYS UP)
+//	boot   <compose-file> <project> measure -> choose -> admit -> up -> health (STAYS UP)
 //	down   <compose-file> <project> single-owner teardown (compose down)
 //	status <compose-file> <project> compose service status
 package main
@@ -50,43 +61,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"digital.vasic.containers/pkg/compose"
 	"digital.vasic.containers/pkg/health"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
 	"github.com/HelixDevelopment/HelixLLM/internal/vrambroker"
 )
 
 const (
 	service    = "visiongen"
 	healthPort = "18439" // OWN port — coder :18434 + siblings :18435-18443 untouched
+
+	// family is the capability this lane serves. It selects WITHIN the
+	// catalogue; it never names a model.
+	family = catalogue.FamilyVision
+
+	// forbidKey is the operator's forbid-list. Forbidding can only remove an
+	// option the measurement offered, never add one it did not.
+	forbidKey = "VISIONGEN_FORBID_MODELS"
+
+	// modelDirKey says WHERE model files live on this host.
+	modelDirKey = "VISIONGEN_MODEL_DIR"
+
+	// weightsKey and projectorKey are compose interpolation OUTPUTS, written
+	// from the measured decision.
+	weightsKey   = "VISIONGEN_MODEL_GGUF"
+	projectorKey = "VISIONGEN_MMPROJ"
 )
 
 // GiB is one gibibyte in bytes.
 const GiB int64 = 1024 * 1024 * 1024
 
-// defaultNeedBytes is the VLM co-resident PEAK placeholder for the DEFAULT
-// provisioned model (3B Q4_K_M + Q8_0 mmproj, phase3-measured ~4.1 GiB actual
-// + ~1 GiB margin = 5 GiB). Booting the 7B variant requires overriding this
-// alongside VISIONGEN_MODEL_GGUF/VISIONGEN_MMPROJ (§11.4.6) — override with
-// VISIONGEN_NEED_BYTES.
-func needBytes() int64 {
-	if v := os.Getenv("VISIONGEN_NEED_BYTES"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			return n
-		}
-	}
-	return 5 * GiB
-}
-
-// defaultModelDir is the phase3-harness VLM model cache directory
-// (~/models/vlm_cache), used to seed VISIONGEN_MODEL_DIR when the operator
-// has not already set it. Never hardcoded into compose.vision.yml itself
-// (§CONST-045 / §11.4.28) — injected here, at boot invocation, into the
-// process environment that the containers-submodule orchestrator passes
-// through to compose variable interpolation.
+// defaultModelDir is the VLM model cache directory (~/models/vlm_cache), used
+// to seed VISIONGEN_MODEL_DIR when the operator has not set it. It is a
+// LOCATION and nothing more — which model runs is decided from the measurement,
+// and this only says where that model's files are looked for. Never hardcoded
+// into compose.vision.yml itself (§CONST-045 / §11.4.28).
 func defaultModelDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -95,33 +107,25 @@ func defaultModelDir() string {
 	return filepath.Join(home, "models", "vlm_cache")
 }
 
-// setDefaultEnv sets key=val in the process environment ONLY if key is
-// currently unset/empty, so an operator-supplied override always wins.
-func setDefaultEnv(key, val string) {
-	if val == "" {
-		return
+// modelDir resolves where this host keeps VLM weights.
+func modelDir() string {
+	if dir := os.Getenv(modelDirKey); dir != "" {
+		return dir
 	}
-	if os.Getenv(key) == "" {
-		os.Setenv(key, val)
+	dir := defaultModelDir()
+	if dir != "" {
+		os.Setenv(modelDirKey, dir)
 	}
-}
-
-// applyDefaultVisionEnv seeds the three model-selection env vars compose.
-// vision.yml interpolates (VISIONGEN_MODEL_DIR/VISIONGEN_MODEL_GGUF/
-// VISIONGEN_MMPROJ) with the DEFAULT provisioned 3B model, so `boot` works
-// out-of-the-box on a fresh clone (§11.4.77) while remaining fully
-// env-overridable for the 7B variant once downloaded (§11.4.122).
-func applyDefaultVisionEnv() {
-	setDefaultEnv("VISIONGEN_MODEL_DIR", defaultModelDir())
-	setDefaultEnv("VISIONGEN_MODEL_GGUF", "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf")
-	setDefaultEnv("VISIONGEN_MMPROJ", "mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf")
+	return dir
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: visiongen-boot <admit-check|boot|down|status> [compose-file] [project]")
+		fatal("usage: visiongen-boot <plan|admit-check|boot|down|status> [compose-file] [project] [--pin id[:variant]]")
 	}
 	switch os.Args[1] {
+	case "plan":
+		cmdPlan()
 	case "admit-check":
 		cmdAdmitCheck()
 	case "boot":
@@ -135,13 +139,122 @@ func main() {
 	}
 }
 
-// admit acquires a WARM (ClassVLM) lease for the VLM footprint, returning the
-// lease or a classified reason. It NEVER pauses the coder — an
+// chooseModel measures the host, decides which model this host can serve, and
+// locates that model's artefacts.
+//
+// The order is the whole point: measure, then choose, then look for the chosen
+// model's files. Nothing here can start a model the measurement did not offer,
+// and when no offered model's weights are present on this host it refuses
+// rather than falling back to whatever happens to be in the directory.
+func chooseModel(ctx context.Context, dir string) (choice, error) {
+	pin, err := parsePin(os.Args[1:])
+	if err != nil {
+		return choice{}, exitErr(exitNoOptionOffered, "CANNOT-CHOOSE: %v", err)
+	}
+
+	offered, loaded, profile, purpose, err := decide(ctx, family, dir, pin, forbidKey)
+	if err != nil {
+		return choice{}, err
+	}
+
+	var missing []string
+	for _, option := range prefer(offered) {
+		weights, projector, locErr := locateWeights(dir, option)
+		if locErr != nil {
+			missing = append(missing, fmt.Sprintf("%s (%v)", option.Identity, locErr))
+			continue
+		}
+		entry, _ := entryFor(loaded, option)
+		return choice{
+			Option:        option,
+			Entry:         entry,
+			Profile:       profile,
+			Usage:         purpose,
+			WeightsFile:   weights,
+			ProjectorFile: projector,
+		}, nil
+	}
+
+	return choice{}, exitErr(exitWeightsNotPresent,
+		"CANNOT-CHOOSE: this host was measured and can serve %d %s model(s), but none of their weights "+
+			"are present in %s:\n  %s\n"+
+			"  No model is started: booting some other file that happens to be in that directory would be a "+
+			"model nobody chose.\n  Remedy: obtain the weights for one of the options above, or point %s at "+
+			"the directory that holds them.",
+		len(offered), family, dir, joinLines(missing), modelDirKey)
+}
+
+// reportChoice prints the decision and the measurement it rests on.
+func reportChoice(c choice) {
+	fmt.Printf("CHOSEN %s — decided from the measured host %q, not from configuration.\n",
+		c.Option.Identity, c.Option.HostIdentity)
+	fmt.Printf("  requires: memory=%dMiB storage=%dMiB accelerator=%t\n",
+		c.Option.Cost.MemoryRequiredBytes/(1024*1024),
+		c.Option.Cost.StorageRequiredBytes/(1024*1024),
+		c.Option.Cost.RequiresAccelerator)
+	fmt.Printf("  leaves:   memory=%dMiB (%.1f%% of total) storage=%dMiB\n",
+		c.Option.Headroom.MemoryRemainingBytes/(1024*1024),
+		c.Option.Headroom.MemoryRemainingFraction*100,
+		c.Option.Headroom.StorageRemainingBytes/(1024*1024))
+	fmt.Printf("  licence:  %s permits the declared usage %q\n", c.Option.Terms.LicenseID, c.Usage)
+	fmt.Printf("  weights:  %s\n  projector: %s\n", c.WeightsFile, c.ProjectorFile)
+}
+
+// applyChoice writes the decision into the environment compose interpolates.
+//
+// These variables are OUTPUTS. A value already present in the environment named
+// a model that no measurement chose, so it is reported and overwritten rather
+// than honoured.
+func applyChoice(c choice) {
+	for key, value := range map[string]string{
+		weightsKey:   c.WeightsFile,
+		projectorKey: c.ProjectorFile,
+	} {
+		if existing := os.Getenv(key); existing != "" && existing != value {
+			fmt.Printf("IGNORED-CONFIG: %s=%q named a model that no measurement chose; "+
+				"overwritten with the measured choice %q (FR-056).\n", key, existing, value)
+		}
+		os.Setenv(key, value)
+	}
+	if legacy := os.Getenv("VISIONGEN_NEED_BYTES"); legacy != "" {
+		fmt.Printf("IGNORED-CONFIG: VISIONGEN_NEED_BYTES=%q is no longer honoured — it implied a model. "+
+			"The admitted figure comes from the chosen option's recorded requirement (FR-056).\n", legacy)
+	}
+}
+
+// needBytesFor is the VRAM footprint to admit for the chosen option: its
+// recorded memory requirement. The broker adds its own headroom on top.
+func needBytesFor(c choice) int64 {
+	return int64(c.Option.Cost.MemoryRequiredBytes)
+}
+
+// cmdPlan measures, decides and reports — and boots nothing. It is the honest
+// way to see which model this host would serve, and why the others were not
+// offered, without touching the card.
+func cmdPlan() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	dir := modelDir()
+	if dir == "" {
+		fatal("%s is unset and no default could be derived (home directory unavailable) — "+
+			"set %s to the VLM model cache path", modelDirKey, modelDirKey)
+	}
+	c, err := chooseModel(ctx, dir)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exitCodeFor(err))
+	}
+	reportChoice(c)
+	fmt.Printf("PLAN-OK: this host would serve %s (nothing was booted).\n", c.Option.Identity)
+}
+
+// admit acquires a WARM (ClassVLM) lease for the chosen model's footprint,
+// returning the lease or a classified reason. It NEVER pauses the coder — an
 // ErrBudgetExceeded is surfaced as a BLOCKED verdict (coder-pause is operator
 // gated, §11.4.122).
-func admit(ctx context.Context) (*vrambroker.Lease, error) {
+func admit(ctx context.Context, need int64) (*vrambroker.Lease, error) {
 	broker := vrambroker.New() // real nvidia-smi-backed admission (§11.4.6 fail-closed)
-	need := needBytes()
 	total, used, free := broker.Budget()
 	fmt.Printf("VRAM budget (nvidia-smi): total=%dMiB used=%dMiB free=%dMiB need=%dMiB headroom=%dMiB\n",
 		total/(1024*1024), used/(1024*1024), free/(1024*1024),
@@ -177,11 +290,27 @@ func classifyAdmit(err error) int {
 	}
 }
 
+// cmdAdmitCheck tests the admission gate for the model this host would actually
+// serve. It measures first, because the footprint to admit is the chosen
+// model's — there is no fixed figure to test against.
 func cmdAdmitCheck() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	lease, err := admit(ctx)
-	code := classifyAdmit(err)
+
+	dir := modelDir()
+	if dir == "" {
+		fatal("%s is unset and no default could be derived (home directory unavailable) — "+
+			"set %s to the VLM model cache path", modelDirKey, modelDirKey)
+	}
+	c, err := chooseModel(ctx, dir)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exitCodeFor(err))
+	}
+	reportChoice(c)
+
+	lease, aerr := admit(ctx, needBytesFor(c))
+	code := classifyAdmit(aerr)
 	if lease != nil {
 		// admit-check only tests the gate — release immediately (§11.4.119).
 		lease.Release()
@@ -205,24 +334,29 @@ func cmdBoot() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// (0) seed default model-selection env vars (§CONST-045/§11.4.28 — never a
-	// hardcoded path inside compose.vision.yml itself) so `boot` works
-	// out-of-the-box on the provisioned 3B model.
-	applyDefaultVisionEnv()
-
-	// Fail loud (§11.4.6) if the model dir could not be resolved: an empty
-	// VISIONGEN_MODEL_DIR makes compose interpolate the bind mount as
-	// `:/models:ro` (malformed host path → cryptic podman error). Surface an
-	// actionable message instead — happens only if os.UserHomeDir() errored
-	// AND the operator did not set VISIONGEN_MODEL_DIR.
-	if os.Getenv("VISIONGEN_MODEL_DIR") == "" {
-		fatal("VISIONGEN_MODEL_DIR is unset and no default could be derived " +
-			"(home directory unavailable) — set VISIONGEN_MODEL_DIR to the VLM model cache path")
+	// (0) WHERE the weights live. Fail loud (§11.4.6) if it cannot be resolved:
+	// an empty VISIONGEN_MODEL_DIR makes compose interpolate the bind mount as
+	// `:/models:ro` (malformed host path -> cryptic podman error).
+	dir := modelDir()
+	if dir == "" {
+		fatal("%s is unset and no default could be derived (home directory unavailable) — "+
+			"set %s to the VLM model cache path", modelDirKey, modelDirKey)
 	}
 
-	// (1) admit BEFORE boot — the whole point (broker / §11.4.6 fail-closed).
-	lease, err := admit(ctx)
-	if code := classifyAdmit(err); code != 0 {
+	// (1) WHICH model — measured, never configured. A refusal here exits
+	// non-zero with the reason; no default model stands in for a measurement.
+	c, err := chooseModel(ctx, dir)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exitCodeFor(err))
+	}
+	reportChoice(c)
+	applyChoice(c)
+
+	// (2) admit the CHOSEN model's footprint BEFORE boot (broker / §11.4.6
+	// fail-closed).
+	lease, aerr := admit(ctx, needBytesFor(c))
+	if code := classifyAdmit(aerr); code != 0 {
 		os.Exit(code)
 	}
 	// The warm-tier lease is tied to THIS process; the container keeps holding
@@ -230,7 +364,7 @@ func cmdBoot() {
 	// is freed — the running VLM container is independent of this process.
 	defer lease.Release()
 
-	// (2) boot on :18439 through the containers submodule orchestrator.
+	// (3) boot on :18439 through the containers submodule orchestrator.
 	orch, oerr := compose.NewDefaultOrchestrator(".", nil)
 	if oerr != nil {
 		fatal("orchestrator: %v", oerr)
@@ -241,9 +375,10 @@ func cmdBoot() {
 	); err != nil {
 		fatal("compose up: %v", err)
 	}
-	fmt.Printf("UP-OK: %s visiongen via containers submodule orchestrator (:%s)\n", p.Name, healthPort)
+	fmt.Printf("UP-OK: %s visiongen via containers submodule orchestrator (:%s) serving %s\n",
+		p.Name, healthPort, c.Option.Identity)
 
-	// (3) health poll — then LEAVE IT RUNNING (warm tier). NO auto-teardown:
+	// (4) health poll — then LEAVE IT RUNNING (warm tier). NO auto-teardown:
 	// the VLM must stay UP to serve vision requests. Teardown is `down`.
 	ok := pollHealth(ctx, 5*time.Minute)
 	if !ok {
@@ -323,4 +458,17 @@ func cmdStatus() {
 func fatal(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "ERROR: "+format+"\n", a...)
 	os.Exit(2)
+}
+
+// joinLines renders a list one per indented line, for refusals that name every
+// option they considered.
+func joinLines(items []string) string {
+	out := ""
+	for i, s := range items {
+		if i > 0 {
+			out += "\n  "
+		}
+		out += s
+	}
+	return out
 }
