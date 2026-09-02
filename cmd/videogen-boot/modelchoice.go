@@ -452,9 +452,28 @@ func backendFor(o selection.Option) (string, error) {
 // this set is not servable HERE — reported honestly rather than silently
 // coerced into a precision the entry's memory figure was never measured at.
 var servingPrecisions = map[string]string{
-	"fp8":     "fp8",
-	"gguf-q4": "gguf-q4",
-	"bf16":    "bf16",
+	"fp8":  "fp8",
+	"bf16": "bf16",
+
+	// "gguf-q4" is DELIBERATELY ABSENT, and removing it was a regression fix.
+	//
+	// services/videogen/videogen_server.py refuses gguf-q4 in
+	// _UNIMPLEMENTED_PRECISIONS: the service has no GGUF load path at all — it
+	// builds pipelines only through from_pretrained, which resolves a
+	// diffusers-format repository and cannot read single-file .gguf weights.
+	//
+	// This list and that one are two independent statements about the same
+	// question, and they disagreed. Nothing noticed while most-capable-first
+	// ordering happened to rank a servable fp8 build first. When ordering
+	// changed to cheapest-first, the cheaper gguf-q4 entry moved to the front
+	// and the lane began choosing a build the runtime refuses: admit the VRAM,
+	// compose up, 503 for the full health timeout, exit 4, holding the lease
+	// throughout.
+	//
+	// The service is authoritative here — it is the thing that actually loads
+	// weights. If a GGUF load path is added there, add the precision back HERE
+	// in the same change, and see the agreement test that now pins the two
+	// lists together.
 }
 
 // precisionFor reports the serving precision the chosen build implies.
