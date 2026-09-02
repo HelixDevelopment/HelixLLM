@@ -78,3 +78,26 @@ Thumbs.db
 # module the sibling vectorize-shim/vtracer .gitignore entries already
 # cover for the other two build outputs of this service).
 /services/vectorize/dev.helix.llm.services.vectorize
+
+# Python bytecode + tool caches for the in-tree services (imagegen, videogen,
+# vectorize, tts, audio, container). The Go side of this file is exhaustive and
+# the Python side was empty, though six services ship Python: `__pycache__/`
+# directories already exist in all six working trees, none of them ignored and
+# none yet tracked. That is one careless `git add -A` away from versioning
+# build output, which is exactly the class §11.4.30 / CONST-053 forbids —
+# caught during a §11.4.84 quiescence check, before anything landed.
+#
+# Regeneration mechanism (§11.4.77): none required. CPython rewrites
+# `__pycache__/*.pyc` from the adjacent `.py` source on next import, and each
+# tool recreates its own cache on next run. Deleting any of these costs a
+# single re-import.
+#
+# Unanchored on purpose: unlike the build artefacts above — which are ignored
+# at a fixed path so the identically-named SOURCE directory stays trackable —
+# these names are never source anywhere in the tree, at any depth.
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
