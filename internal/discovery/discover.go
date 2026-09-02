@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"sort"
 	"strconv"
@@ -105,6 +106,12 @@ type Instance struct {
 	Endpoint string
 	// Reachability is the class the mode that found it belongs to.
 	Reachability Reachability
+	// PeerLoopback records whether the address we ACTUALLY CONNECTED TO during
+	// the probe was on this machine's loopback boundary. It is the evidence the
+	// local-host exemption rests on, carried forward rather than re-derived: a
+	// later re-check would resolve the name again and could get a different
+	// answer than the connection we actually verified.
+	PeerLoopback bool
 	// Trusted records whether it proved it holds the pre-shared secret. An
 	// instance that did not is never a model source and never receives request
 	// content (FR-024, FR-025).
@@ -175,15 +182,17 @@ type Options struct {
 
 // Discoverer finds and authenticates serving instances.
 type Discoverer struct {
-	modes    ModeSet
-	secret   Secret
-	opts     Options
-	client   *http.Client
-	log      *slog.Logger
-	now      func() time.Time
-	tracker  *Tracker
-	timeout  time.Duration
-	maxSweep int
+	modes  ModeSet
+	secret Secret
+	opts   Options
+	client *http.Client
+	// attestClient is client with redirects REFUSED. See newAttestClient.
+	attestClient *http.Client
+	log          *slog.Logger
+	now          func() time.Time
+	tracker      *Tracker
+	timeout      time.Duration
+	maxSweep     int
 }
 
 // New validates the options and builds a Discoverer.
@@ -210,17 +219,48 @@ func New(opts Options) (*Discoverer, error) {
 	}
 
 	d := &Discoverer{
-		modes:    opts.Modes,
-		secret:   opts.Secret,
-		opts:     opts,
-		client:   client,
-		log:      logger,
-		now:      now,
-		tracker:  NewTracker(opts.HealthTTL, now),
-		timeout:  timeout,
-		maxSweep: maxSweep,
+		modes:        opts.Modes,
+		secret:       opts.Secret,
+		opts:         opts,
+		client:       client,
+		attestClient: newAttestClient(client),
+		log:          logger,
+		now:          now,
+		tracker:      NewTracker(opts.HealthTTL, now),
+		timeout:      timeout,
+		maxSweep:     maxSweep,
 	}
 	return d, nil
+}
+
+// newAttestClient copies c and refuses to follow redirects on it.
+//
+// Following a redirect during attestation is not a convenience, it is a hole.
+// The endpoint we will later POST the user's prompt to is inst.Endpoint — the
+// address we dialled. If the client chases a 3xx, the party that answers the
+// challenge is whoever the REDIRECT named, not whoever we dialled, and a host
+// holding no secret can borrow a genuine instance's answer just by pointing us
+// at it. The channel binding in Proof already refuses that answer, because the
+// honest instance signs its own socket and we check against the socket we
+// opened; refusing the redirect outright means the exchange never happens at
+// all, so a relay does not even get to spend a genuine instance's response on
+// us. Both are wanted: the binding is the guarantee, this is the blast radius.
+//
+// http.ErrUseLastResponse hands the 3xx back as an ordinary response rather
+// than an error, so it falls into the existing non-200 branch and is reported
+// as a probe failure like any other unusable answer.
+//
+// The client is copied rather than mutated because it may have been supplied by
+// the caller through Options.HTTPClient: reaching into a caller's client and
+// changing its redirect policy would silently alter behaviour they own. The
+// copy shares the Transport, so connection pooling and any injected transport
+// are preserved.
+func newAttestClient(c *http.Client) *http.Client {
+	attest := *c
+	attest.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &attest
 }
 
 // Tracker exposes the liveness tracker, so a caller can consult health between
@@ -291,11 +331,35 @@ func (d *Discoverer) checkSecretFor(mode Reachability) error {
 
 // requiresSecret reports whether instances found by this mode must authenticate
 // (FR-024: everything beyond the current host).
+// requiresSecret answers the MODE-LEVEL question asked before anything is
+// dialled: could any endpoint in this mode go unauthenticated? It stays
+// optimistic for local-host, because whether a given endpoint earns the
+// exemption is not knowable until we have connected to it. The strict decision
+// is requiresSecretFrom, made per endpoint once we know the peer.
 func (d *Discoverer) requiresSecret(mode Reachability) bool {
 	if mode == LocalHost {
 		return d.opts.RequireSecretForLocalHost
 	}
 	return true
+}
+
+// requiresSecretFrom is the per-ENDPOINT form. peerIsLoopback must come from an
+// address we actually connected to (see isLoopbackPeer), never from the config
+// string and never from a pre-dial lookup.
+//
+// The local-host exemption is a claim about loopback, so a peer that is not on
+// the loopback boundary is not covered by it -- whatever mode listed it, and
+// whatever LocalHostEndpoints said. Callers that have not established a
+// connection pass false, which is the fail-closed answer: not knowing who the
+// peer is means the exemption does not apply.
+func (d *Discoverer) requiresSecretFrom(mode Reachability, peerIsLoopback bool) bool {
+	if mode != LocalHost {
+		return true
+	}
+	if d.opts.RequireSecretForLocalHost {
+		return true
+	}
+	return !peerIsLoopback
 }
 
 // candidates resolves the endpoints for one mode. It is only ever called for an
@@ -456,6 +520,18 @@ func (d *Discoverer) probe(ctx context.Context, mode Reachability, endpoint stri
 		return inst
 	}
 
+	// Refuse before dialling when the best evidence we have without a
+	// connection says we could never authenticate this endpoint: no secret
+	// configured, and the endpoint does not look like loopback. A host we
+	// cannot trust should not learn that we are looking, exactly as it does not
+	// for a whole mode refused for want of a secret. The authoritative check is
+	// still the peer check below -- this only avoids a pointless disclosure.
+	if d.secret.Empty() && d.requiresSecretFrom(mode, endpointLooksLoopback(endpoint)) {
+		return fail(ReasonAuthenticationFailed, fmt.Errorf(
+			"%w: %s is not loopback and no pre-shared secret is configured, so it could not be authenticated (FR-024)",
+			ErrNoSecret, endpoint))
+	}
+
 	nonce, err := newNonce()
 	if err != nil {
 		return fail(ReasonRefused, err)
@@ -477,7 +553,19 @@ func (d *Discoverer) probe(ctx context.Context, mode Reachability, endpoint stri
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := d.client.Do(req)
+	// Record the address we actually connect to. The local-host exemption is
+	// decided from THIS, not from the endpoint string, so that writing a
+	// non-loopback address into LocalHostEndpoints cannot switch FR-024 off.
+	var peerAddr string
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) {
+			if info.Conn != nil && info.Conn.RemoteAddr() != nil {
+				peerAddr = info.Conn.RemoteAddr().String()
+			}
+		},
+	}))
+
+	resp, err := d.attestClient.Do(req)
 	if err != nil {
 		return fail(ReasonUnreachable, err)
 	}
@@ -487,6 +575,15 @@ func (d *Discoverer) probe(ctx context.Context, mode Reachability, endpoint stri
 	}()
 
 	if resp.StatusCode != http.StatusOK {
+		// A redirect lands here rather than being followed (newAttestClient),
+		// and is named separately because it is the interesting case: an
+		// endpoint that answers a challenge by pointing somewhere else is
+		// declining to prove anything about itself.
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return fail(ReasonAuthenticationFailed, fmt.Errorf(
+				"%w: %s answered the challenge with a redirect (HTTP %d) instead of a proof of its own identity (FR-024)",
+				ErrUntrusted, endpoint, resp.StatusCode))
+		}
 		return fail(ReasonUnreachable, fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
@@ -495,8 +592,18 @@ func (d *Discoverer) probe(ctx context.Context, mode Reachability, endpoint stri
 		return fail(ReasonMalformedResponse, err)
 	}
 
-	if d.requiresSecret(mode) {
-		if err := Verify(d.secret, nonce, att.Proof); err != nil {
+	inst.PeerLoopback = isLoopbackPeer(peerAddr)
+	if d.requiresSecretFrom(mode, inst.PeerLoopback) {
+		// The proof is checked against the socket we ACTUALLY OPENED, so it is
+		// only valid from the endpoint we dialled. An address we could not read
+		// or could not parse is a refusal, never a fallback to an unbound
+		// check: not knowing who answered is precisely when a proof means
+		// nothing.
+		audience, err := AttestAudience(peerAddr)
+		if err != nil {
+			return fail(ReasonAuthenticationFailed, err)
+		}
+		if err := Verify(d.secret, nonce, audience, att.Proof); err != nil {
 			// FR-024. Nothing the instance advertised is read from here on.
 			return fail(ReasonAuthenticationFailed, err)
 		}
@@ -560,6 +667,15 @@ func (d *Discoverer) servedModels(endpoint string, att attestation) []ServedMode
 // The instance is also authenticated TO by proof over a fresh nonce rather than
 // by presenting the secret, so even a trusted peer never receives the credential
 // itself.
+//
+// Honest boundary: the attestation's channel binding is established against the
+// connection the PROBE opened. This request opens a NEW connection, and if the
+// endpoint is a name rather than a literal address it is resolved again here, so
+// a name that resolved to the attested instance during the probe and to some
+// other host now would not be caught by the probe's binding. Closing that gap
+// means pinning the verified peer address for the lifetime of the instance and
+// dialling it directly, which changes how endpoints are dialled; it is a
+// separate change and is NOT claimed here.
 func (d *Discoverer) Send(ctx context.Context, inst Instance, content RequestContent) ([]byte, error) {
 	if !inst.Trusted {
 		return nil, fmt.Errorf("%w: %s is not authenticated, so no request content may be sent to it (FR-025)",
@@ -569,7 +685,7 @@ func (d *Discoverer) Send(ctx context.Context, inst Instance, content RequestCon
 		return nil, fmt.Errorf("discovery: %s is not currently available (%s)",
 			inst.Endpoint, reasonOr(inst.Health.Reason, ReasonUnreachable))
 	}
-	if d.requiresSecret(inst.Reachability) && d.secret.Empty() {
+	if d.requiresSecretFrom(inst.Reachability, inst.PeerLoopback) && d.secret.Empty() {
 		return nil, fmt.Errorf("%w: cannot authenticate to %s", ErrNoSecret, inst.Endpoint)
 	}
 
@@ -596,7 +712,7 @@ func (d *Discoverer) Send(ctx context.Context, inst Instance, content RequestCon
 			return nil, err
 		}
 		req.Header.Set(NonceHeader, hexString(nonce))
-		req.Header.Set(ProofHeader, Proof(d.secret, nonce))
+		req.Header.Set(ProofHeader, Proof(d.secret, nonce, RequestAudience))
 	}
 
 	resp, err := d.client.Do(req)

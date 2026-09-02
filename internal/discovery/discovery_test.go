@@ -112,10 +112,27 @@ func (s *instanceServer) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The proof is bound to the channel: this instance signs the address the
+	// request ARRIVED ON — its own end of the accepted connection — which it
+	// reads from its own connection state, NEVER from anything in the request.
+	// A relay that forwards our bytes verbatim therefore cannot make this
+	// instance sign the relay's address. See discovery.Proof.
 	proof := "00000000000000000000000000000000000000000000000000000000deadbeef"
 	if s.secret != "" {
+		local, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+		if local == nil {
+			http.Error(w, "no local address to bind the proof to", http.StatusInternalServerError)
+			return
+		}
+		audience, err := discovery.AttestAudience(local.String())
+		if err != nil {
+			http.Error(w, "unusable local address", http.StatusInternalServerError)
+			return
+		}
 		mac := hmac.New(sha256.New, []byte(s.secret))
 		mac.Write(nonce)
+		mac.Write([]byte{0})
+		mac.Write([]byte(audience))
 		proof = hex.EncodeToString(mac.Sum(nil))
 	}
 
@@ -591,8 +608,9 @@ func TestVerifyRejectsAWrongProof(t *testing.T) {
 	for i := range nonce {
 		nonce[i] = byte(i)
 	}
-	good := discovery.Proof(s, nonce)
-	if err := discovery.Verify(s, nonce, good); err != nil {
+	const audience = "192.0.2.10:9000"
+	good := discovery.Proof(s, nonce, audience)
+	if err := discovery.Verify(s, nonce, audience, good); err != nil {
 		t.Fatalf("a correct proof was rejected: %v", err)
 	}
 	for name, bad := range map[string]string{
@@ -600,9 +618,13 @@ func TestVerifyRejectsAWrongProof(t *testing.T) {
 		"not hex":     "zzzz",
 		"wrong bytes": strings.Repeat("ab", sha256.Size),
 		"truncated":   good[:len(good)-2],
-		"other nonce": discovery.Proof(s, append(nonce, 0xff)),
+		"other nonce": discovery.Proof(s, append(nonce, 0xff), audience),
+		// The channel binding: the SAME secret and the SAME nonce, signed by a
+		// holder that answered on a different address. This is the relay case
+		// reduced to one assertion.
+		"other audience": discovery.Proof(s, nonce, "192.0.2.11:9000"),
 	} {
-		if err := discovery.Verify(s, nonce, bad); !errors.Is(err, discovery.ErrUntrusted) {
+		if err := discovery.Verify(s, nonce, audience, bad); !errors.Is(err, discovery.ErrUntrusted) {
 			t.Errorf("%s proof: got %v, want ErrUntrusted", name, err)
 		}
 	}
