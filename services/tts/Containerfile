@@ -1,0 +1,84 @@
+# HelixLLM TEXT-TO-SPEECH capability — Kokoro-82M served through onnxruntime
+# on the PROCESSOR. Minimal FastAPI shim (tts_server.py) exposing an
+# OpenAI-audio-style `POST /v1/audio/speech` plus `GET /health` on 8080.
+#
+# Booted ON-DEMAND through the containers submodule compose.Orchestrator
+# (§11.4.76), rootless podman (§11.4.161) — NEVER a hand-run `podman run` or
+# `docker` command as a workflow.
+#
+# ─── Why there is no CUDA base image here ───────────────────────────────────
+# The image-gen and video-gen services in this repository are built on a CUDA
+# runtime because their models cannot work otherwise. This one deliberately is
+# not. Text-to-speech is one of the two audio families the research found
+# genuinely processor-viable, and the whole value of the Kokoro path is that a
+# machine with no accelerator gets fast, natural speech. Building this on a
+# multi-gigabyte GPU base would make the smallest supported tier — the one this
+# service exists to serve — the one that cannot run it.
+#
+# ─── BUILD CONTEXT ──────────────────────────────────────────────────────────
+# Build from the REPOSITORY ROOT, not from this directory:
+#
+#     podman build -f services/tts/Containerfile -t helixllm-tts .
+#
+# The root context is required because this service and the speech-to-text
+# wiring share ONE model/licence schema (container/helix_model_gate.py). They
+# were built together on purpose: an earlier attempt split the audio families
+# across separate efforts and produced four mutually incompatible schemas, none
+# of which could gate the others' offers. Copying the shared module rather than
+# vendoring a second copy is what keeps that from recurring.
+
+FROM docker.io/library/python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Where weight files live. Note what these do NOT do: none of them names
+    # the model to run. That is decided by measuring the host and applying the
+    # declared usage purpose over the catalogue (FR-056).
+    HELIXLLM_TTS_WEIGHTS_DIR=/models/tts \
+    HELIXLLM_CATALOGUE_PATHS=/app/models.yaml:/app/catalogue/speech_audio.yaml \
+    HELIXLLM_GATE_DIR=/app \
+    # The purpose the OPERATOR declares this deployment's output is put to. It
+    # gates which licences may be offered; it names no model. Set it to
+    # `research` to make the non-commercial cloning entries selectable.
+    HELIXLLM_USAGE_PURPOSE=commercial \
+    HELIXLLM_TTS_PORT=8080
+
+# espeak-ng data backs the phonemiser. kokoro-onnx bundles espeakng-loader, but
+# the shared library is kept available so a host-provided espeak-ng is usable
+# too; curl is for the health probe.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libespeak-ng1 espeak-ng-data \
+        curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY services/tts/requirements.txt /app/requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /app/requirements.txt
+
+WORKDIR /app
+# The ONE shared model/licence schema, used identically by this service, the
+# audio-classification service and the speech-to-text wiring.
+COPY container/helix_model_gate.py /app/helix_model_gate.py
+COPY services/tts/models.yaml /app/models.yaml
+COPY services/tts/tts_engine.py /app/tts_engine.py
+COPY services/tts/tts_server.py /app/tts_server.py
+
+# The repository catalogue is MOUNTED at /app/catalogue rather than copied: it
+# is owned by internal/catalogue/data and must not be forked into an image that
+# would then drift from it. When it is absent the service runs on its own
+# catalogue alone, which /health reports.
+RUN mkdir -p /app/catalogue /models/tts \
+    && useradd -m -u 10002 tts \
+    && chown -R tts /models /app/catalogue
+USER tts
+
+EXPOSE 8080
+# The probe reports whether a model could be SELECTED without forcing a weight
+# load, so an idle container stays cheap. A not-ready state always carries the
+# exact reason — it never fakes readiness.
+HEALTHCHECK --interval=15s --timeout=5s --retries=20 \
+  CMD curl -fsS http://localhost:8080/health || exit 1
+
+CMD ["python3", "tts_server.py"]

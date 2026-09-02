@@ -1,0 +1,21 @@
+# HelixLLM text-to-speech service dependencies — PINNED (no floating installs).
+#
+# Kokoro-82M runs through onnxruntime on the PROCESSOR. There is deliberately
+# no torch and no CUDA wheel here: this family's whole point is that it serves
+# a host with no accelerator, and pulling a multi-gigabyte GPU stack to run an
+# 82M-parameter model would make the smallest supported tier unservable.
+# kokoro-onnx 0.6.1 is the latest release as of 2026-09-02 (verified against
+# the PyPI JSON API). Its own licence is MIT; the Kokoro model it runs is
+# Apache-2.0. It pulls espeakng-loader and phonemizer for text->phoneme
+# conversion, which is why no system espeak-ng package is installed separately.
+kokoro-onnx==0.6.1
+onnxruntime==1.22.0
+numpy==2.2.6
+
+# Catalogue parsing (the shared wire schema in container/helix_model_gate.py).
+PyYAML==6.0.2
+
+# Minimal HTTP shim.
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4

@@ -1,0 +1,51 @@
+# §11.4.77 regeneration-mechanism manifest for the gitignored YAMNet artefacts
+# consumed by the audio-classification service. A fresh clone obtains them by
+# download (no in-repo bytes); the harness setup step plus the container's
+# weights volume make the download one-time.
+schema_version: 1
+entry_slug: yamnet_litert
+pattern: "services/audio/models/** *.tflite yamnet_class_map.csv"
+mechanism_type: download
+requires_network: true
+requires_credentials: false         # both artefacts are public; no token and no
+                                    #   click-through agreement is required.
+expected_disk_usage: "~4 MiB (4,140,906 B: TFLite graph 4,126,810 + class map 14,096)"
+
+sources:
+  - name: yamnet_tflite_graph
+    url: "https://www.kaggle.com/api/v1/models/google/yamnet/tfLite/classification-tflite/1/download"
+    mirror_url: "https://huggingface.co/thelou1s/yamnet/resolve/main/lite-model_yamnet_classification_tflite_1.tflite"
+    size_bytes: 4126810
+    why: "the YAMNet classification graph the service runs on the processor"
+    note: >-
+      size_bytes is MEASURED, not estimated: HTTP HEAD Content-Length on the
+      mirror, 2026-09-02. Kaggle is the authoritative home since TF Hub
+      redirected there; the mirror is recorded because the Kaggle endpoint may
+      require a session for some clients and the bytes must remain obtainable
+      without one. Verify the mirror's digest against the Kaggle artefact at
+      first download before trusting it.
+  - name: yamnet_class_map
+    url: "https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv"
+    size_bytes: 14096
+    why: "maps score indices to class names; without it a score cannot be named"
+    note: >-
+      MEASURED 2026-09-02: 14,096 B, 522 lines — one header plus 521 classes.
+      This file's LENGTH is load-bearing, not just its content: the service's
+      anti-simulation guard checks a returned score vector against it, so a
+      truncated or substituted map would either reject every genuine result or
+      admit a fabricated one. audio_engine.load_class_map refuses a map of the
+      wrong length rather than working around it.
+  - name: yamnet_upstream
+    repo: tensorflow/models
+    why: "the authoritative source and licence of record (Apache-2.0)"
+    note: >-
+      YAMNet lives at research/audioset/yamnet under the TensorFlow Model
+      Garden's Apache-2.0 licence, verified 2026-09-02. It is the only
+      audio-classification model in this repository's research whose licence
+      was confirmed, which is why it is the only one offered commercially.
+
+# Verify the LATEST asset ids before download (§11.4.99) — the Kaggle model
+# version path and the mirror both move. integrity_hash is intentionally left
+# to first-download capture; fabricating a digest would defeat the check it
+# exists to perform, and here it would also defeat the mirror cross-check.
+integrity_hash: "PENDING: capture sha256 of both artefacts at first download, and compare the mirror against the Kaggle original"

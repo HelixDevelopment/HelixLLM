@@ -1,0 +1,18 @@
+# §11.4.30 / CONST-053 repository hygiene.
+#
+# Model weights (the Kokoro ONNX graph and the voice pack, ~338 MiB together)
+# are NEVER versioned — they are published third-party artefacts pulled on
+# demand. §11.4.77 regeneration mechanism:
+# .gitignore-meta/kokoro_onnx.yaml (download from the cited sources) plus the
+# harness setup step.
+models/
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Python caches / build artefacts.
+__pycache__/
+*.pyc
+.venv/

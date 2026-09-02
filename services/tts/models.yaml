@@ -1,0 +1,126 @@
+# Text-to-speech models THIS SERVICE can serve, in the exact wire shape of
+# `internal/catalogue/data/*.yaml` (see `container/helix_model_gate.py`).
+#
+# WHY THIS FILE EXISTS, and what it is not
+# ----------------------------------------
+# It is not a fallback and not a configuration file. It is a catalogue, read
+# alongside the repository catalogue by the same loader under the same schema,
+# with the same licence gate applied to both. Which model runs is still decided
+# by measuring the host and applying the declared usage purpose (FR-056) — no
+# value here names the model to run.
+#
+# It exists because of a gap with a specific, closeable cause. The repository's
+# `speech_audio.yaml` loads exactly ONE text-to-speech entry — `xtts-v2` —
+# whose Coqui Public Model License excludes commercial use, and Coqui Inc shut
+# down in January 2024, so no commercial licence can be bought. A commercial
+# caller asking this service for speech against the repository catalogue alone
+# therefore receives NOTHING. The strong permissive options the research
+# identified (Kokoro-82M, Apache-2.0) were deferred out of that catalogue for
+# one reason and one only: no on-disk weight size had been sourced, and an
+# absent measurement must never be resolved into a confident number.
+#
+# So that measurement was taken rather than guessed. The `storage_required_bytes`
+# below is the sum of the actual `Content-Length` of the published weight files,
+# read by HTTP HEAD on 2026-09-02 — the figures are recorded per file in
+# `.gitignore-meta/kokoro_onnx.yaml`. When those figures are carried into the
+# repository catalogue, `kokoro-82m` becomes an entry there and this file's copy
+# of it becomes redundant; the loader de-duplicates by (model_id, variant), so
+# nothing breaks on the day that happens.
+#
+# NO DIGEST APPEARS HERE. The service gathered none, and fabricating one would
+# defeat the integrity check it exists to perform. Digests are captured from the
+# published weight file at acquisition time.
+
+entries:
+
+  - model_id: kokoro-82m
+    family: text-to-speech
+    # Memory: "<2 GB VRAM; processor-viable" — the figure the research sourced,
+    # recorded at the stated ceiling rather than interpolated downward.
+    memory_required_bytes: 2147483648
+    # Storage: MEASURED 2026-09-02 by HTTP HEAD, not sourced from prose.
+    #   kokoro-v1.0.onnx  325,532,387 B
+    #   voices-v1.0.bin    28,214,398 B
+    #                     ------------
+    #                     353,746,785 B
+    # The quantised ONNX variant is 92,361,116 B; the fp32 figure is recorded
+    # because it is what the default acquisition pulls, and admitting an entry
+    # against a smaller file than will actually be downloaded would be wrong.
+    storage_required_bytes: 353746785
+    requires_accelerator: false
+    runtime: in-memory
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+      restrictions: []
+    notes:
+      - "Licence VERIFIED 2026-09-02 against the Hugging Face model API: hexgrad/Kokoro-82M reports license apache-2.0, gated false, private false. The ONNX mirror onnx-community/Kokoro-82M-v1.0-ONNX reports the same. No token, no click-through, no non-commercial clause — this is the commercially-safe default for this family."
+      - "82M parameters, 54 baked-in voices, NO voice cloning of any kind. That is a capability limit, not a defect: every cloning-capable model surveyed is either non-commercial or accelerator-only, so a commercial processor-only caller gets fast natural non-cloning speech and this sentence, rather than a cloning offer that cannot be run or lawfully used."
+      - "Processor-viable at usable speed: ~5x real-time on a 32-core processor per the research. UNVERIFIED: no first-chunk latency was separately sourced FOR A PROCESSOR — the ~28 ms accelerator figure must not be read as a processor figure."
+      - "PENDING-ACQUISITION: no weight digest recorded. ValidateForAcquisition-equivalent gating refuses acquisition until one is captured."
+    annotations:
+      summary: >-
+        82M-parameter speech synthesis with 54 built-in voices, permissively
+        licensed and fast enough to use on a machine with no accelerator.
+      voice_cloning: false
+      voices: 54
+      memory_basis: sourced
+      memory_sourced: "<2 GB VRAM; processor-viable"
+      storage_basis: measured
+      storage_measured: >-
+        353746785 B = kokoro-v1.0.onnx 325532387 + voices-v1.0.bin 28214398,
+        HTTP HEAD Content-Length, 2026-09-02
+      engine: kokoro-onnx
+      integrity_status: pending-acquisition
+
+  - model_id: xtts-v2
+    family: text-to-speech
+    # Figures carried over verbatim from the repository catalogue so the two
+    # records cannot disagree about the same model.
+    memory_required_bytes: 6442450944
+    storage_required_bytes: 2018634138
+    requires_accelerator: true
+    runtime: in-memory
+    usage_terms:
+      license_id: CPML
+      permitted: [research, evaluation, personal]
+      restrictions:
+        - term: non-commercial
+          excludes: [commercial]
+          reference: "Coqui Public Model License (CPML)"
+    notes:
+      - "Present here deliberately, and NOT as an offer to everyone: it is the entry that gives the licence gate something real to withhold, and it is a genuine option for a research or personal caller who has an accelerator. Cloning quality is not a reason to relax the commercial exclusion."
+      - "NON-COMMERCIAL IN PRACTICE and unusually so: CPML contemplates a commercial licence, but Coqui Inc shut down in January 2024, so there is no longer anyone who can sell one."
+      - "This service does NOT implement an XTTS engine. If selection ever resolves to this entry, the service refuses by name with that reason rather than substituting a different model — see tts_engine.EngineUnsupported."
+    annotations:
+      summary: >-
+        Coqui XTTS v2 — high-quality voice cloning from a short sample across
+        17 languages. Available for research, personal and evaluation use only.
+      voice_cloning: true
+      languages: 17
+      memory_basis: sourced
+      storage_basis: sourced
+      engine: none-in-this-service
+      integrity_status: pending-acquisition
+
+# DEFERRED — researched, deliberately NOT an entry
+# ------------------------------------------------
+# piper — the research's recommended pick for the smallest tier, and it is NOT
+# here, because no runtime memory figure was ever measured for it: the record
+# reads only "minimal — runs on a Raspberry Pi 5", and per-voice storage reads
+# "tens of MB". A qualitative claim is not a figure, and an entry admitted
+# against an invented number would be compared to free memory as though the
+# invention were a measurement. It needs a measured resident-set size and a
+# per-voice weight size; both are cheap to obtain and neither was obtained here.
+#
+# CORRECTION TO THE RESEARCH RECORD (§11.4.6): the repository catalogue's
+# deferred piper record and the family statement in `speech_audio.yaml` both
+# state Piper's licence as GPL-3.0. Verified 2026-09-02 against the GitHub
+# licence API for rhasspy/piper: the repository reports SPDX id MIT, not
+# GPL-3.0. The distinction matters — the family statement offers Piper as the
+# option "where a Raspberry-Pi-class footprint matters more than avoiding
+# copyleft", and on the verified licence there is no copyleft to avoid. Note
+# also that Piper's per-VOICE models carry their own separate licences, which
+# are not the repository's licence and must be read per voice at acquisition.
+# That correction belongs in the repository catalogue, which this task had no
+# write access to; it is recorded here so it is not lost.

@@ -1,0 +1,66 @@
+flowchart TB
+%% Adaptive local model serving — which runtime serves a chosen model.
+%%
+%% THE RULE IS NOT SYMMETRIC. The general in-memory path is tried FIRST, always.
+%% The disk-streaming path is a fallback reached only when all three hold:
+%%   (a) the model does NOT fit in available memory, AND
+%%   (b) its family is on the streaming runtime's declared roster, AND
+%%   (c) the host meets that runtime's own per-model floors.
+%% Streaming buys feasibility with throughput, by orders of magnitude — so a
+%% model that fits in memory is served from memory even when it is also on the
+%% roster.
+%%
+%% Two things are deliberately NOT consulted:
+%%   * the entry's own `runtime:` field — honouring it would serve from disk on
+%%     a host with memory to spare;
+%%   * the entry's `architecture` — mixture-of-experts models exist that the
+%%     streaming runtime does not support, and inferring eligibility from
+%%     architecture offers them anyway, turning a selection bug into a
+%%     load-time failure. Eligibility is roster membership and nothing else.
+%%
+%% Source: internal/runtime/choose.go
+    START([Chooser.Choose: host profile + entry + now])
+
+    VALID{"entry validates?"}
+    START --> VALID
+    VALID -->|no| E_DATA["plain error, NOT a refusal:<br/>a catalogue data defect is not<br/>a statement about this host"]
+
+    FRESH{"FreshnessPolicy.ValidateBasis:<br/>measurement complete AND current?"}
+    VALID -->|yes| FRESH
+    FRESH -->|no| R_HOST["<b>host_not_measured</b><br/>carries the capability error<br/>(errors.Is distinguishes<br/>incomplete from stale)<br/>remedy: measure-the-host"]
+
+    ACC{"entry requires an accelerator<br/>AND host has NONE?<br/>(a positive finding — the gate<br/>above rules out 'unknown')"}
+    FRESH -->|yes| ACC
+    ACC -->|yes| R_ACC["<b>unsupported_configuration</b><br/>requirement = accelerator<br/>rules out EVERY path at once<br/>remedy: different-approach"]
+
+    FITS{"(a) memory required<br/><= memory available?"}
+    ACC -->|no| FITS
+
+    STO1{"storage required<br/><= free storage?<br/>weights must be on disk<br/>whichever runtime reads them"}
+    FITS -->|yes| STO1
+    STO1 -->|no| R_STO1["<b>insufficient_resources</b><br/>resource = storage"]
+    STO1 -->|yes| C_MEM(["CHOICE: in-memory<br/>Fallback = false<br/>no tradeoff"])
+
+    ROSTER{"(b) StreamingEligible?<br/>roster membership ONLY —<br/>never architecture"}
+    FITS -->|no| ROSTER
+    ROSTER -->|no| R_ROSTER["<b>unsupported_configuration</b><br/>requirement = streaming-roster<br/>detail = the family name looked up<br/>the fallback has nothing to fall back to<br/>remedy: different-approach"]
+
+    RESIDENT{"(c) resident working set<br/>(25% of the memory requirement<br/>by default) <= memory available?"}
+    ROSTER -->|yes| RESIDENT
+    RESIDENT -->|no| R_RES["<b>insufficient_resources</b><br/>resource = memory<br/>the path EXISTS — a larger host<br/>would take it. That is what separates<br/>this from the roster miss above."]
+
+    STO2{"(c) FULL on-disk footprint<br/><= free storage?<br/>streaming reads weights continuously,<br/>so the whole file must be present"}
+    RESIDENT -->|yes| STO2
+    STO2 -->|no| R_STO2["<b>insufficient_resources</b><br/>resource = storage"]
+
+    C_STR(["CHOICE: streaming<br/>Fallback = true<br/>Tradeoff: cost=throughput,<br/>cause=weights-streamed-from-disk"])
+    STO2 -->|yes| C_STR
+
+    NOTE["Host-responsiveness headroom is NOT applied here.<br/>This answers which path CAN serve.<br/>Holding memory back so the machine stays<br/>usable while it does is selection's policy,<br/>applied on top."]
+
+    classDef refusal fill:#fde2e2,stroke:#c0392b,stroke-width:2px
+    classDef ok fill:#e2f8e8,stroke:#27ae60,stroke-width:2px
+    classDef note fill:#fff8dc,stroke:#b7950b,stroke-dasharray: 4 3
+    class R_HOST,R_ACC,R_ROSTER,R_RES,R_STO1,R_STO2,E_DATA refusal
+    class C_MEM,C_STR ok
+    class NOTE note

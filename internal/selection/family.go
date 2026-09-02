@@ -14,9 +14,11 @@ var familyOrder = []catalogue.CapabilityFamily{
 	catalogue.FamilyText,
 	catalogue.FamilyVision,
 	catalogue.FamilyImageGeneration,
+	catalogue.FamilyVideoGeneration,
 	catalogue.FamilySpeechToText,
 	catalogue.FamilyTextToSpeech,
 	catalogue.FamilyAudioGeneration,
+	catalogue.FamilyAudioClassification,
 	catalogue.FamilyEmbedding,
 	catalogue.FamilyVector,
 }

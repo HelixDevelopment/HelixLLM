@@ -39,6 +39,25 @@ Blackwell / sm_120 notes (§11.4.150 research; see the service README):
     holds the 480p WAN-5B config under the co-resident ceiling. Larger res / longer
     clips push toward/over it → calibrate on the real card (§11.4.6).
 
+WHICH MODEL RUNS IS DECIDED UPSTREAM, AND THIS SERVER HAS NO DEFAULT (FR-056)
+---------------------------------------------------------------------------
+VIDEOGEN_MODEL / _BACKEND / _PRECISION / _SIZE / _NUM_FRAMES / _FPS are the
+OUTPUTS of the measured selection performed by `cmd/videogen-boot` before the
+container is started: it measures the host, joins that measurement against the
+recorded catalogue under the declared usage, and writes the chosen model's
+values for compose to interpolate.
+
+This server therefore carries NO fallback for any of them. A hardcoded default
+model would be a model nobody chose, served on a host nobody measured, at a
+memory cost nobody admitted — precisely what FR-056 forbids. When the decision
+is absent the server starts (so it can be asked WHY) but reports itself
+UNCONFIGURED: `/health` answers HTTP 503 with the missing variables named, and
+`/v1/videos/generations` answers 503 for the same reason. It never picks a
+model to stand in.
+
+VIDEOGEN_CPU_OFFLOAD, VIDEOGEN_MAX_STEPS and VIDEOGEN_PORT keep defaults: they
+say HOW the service runs, and none of them names a model.
+
 Runtime-proof status (§11.4.6 / §11.4.108): the first REAL generation +
 per-variant VRAM calibration (feeding the measured peak to the vrambroker's
 Acquire(needBytes)) is PENDING — it requires an operator-authorized coder-pause
@@ -60,21 +79,76 @@ import uvicorn
 # ---- config (env-injected, no hardcoded model/precision literal — §CONST-046) ----
 
 def _env(name: str, default: str) -> str:
+    """Read an operator knob that legitimately has a default (HOW, never WHICH)."""
     v = os.environ.get(name)
     return v if v is not None and v != "" else default
 
 
-BACKEND = _env("VIDEOGEN_BACKEND", "wan")            # wan | ltx
-MODEL_ID = _env("VIDEOGEN_MODEL", "Wan-AI/Wan2.2-TI2V-5B-Diffusers")
-PRECISION = _env("VIDEOGEN_PRECISION", "fp8")        # fp8 | gguf-q4 | bf16 (default no-pause: WAN-5B fp8@480p)
+def _decided(name: str) -> str | None:
+    """Read one OUTPUT of the upstream measured selection.
+
+    There is deliberately no default: a value invented here would be a model,
+    or a clip shape, that no measurement chose (FR-056). Absence is returned as
+    None and reported, never filled in.
+    """
+    v = os.environ.get(name)
+    return v if v is not None and v != "" else None
+
+
+def _decided_int(name: str) -> int | None:
+    """As _decided, for a whole-number output. A malformed value is an absent
+    decision, not a licence to guess."""
+    raw = _decided(name)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+# --- OUTPUTS of the upstream measured selection: no defaults, ever ---
+BACKEND = _decided("VIDEOGEN_BACKEND")               # wan | ltx
+MODEL_ID = _decided("VIDEOGEN_MODEL")
+PRECISION = _decided("VIDEOGEN_PRECISION")           # fp8 | gguf-q4 | bf16
+DECIDED_SIZE = _decided("VIDEOGEN_SIZE")             # WxH, the shape admitted for
+DECIDED_NUM_FRAMES = _decided_int("VIDEOGEN_NUM_FRAMES")
+DECIDED_FPS = _decided_int("VIDEOGEN_FPS")
+
+# --- operator knobs: HOW the service runs, never WHICH model ---
 CPU_OFFLOAD = _env("VIDEOGEN_CPU_OFFLOAD", "1") == "1"
 DEFAULT_STEPS = int(_env("VIDEOGEN_MAX_STEPS", "30"))
-# WAN uses (4n+1) frame counts; 49 frames @16 fps ~= 3 s. Small default keeps the
-# co-resident 480p peak low (§11.4.6 — the no-coder-pause budget).
-DEFAULT_NUM_FRAMES = int(_env("VIDEOGEN_NUM_FRAMES", "49"))
-DEFAULT_FPS = int(_env("VIDEOGEN_FPS", "16"))
-DEFAULT_SIZE = _env("VIDEOGEN_SIZE", "832x480")      # 480p short-clip default
 LISTEN_PORT = int(_env("VIDEOGEN_PORT", "8080"))
+
+# The decision variables, in the order a reader would want them reported.
+_DECISION_VARS = (
+    ("VIDEOGEN_MODEL", MODEL_ID),
+    ("VIDEOGEN_BACKEND", BACKEND),
+    ("VIDEOGEN_PRECISION", PRECISION),
+    ("VIDEOGEN_SIZE", DECIDED_SIZE),
+    ("VIDEOGEN_NUM_FRAMES", DECIDED_NUM_FRAMES),
+    ("VIDEOGEN_FPS", DECIDED_FPS),
+)
+
+
+def _undecided() -> list[str]:
+    """Names of the selection outputs this container was not given."""
+    return [name for name, value in _DECISION_VARS if value is None]
+
+
+def _unconfigured_reason() -> str | None:
+    """Why this container cannot serve, when no decision reached it."""
+    missing = _undecided()
+    if not missing:
+        return None
+    return (
+        "no measured model decision reached this container: "
+        + ", ".join(missing)
+        + " unset or malformed. This server has no default model — a model nobody "
+        "chose would be served on a host nobody measured, at a memory cost nobody "
+        "admitted (FR-056). Boot through `videogen-boot boot`, which measures this "
+        "host and writes these values."
+    )
 
 
 app = FastAPI(title="helixllm-videogen", version="0.1.0-scaffold")
@@ -104,15 +178,25 @@ def _torch_info():
 def _build_pipeline():
     """Construct the REAL WAN/LTX diffusion pipeline for the configured backend.
 
-    WAN path (Blackwell co-resident 480p default, ~8-10 GB peak):
-      diffusers WanPipeline over Wan-AI/Wan2.2-TI2V-5B-Diffusers (FP8) with the
-      UMT5 text encoder CPU-offloaded.
-    LTX path (alt co-resident, GGUF-Q4):
-      diffusers LTXPipeline over Lightricks/LTX-Video.
+    The backend and the weight repository are both OUTPUTS of the upstream
+    measured selection (VIDEOGEN_BACKEND / VIDEOGEN_MODEL) — no repository is
+    named here, because naming one would make it servable without a
+    measurement. WAN builds load through diffusers WanPipeline, LTX builds
+    through LTXPipeline; which of the two, and over which repository, is the
+    decision's answer and not this function's.
 
-    The exact FP8 / GGUF-Q4 quant asset ids are env-injected (§CONST-046) — no
-    weight id is hardcoded as behaviour here. Any load failure returns a reason
-    string (never a fake pipeline)."""
+    With VIDEOGEN_CPU_OFFLOAD=1 the text encoder and idle stages are offloaded,
+    which is what holds the co-resident 480p configurations under the ceiling
+    their recorded memory figures were taken at.
+
+    Any load failure returns a reason string (never a fake pipeline)."""
+    reason = _unconfigured_reason()
+    if reason is not None:
+        # Unreachable through /v1/videos/generations (which refuses first), but
+        # stated here too so no path can ever construct a pipeline for a model
+        # nobody chose.
+        return None, reason
+
     import torch
 
     torch_dtype = torch.bfloat16
@@ -173,6 +257,14 @@ def _ensure_pipeline():
 @app.get("/health")
 def health():
     tver, cuda, dev, cver, terr = _torch_info()
+
+    # A container that was never told which model to serve is NOT healthy. This
+    # is distinct from "configured but not yet lazily loaded", which stays a
+    # 200 below: that one will serve on the first request, this one never can.
+    unconfigured = _unconfigured_reason()
+    if unconfigured is not None:
+        raise HTTPException(status_code=503, detail=unconfigured)
+
     engine_ready = _pipe is not None
     reason = None
     if not engine_ready:
@@ -199,9 +291,17 @@ def health():
 
 
 class VideoRequest(BaseModel):
+    """A generation request.
+
+    The shape fields default to None, not to a literal: the served shape is the
+    one the upstream selection decided and the broker admitted VRAM for. A
+    request may ask for LESS than that; it may not ask for more (see
+    _resolve_shape).
+    """
+
     prompt: str = Field(..., min_length=1)
     num_frames: int | None = None
-    size: str = DEFAULT_SIZE
+    size: str | None = None
     fps: int | None = None
     steps: int | None = None
     seed: int | None = None
@@ -215,8 +315,46 @@ def _parse_size(size: str) -> tuple[int, int]:
         raise HTTPException(status_code=400, detail=f"bad size {size!r} (want WxH, e.g. 832x480)")
 
 
+def _resolve_shape(req: "VideoRequest") -> tuple[int, int, int, int]:
+    """Resolve the clip shape to generate: (width, height, num_frames, fps).
+
+    The decided shape is the default AND the ceiling. The VRAM this job holds
+    was admitted for the decided shape, so a larger request would exceed a
+    budget the broker granted on different terms — on a shared card that is not
+    a slow render, it is an out-of-memory abort that can take the co-resident
+    coder with it. A smaller request is cheaper than what was admitted and is
+    allowed, so nothing a caller could previously ask for within budget is lost.
+    """
+    dw, dh = _parse_size(DECIDED_SIZE)
+    width, height = (dw, dh) if req.size is None else _parse_size(req.size)
+    num_frames = DECIDED_NUM_FRAMES if req.num_frames is None else int(req.num_frames)
+    fps = DECIDED_FPS if req.fps is None else int(req.fps)
+
+    if num_frames < 1 or fps < 1 or width < 1 or height < 1:
+        raise HTTPException(status_code=400, detail="size, num_frames and fps must all be positive")
+
+    decided_budget = dw * dh * DECIDED_NUM_FRAMES
+    requested_budget = width * height * num_frames
+    if requested_budget > decided_budget:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"requested {width}x{height} x {num_frames} frames exceeds the shape this host was "
+                f"measured and admitted for ({dw}x{dh} x {DECIDED_NUM_FRAMES} frames). The VRAM "
+                "currently held was granted for the smaller shape; serving the larger one would "
+                "exceed a budget nobody admitted. Ask for that shape or less."
+            ),
+        )
+    return width, height, num_frames, fps
+
+
 @app.post("/v1/videos/generations")
 def generate(req: VideoRequest):
+    unconfigured = _unconfigured_reason()
+    if unconfigured is not None:
+        # No model was chosen for this container. Refuse — never substitute one.
+        raise HTTPException(status_code=503, detail=unconfigured)
+
     pipe = _ensure_pipeline()
     if pipe is None:
         # Engine could not load — return the exact reason. NEVER a fake clip.
@@ -228,10 +366,8 @@ def generate(req: VideoRequest):
     import torch
     from diffusers.utils import export_to_video
 
-    width, height = _parse_size(req.size)
+    width, height, num_frames, fps = _resolve_shape(req)
     steps = req.steps or DEFAULT_STEPS
-    num_frames = req.num_frames or DEFAULT_NUM_FRAMES
-    fps = req.fps or DEFAULT_FPS
     generator = None
     if req.seed is not None:
         generator = torch.Generator(device="cpu").manual_seed(int(req.seed))

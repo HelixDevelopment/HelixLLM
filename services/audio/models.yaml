@@ -1,0 +1,89 @@
+# Audio-CLASSIFICATION models THIS SERVICE can serve, in the exact wire shape
+# of `internal/catalogue/data/*.yaml` (see `container/helix_model_gate.py`).
+#
+# Audio classification answers "what sound is this" — a doorbell, breaking
+# glass, an engine, speech versus music. It is NOT speech-to-text, and it is
+# emphatically NOT audio generation. Those last two are separate families on
+# purpose and this file contains no entry from either: classification runs on
+# any processor, generation has no processor-viable option at any RAM size, and
+# a file that mixed them would let a machine with no accelerator be offered
+# something it cannot run.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The repository catalogue loads NO audio-classification entry at all. All
+# three researched candidates were deferred, and for a reason recorded there
+# precisely: no runtime memory figure and no on-disk weight size was sourced
+# for any of them. Of the three, only YAMNet has a confirmed licence — PANNs
+# and CLAP were both recorded as "licence file not read", and a belief about a
+# licence is not a licence, so neither may be offered commercially and neither
+# appears here.
+#
+# The on-disk figures below were MEASURED rather than guessed. The memory
+# figure could not be, and says so.
+
+entries:
+
+  - model_id: yamnet
+    family: audio-classification
+    # MEMORY: NOT A MEASUREMENT. See the note below — this is a deliberately
+    # generous admission ceiling, not a sourced or measured figure.
+    memory_required_bytes: 536870912
+    # STORAGE: MEASURED 2026-09-02 by HTTP HEAD, not sourced from prose.
+    #   lite-model_yamnet_classification_tflite_1.tflite   4,126,810 B
+    #   yamnet_class_map.csv                                  14,096 B
+    #                                                     -------------
+    #                                                       4,140,906 B
+    storage_required_bytes: 4140906
+    requires_accelerator: false
+    runtime: in-memory
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+      restrictions: []
+    notes:
+      - "MEMORY FIGURE IS NOT A MEASUREMENT. It is a conservative admission ceiling of 512 MiB, chosen so its error runs in the safe direction only: it can cause the service to withhold the model from a host that could actually have run it, and can never cause it to offer the model to a host that cannot. The research sourced no figure at all for this model, recording only 'tiny — mobile-targeted'; the honest replacement is a measured resident-set size of the loaded interpreter, which is one profiling run away. Until that run happens this number must not be quoted as a requirement."
+      - "Licence VERIFIED 2026-09-02: YAMNet ships in the TensorFlow Model Garden (tensorflow/models, research/audioset/yamnet) under the repository's Apache-2.0 licence. It is the only entry in this family whose licence the research confirmed, and therefore the only one that may be offered for commercial use."
+      - "CLASS COUNT IS 521, NOT 527. The repository catalogue's deferred yamnet record states 527. Verified 2026-09-02 by fetching yamnet_class_map.csv from tensorflow/models: 522 lines, one header plus 521 classes. 527 is the size of the AudioSet ontology, which is not the same thing as YAMNet's output dimension. The distinction is load-bearing here: the anti-simulation guard checks a returned score vector against the length of the class map actually loaded, so a wrong class count would either reject every real result or accept a fabricated one."
+      - "PENDING-ACQUISITION: no weight digest recorded. Acquisition gating refuses until one is captured."
+    annotations:
+      summary: >-
+        MobileNet-based AudioSet event tagger, small enough to run on a phone.
+        Tags a clip with sound events — speech, music, engine, glass — rather
+        than transcribing words.
+      task: audio-tagging
+      classes: 521
+      memory_basis: conservative-ceiling
+      memory_sourced: '"tiny — mobile-targeted"; no figure sourced'
+      storage_basis: measured
+      storage_measured: >-
+        4140906 B = yamnet tflite 4126810 + class map 14096,
+        HTTP HEAD Content-Length, 2026-09-02
+      engine: litert
+      integrity_status: pending-acquisition
+
+# DEFERRED — researched, deliberately NOT entries
+# -----------------------------------------------
+# panns-cnn14 — ~81M-parameter CNN14 AudioSet tagger. Deferred on TWO axes.
+#   Resources: no memory figure ("~21G multiply-accumulate operations per
+#   10-second clip; no VRAM requirement of note") and no on-disk size. Licence:
+#   the record reads "research release — licence file not read", so commercial
+#   use is withheld pending that reading. Offering it commercially on the
+#   strength of the repository being widely self-hosted would be substituting a
+#   belief for a licence.
+#
+# clap-cnn14 — adds zero-shot audio-to-text-concept matching, so audio can be
+#   classified by a natural-language description instead of a fixed class list.
+#   That is a genuinely more capable shape than YAMNet's and it is worth
+#   closing. Deferred because multiple variants exist under different releases
+#   (LAION and Microsoft among them) and the exact licence of the variant that
+#   would be acquired was never confirmed — WHICH variant is acquired
+#   determines the terms. Resources are unsourced too ("comparable to PANNs —
+#   small").
+#
+# NOTHING FROM audio-generation APPEARS IN THIS FILE, and that is not an
+# oversight. Every generation candidate surveyed requires an accelerator; the
+# cheapest, ACE-Step 2B, still needs roughly 4 GB of accelerator memory, and
+# more host RAM does not substitute for one. A host with no accelerator is owed
+# that reason — the withheld reason is unsupported_configuration, not
+# insufficient_resources — and never an offer from that family.

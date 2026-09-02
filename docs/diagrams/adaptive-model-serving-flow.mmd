@@ -1,0 +1,90 @@
+graph TB
+%% Adaptive local model serving — measurement to runtime.
+%%
+%% THE LOAD-BEARING PROPERTY: the join is ONE-DIRECTIONAL. Selection reads the
+%% measured profile and the catalogue entries and writes back into neither.
+%% Everything host-dependent — fit, headroom, the host-qualified identity —
+%% is produced on the result. That is what makes selection a pure function of
+%% (profile, entries, declared usage) and lets its whole surface, refusals
+%% included, be exercised from fixture hosts with no hardware present.
+%%
+%% Source: internal/capability, internal/catalogue, internal/selection,
+%%         internal/runtime, cmd/*-boot/modelchoice.go
+
+    subgraph Measure["capability — what is here?"]
+        M_CPU["CPU<br/>arch, cores, ISA features"]
+        M_MEM["Memory<br/>total + available NOW"]
+        M_STO["Storage<br/>free on the weights filesystem<br/>SEPARATE axis from memory"]
+        M_ACC["Accelerators<br/>bound by stable DeviceIdentity<br/>never an enumeration index"]
+        M_STATE["AcceleratorState<br/>measured | unknown<br/>'none' is a finding, 'unknown' is not"]
+        M_TIME["MeasuredAt + MeasurementComplete<br/>a failed axis stays MISSING,<br/>never defaulted"]
+    end
+
+    subgraph Cat["catalogue — what could be run?"]
+        C_LOAD["strict YAML loader<br/>unknown key = error<br/>all-or-nothing load"]
+        C_ENTRY["Entry<br/>family, memory AND storage,<br/>requires_accelerator, runtime,<br/>usage terms, roster membership"]
+        C_ROSTER["streaming_roster (DATA)<br/>the ONLY streaming-eligibility test"]
+        C_VAL["Validate()<br/>enough to OFFER"]
+        C_ACQ["ValidateForAcquisition()<br/>Validate + source + complete digest<br/>enough to FETCH"]
+    end
+
+    subgraph Sel["selection — the pure join"]
+        S_REQ["Request<br/>profile + entries + declared usage<br/>+ optional pin + reserve + max age"]
+        S_GATE["host gates<br/>ValidateForSelection, then freshness"]
+        S_EVAL["per entry, in order:<br/>1 configuration  2 fit  3 terms"]
+        S_OUT["FamilyResult<br/>Offered[] with headroom + identity<br/>OR Refusal naming what is missing"]
+    end
+
+    subgraph Run["runtime — which path serves it?"]
+        R_MEM["in-memory<br/>tried FIRST, always"]
+        R_STR["streaming (fallback)<br/>only if: does not fit memory<br/>AND on roster AND meets floors"]
+        R_TRADE["Tradeoff<br/>cost=throughput<br/>cause=weights-streamed-from-disk"]
+    end
+
+    subgraph Boot["cmd/*-boot — the operator's view"]
+        B_PLAN["plan: measure, decide, report<br/>boots nothing"]
+        B_PREFER["prefer(): largest memory<br/>requirement first"]
+        B_LOCATE["locate the CHOSEN model's files<br/>never 'run whatever is in the dir'"]
+        B_OUT["writes MODEL_GGUF / MMPROJ<br/>as OUTPUTS of the decision"]
+    end
+
+    M_CPU --> M_TIME
+    M_MEM --> M_TIME
+    M_STO --> M_TIME
+    M_ACC --> M_STATE
+    M_STATE --> M_TIME
+
+    C_LOAD --> C_ENTRY
+    C_ROSTER -.resolves.-> C_ENTRY
+    C_ENTRY --> C_VAL
+    C_VAL --> C_ACQ
+
+    M_TIME -->|"READ ONLY"| S_REQ
+    C_VAL -->|"READ ONLY"| S_REQ
+
+    S_REQ --> S_GATE
+    S_GATE --> S_EVAL
+    S_EVAL --> S_OUT
+
+    S_OUT --> B_PREFER
+    B_PREFER --> B_LOCATE
+    B_LOCATE --> B_OUT
+    S_OUT --> B_PLAN
+
+    S_OUT --> R_MEM
+    R_MEM -->|"does not fit memory"| R_STR
+    R_STR --> R_TRADE
+
+    C_ACQ -.->|"gates FETCHING only,<br/>not offering"| B_LOCATE
+
+    NOWRITE["selection NEVER writes back<br/>into measurement or catalogue"]
+    S_EVAL -.-x NOWRITE
+    NOWRITE -.-x M_TIME
+    NOWRITE -.-x C_ENTRY
+
+    classDef gate fill:#fde2e2,stroke:#c0392b,stroke-width:2px
+    classDef data fill:#e8f4fd,stroke:#2980b9
+    classDef note fill:#fff8dc,stroke:#b7950b,stroke-dasharray: 4 3
+    class S_GATE,C_ACQ gate
+    class C_ROSTER,C_ENTRY data
+    class NOWRITE note

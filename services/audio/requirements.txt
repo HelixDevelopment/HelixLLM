@@ -1,0 +1,23 @@
+# HelixLLM audio-classification service dependencies — PINNED (no floating installs).
+#
+# YAMNet runs through LiteRT (the official TensorFlow Lite successor) on the
+# PROCESSOR. There is deliberately no torch, no CUDA wheel, and no full
+# TensorFlow here: this family is meant to serve EVERY host class down to a
+# machine with no accelerator and 8 GB of RAM, and pulling a multi-gigabyte
+# training framework to run a ~4 MB model would make the smallest supported
+# tier the one that cannot run it.
+#
+# ai-edge-litert 2.2.0 is the latest release as of 2026-09-02 (verified against
+# the PyPI JSON API) and is Apache-2.0. It supports Python up to 3.11, which is
+# why this service's base image pins 3.11 while the text-to-speech service uses
+# 3.12.
+ai-edge-litert==2.2.0
+numpy==2.2.6
+
+# Catalogue parsing (the shared wire schema in container/helix_model_gate.py).
+PyYAML==6.0.2
+
+# Minimal HTTP shim.
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4

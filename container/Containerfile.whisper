@@ -27,16 +27,29 @@ RUN pip install --no-cache-dir \
       "requests==2.32.3" \
       "fastapi==0.115.6" \
       "uvicorn==0.34.0" \
-      "python-multipart==0.0.20"
+      "python-multipart==0.0.20" \
+      "PyYAML==6.0.2"
 
-ENV WHISPER_MODEL=base \
-    WHISPER_DEVICE=cpu \
-    WHISPER_COMPUTE_TYPE=int8 \
-    WHISPER_NO_SPEECH_THRESHOLD=0.6 \
+# NOTE (T079 / FR-056): the former `WHISPER_MODEL=base` default is GONE on
+# purpose. A configuration value naming the model to run is exactly the static
+# selection this feature replaces. The model is now resolved by
+# stt_catalogue_wiring from the MEASURED host and the declared usage purpose
+# over the catalogue mounted at HELIXLLM_CATALOGUE_PATHS; when nothing can be
+# chosen the server reports why and refuses, rather than starting `base`.
+#
+# WHISPER_DEVICE / WHISPER_COMPUTE_TYPE remain available as operator PINS and
+# are intentionally left unset so the wiring derives them from the host —
+# pinning a device or a numeric precision is not naming a model.
+ENV WHISPER_NO_SPEECH_THRESHOLD=0.6 \
+    HELIXLLM_CATALOGUE_PATHS=/app/catalogue/speech_audio.yaml \
+    HELIXLLM_USAGE_PURPOSE=commercial \
+    HELIXLLM_WEIGHTS_DIR=/models \
     HF_HOME=/models/hf \
     OMP_NUM_THREADS=4
 
 WORKDIR /app
+COPY helix_model_gate.py /app/helix_model_gate.py
+COPY stt_catalogue_wiring.py /app/stt_catalogue_wiring.py
 COPY whisper_stt_server.py /app/app.py
 
 EXPOSE 8000

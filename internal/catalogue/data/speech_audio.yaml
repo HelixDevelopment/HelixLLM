@@ -320,6 +320,54 @@ entries:
       streaming_note: "Speech families are absent from the streaming runtime's roster."
       integrity_status: pending-acquisition
       catalogue_status: verified
+  # Promoted from the deferred block 2026-09-02. It was deferred solely for want
+  # of an on-disk weight size; that figure has since been measured.
+  #
+  # PROVENANCE, stated fully because this figure is SINGLE-SOURCED: the two
+  # weight files were measured by HTTP HEAD against the ONNX mirror on
+  # 2026-09-02 — graph 325,532,387 B + voices 28,214,398 B = 353,746,785 B.
+  # Re-verification from the build host was INCONCLUSIVE (its network returns a
+  # 15-byte error page instead of headers), so this is one measurement, not two
+  # agreeing ones. Recorded rather than estimated, with the method named so it
+  # can be re-run where the network permits.
+  #
+  # WHY THIS ENTRY MATTERS: before it, the only loading text-to-speech entry was
+  # xtts-v2 under CPML — non-commercial, and unlicensable since Coqui shut down.
+  # A commercial caller asking for speech synthesis received NOTHING from this
+  # catalogue: a correct refusal, but an empty family where a commercially-safe,
+  # processor-viable option genuinely exists.
+  - model_id: kokoro-82m
+    family: text-to-speech
+    architecture: dense
+    descriptor:
+      parameter_count: 82000000
+      quantisation: fp32
+      specialisations: [speech-synthesis]
+    memory_required_bytes: 2147483648
+    storage_required_bytes: 353746785
+    requires_accelerator: false
+    source: https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX
+    usage_terms:
+      license_id: Apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      modalities: [audio]
+    integrity:
+      algorithm: sha256
+    notes:
+      - "storage measured by HTTP HEAD 2026-09-02: graph 325532387 + voices 28214398 = 353746785 bytes"
+      - "single-sourced: re-verification from the build host was inconclusive (restricted network)"
+      - "memory figure sourced as '<2 GB VRAM; processor-viable'"
+      - "processor-viable at usable speed: ~5x real-time on a 32-core CPU"
+      - "54 baked-in voices; NO voice cloning of any kind"
+      - "licence Apache-2.0 confirmed via the HF model API 2026-09-02 (gated=false, private=false)"
+    annotations:
+      storage_basis: measured
+      commercial_safe: true
+      weight_files: "onnx/kokoro-v1.0.onnx + onnx/voices-v1.0.bin"
+
+
 
 # ===========================================================================
 # DEFERRED — researched, NOT loadable, nothing discarded
@@ -718,7 +766,8 @@ entries:
 #   # ---------------------------------------------------------------- text-to-speech
 #
 # ---------------------------------------------------------------------------
-# 9. kokoro-82m  [text-to-speech]
+# 9. kokoro-82m  [text-to-speech]  — PROMOTED 2026-09-02, now a loading entry above.
+#    Archived record kept verbatim; its NEEDS line is satisfied (storage measured).
 #    NEEDS: an on-disk weight size. The memory figure IS sourced ("<2 GB VRAM; processor-viable", 2147483648 B); storage reads "not sourced". Storage is checked in its own right and is never derived from the memory figure (D2).
 #
 #   - model_id: kokoro-82m

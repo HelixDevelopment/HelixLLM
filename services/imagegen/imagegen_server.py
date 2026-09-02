@@ -81,10 +81,25 @@ import uvicorn
 def _env(name: str, default: str) -> str:
     v = os.environ.get(name)
     return v if v is not None and v != "" else default
+def _decided(name: str) -> str | None:
+    """Read one OUTPUT of the upstream measured selection.
+
+    There is deliberately no default. A value invented here would be a model —
+    or a precision, which determines the memory footprint admission was granted
+    for — that no host was ever measured against (FR-056). Absence is returned
+    as None and reported, never filled in.
+
+    The boot binary was migrated onto measured selection; this helper closes the
+    same hole one layer down, where an operator running the service directly
+    would otherwise still be handed a model nothing chose.
+    """
+    v = os.environ.get(name)
+    return v if v is not None and v != "" else None
 
 
-MODEL_ID = _env("IMAGEGEN_MODEL", "black-forest-labs/FLUX.1-schnell")
-PRECISION = _env("IMAGEGEN_PRECISION", "nvfp4")  # nvfp4 | nf4 | bf16 (Blackwell -> nvfp4)
+
+MODEL_ID = _decided("IMAGEGEN_MODEL")
+PRECISION = _decided("IMAGEGEN_PRECISION")  # nvfp4 | nf4 | bf16 — decided, never defaulted
 QUANTIZE_T5 = _env("IMAGEGEN_QUANTIZE_T5", "1") == "1"
 CPU_OFFLOAD = _env("IMAGEGEN_CPU_OFFLOAD", "1") == "1"
 # schnell is a few-step distilled model — its own model card (verified

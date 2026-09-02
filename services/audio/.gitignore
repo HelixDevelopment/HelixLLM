@@ -1,0 +1,17 @@
+# §11.4.30 / CONST-053 repository hygiene.
+#
+# Model artefacts (the YAMNet TFLite graph and its class map, ~4 MiB together)
+# are NEVER versioned — they are published third-party artefacts pulled on
+# demand. §11.4.77 regeneration mechanism: .gitignore-meta/yamnet_litert.yaml
+# plus the harness setup step.
+models/
+*.tflite
+*.onnx
+*.pb
+*.h5
+yamnet_class_map.csv
+
+# Python caches / build artefacts.
+__pycache__/
+*.pyc
+.venv/

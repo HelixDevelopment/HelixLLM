@@ -1,0 +1,81 @@
+# HelixLLM AUDIO-CLASSIFICATION capability — YAMNet served through LiteRT on
+# the PROCESSOR. Minimal FastAPI shim (audio_server.py) exposing
+# `POST /v1/audio/classifications` plus `GET /health` on 8080.
+#
+# Booted ON-DEMAND through the containers submodule compose.Orchestrator
+# (§11.4.76), rootless podman (§11.4.161) — NEVER a hand-run `podman run` or
+# `docker` command as a workflow.
+#
+# ─── Why this image is small, and why that is the point ─────────────────────
+# Audio classification is the one audio family that is mature, cheap and
+# processor-viable on EVERY host class, including a machine with no accelerator
+# and 8 GB of RAM. This image reflects that: no CUDA base, no torch, no full
+# TensorFlow — just LiteRT over a ~4 MB model. Building it on a GPU runtime
+# would make the smallest supported tier, the one this service exists to serve,
+# the one that cannot run it.
+#
+# It also does NOT serve audio GENERATION, and that is structural rather than a
+# scope cut. Every generation model surveyed requires an accelerator; the
+# cheapest still needs roughly 4 GB of accelerator memory, and more host RAM
+# does not substitute for one. Keeping the two families apart is what lets a
+# processor-only host be told that reason instead of being offered something it
+# cannot run. /health carries the statement.
+#
+# ─── BUILD CONTEXT ──────────────────────────────────────────────────────────
+# Build from the REPOSITORY ROOT, not from this directory:
+#
+#     podman build -f services/audio/Containerfile -t helixllm-audio .
+#
+# The root context is required because this service, the text-to-speech service
+# and the speech-to-text wiring share ONE model/licence schema
+# (container/helix_model_gate.py). They were built together on purpose: an
+# earlier attempt split the audio families across separate efforts and produced
+# four mutually incompatible schemas, none of which could gate the others'
+# offers.
+
+# Python 3.11: ai-edge-litert 2.2.0 publishes wheels for 3.8-3.11 (verified
+# against the PyPI JSON API, 2026-09-02). Pinned rather than floated so a base
+# bump cannot silently drop the runtime to a source build.
+FROM docker.io/library/python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Where artefacts live. Note what these do NOT do: none of them names the
+    # model to run. That is decided by measuring the host and applying the
+    # declared usage purpose over the catalogue (FR-056).
+    HELIXLLM_AUDIO_WEIGHTS_DIR=/models/audio \
+    HELIXLLM_CATALOGUE_PATHS=/app/models.yaml:/app/catalogue/speech_audio.yaml \
+    HELIXLLM_GATE_DIR=/app \
+    HELIXLLM_USAGE_PURPOSE=commercial \
+    HELIXLLM_AUDIO_PORT=8080
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY services/audio/requirements.txt /app/requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /app/requirements.txt
+
+WORKDIR /app
+# The ONE shared model/licence schema, used identically by this service, the
+# text-to-speech service and the speech-to-text wiring.
+COPY container/helix_model_gate.py /app/helix_model_gate.py
+COPY services/audio/models.yaml /app/models.yaml
+COPY services/audio/audio_engine.py /app/audio_engine.py
+COPY services/audio/audio_server.py /app/audio_server.py
+
+# The repository catalogue is MOUNTED at /app/catalogue rather than copied: it
+# is owned by internal/catalogue/data and must not be forked into an image that
+# would then drift from it.
+RUN mkdir -p /app/catalogue /models/audio \
+    && useradd -m -u 10003 audio \
+    && chown -R audio /models /app/catalogue
+USER audio
+
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --retries=20 \
+  CMD curl -fsS http://localhost:8080/health || exit 1
+
+CMD ["python3", "audio_server.py"]

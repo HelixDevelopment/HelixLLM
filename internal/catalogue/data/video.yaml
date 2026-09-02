@@ -155,6 +155,7 @@ entries:
     memory_required_bytes: 10737418240
     storage_required_bytes: 34203021834
     requires_accelerator: true
+    source: https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers
     usage_terms:
       license_id: Apache-2.0
       permitted: [commercial, personal, research, evaluation]
@@ -221,6 +222,7 @@ entries:
     memory_required_bytes: 8589934592
     storage_required_bytes: 27917287424
     requires_accelerator: true
+    source: https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B-Diffusers
     usage_terms:
       license_id: Apache-2.0
       permitted: [commercial, personal, research, evaluation]
@@ -277,6 +279,12 @@ entries:
     memory_required_bytes: 10737418240
     storage_required_bytes: 28454670336
     requires_accelerator: true
+    # NO source: DELIBERATELY. The obvious URL — huggingface.co/Lightricks/LTX-Video —
+    # contains NO .gguf file at all; LTXPipeline.from_pretrained() on that id resolves the
+    # diffusers-format subtree (a smaller transformer), not the 13B GGUF-Q4 build this entry
+    # records. Recording it would point the allowlist at weights that do not serve this
+    # entry — a source that passes the gate and then fails at load. This entry stays
+    # unservable until a source that actually serves the recorded build is established.
     usage_terms:
       license_id: LTX-Video-Open-Weights-License-0.X
       permitted: [personal, research, evaluation]

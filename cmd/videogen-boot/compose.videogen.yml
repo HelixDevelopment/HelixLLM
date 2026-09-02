@@ -4,11 +4,23 @@
 # spec. Distinct from the coder (:18434) and the image-gen sibling (:18442) —
 # §11.4.119 single-resource-owner.
 #
-# NO hardcoded model / precision / host-port literal (§CONST-045 / §CONST-046):
-# every value is injected from the environment by run_proof.sh; the ${VAR}
-# forms are always set by the harness before boot. The GPU reservation is
-# admitted by the vrambroker (ClassVideo) BEFORE this file is `up`'d
-# (cmd/videogen-boot).
+# NO hardcoded model / precision / clip-shape / host-port literal
+# (§CONST-045 / §CONST-046). Two different kinds of ${VAR} appear below:
+#
+#   DECIDED — VIDEOGEN_MODEL, _BACKEND, _PRECISION, _SIZE, _NUM_FRAMES, _FPS are
+#     written by `videogen-boot boot` from the MEASURED selection (FR-056): it
+#     measures this host, joins that against the recorded catalogue under the
+#     declared usage, and writes the chosen model's values here for
+#     interpolation. A value already in the environment is reported as
+#     IGNORED-CONFIG and overwritten — configuration may say WHERE things live,
+#     never WHICH model runs. There is no default: when nothing can be chosen,
+#     `videogen-boot` exits non-zero with the reason and this file is never
+#     `up`'d.
+#   OPERATOR — VIDEOGEN_CPU_OFFLOAD, _MAX_STEPS, _HOST_PORT, _MEM_LIMIT,
+#     _SHM_SIZE, HF_TOKEN say HOW and WHERE the service runs. None names a model.
+#
+# The GPU reservation is admitted by the vrambroker (ClassVideo) for the CHOSEN
+# model's recorded requirement BEFORE this file is `up`'d (cmd/videogen-boot).
 services:
   videogen:
     build:
@@ -16,14 +28,14 @@ services:
       dockerfile: Containerfile
     image: helixllm-videogen:wan-fp8
     environment:
-      VIDEOGEN_BACKEND: "${VIDEOGEN_BACKEND}"          # wan | ltx
-      VIDEOGEN_MODEL: "${VIDEOGEN_MODEL}"
-      VIDEOGEN_PRECISION: "${VIDEOGEN_PRECISION}"      # Blackwell no-pause: fp8 / gguf-q4
-      VIDEOGEN_CPU_OFFLOAD: "${VIDEOGEN_CPU_OFFLOAD}"
-      VIDEOGEN_MAX_STEPS: "${VIDEOGEN_MAX_STEPS}"
-      VIDEOGEN_NUM_FRAMES: "${VIDEOGEN_NUM_FRAMES}"
-      VIDEOGEN_FPS: "${VIDEOGEN_FPS}"
-      VIDEOGEN_SIZE: "${VIDEOGEN_SIZE}"
+      VIDEOGEN_BACKEND: "${VIDEOGEN_BACKEND}"          # DECIDED — wan | ltx
+      VIDEOGEN_MODEL: "${VIDEOGEN_MODEL}"              # DECIDED — the chosen entry's recorded source
+      VIDEOGEN_PRECISION: "${VIDEOGEN_PRECISION}"      # DECIDED — the chosen build's quantisation
+      VIDEOGEN_NUM_FRAMES: "${VIDEOGEN_NUM_FRAMES}"    # DECIDED — the shape admission was granted for
+      VIDEOGEN_FPS: "${VIDEOGEN_FPS}"                  # DECIDED
+      VIDEOGEN_SIZE: "${VIDEOGEN_SIZE}"                # DECIDED
+      VIDEOGEN_CPU_OFFLOAD: "${VIDEOGEN_CPU_OFFLOAD}"  # OPERATOR
+      VIDEOGEN_MAX_STEPS: "${VIDEOGEN_MAX_STEPS}"      # OPERATOR
       HF_HOME: /models/hf
       HF_TOKEN: "${HF_TOKEN}"                          # §11.4.10 — from .env, never committed/logged
     ports:

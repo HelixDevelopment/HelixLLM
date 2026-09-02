@@ -1,0 +1,49 @@
+# §11.4.77 regeneration-mechanism manifest for the gitignored Kokoro-82M ONNX
+# weights consumed by the text-to-speech service. A fresh clone obtains them by
+# download (no in-repo bytes); the harness setup step plus the container's
+# weights volume make the download one-time.
+schema_version: 1
+entry_slug: kokoro_onnx
+pattern: "services/tts/models/** *.onnx *.bin"
+mechanism_type: download            # download from the published release assets
+requires_network: true
+requires_credentials: false         # VERIFIED 2026-09-02 via the Hugging Face
+                                    #   model API: hexgrad/Kokoro-82M reports
+                                    #   "gated": false, "private": false. Unlike
+                                    #   the FLUX weights used by the image-gen
+                                    #   service, NO token and NO click-through
+                                    #   agreement is required here.
+expected_disk_usage: "~338 MiB (353,746,785 B: ONNX graph 325,532,387 + voice pack 28,214,398)"
+
+sources:
+  - name: kokoro_onnx_graph
+    url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+    size_bytes: 325532387
+    why: "the Kokoro-82M ONNX graph the service runs on the processor"
+    note: >-
+      size_bytes is MEASURED, not estimated: HTTP HEAD Content-Length on
+      2026-09-02. This is the figure that let kokoro-82m become a catalogue
+      entry at all — the repository catalogue defers it for want of exactly
+      this number, having sourced only the memory figure.
+  - name: kokoro_voice_pack
+    url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+    size_bytes: 28214398
+    why: "the 54 baked-in voice embeddings; without it the graph cannot speak"
+    note: "HTTP HEAD Content-Length, 2026-09-02."
+  - name: kokoro_upstream_model
+    repo: hexgrad/Kokoro-82M
+    why: "the authoritative model repository and licence of record (Apache-2.0)"
+    note: >-
+      The ONNX mirror onnx-community/Kokoro-82M-v1.0-ONNX also reports
+      license apache-2.0 / gated false, and publishes a quantised graph at
+      92,361,116 B (onnx/model_quantized.onnx) for hosts where the ~310 MiB
+      fp32 graph is too large. The service records the fp32 figure because
+      that is what the default acquisition pulls; admitting an entry against
+      a smaller file than will actually be downloaded would be wrong.
+
+# Verify the LATEST asset ids before download (§11.4.99) — release asset URLs
+# and filenames move. The service README carries the "Sources verified" footer.
+# integrity_hash is intentionally left to first-download capture: the published
+# release is the authoritative source, and fabricating a digest would defeat
+# the check it exists to perform.
+integrity_hash: "PENDING: capture sha256 of both assets at first download"

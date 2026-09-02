@@ -1,0 +1,80 @@
+flowchart TB
+%% Adaptive local model serving — the refusal decision tree.
+%%
+%% THE POINT: there are exactly THREE withheld reasons and they are NOT
+%% interchangeable. Each implies a different remedy, so collapsing them into one
+%% generic "unavailable" destroys the only part of the answer a user can act on.
+%%
+%% Check order is deliberate: configuration, then fit, then terms. An entry
+%% withheld for its licence is one that genuinely WOULD have run here — which is
+%% what makes "a different model or a different declared usage" an honest remedy
+%% rather than a guess.
+%%
+%% Source: internal/selection/{select,family,fit,terms,pin,option}.go
+%%         cmd/*-boot/modelchoice.go (exit codes)
+    START([Select: profile + entries + declared usage])
+
+    USAGE{"declared usage<br/>present?"}
+    START --> USAGE
+    USAGE -->|no| E_USAGE["ErrNoDeclaredUsage<br/>terms cannot be applied<br/>exit 22"]
+
+    MEASURED{"ValidateForSelection:<br/>measurement complete AND<br/>accelerator state MEASURED?"}
+    USAGE -->|yes| MEASURED
+    MEASURED -->|no| H_NOTMEAS["HOST REFUSAL<br/>host_not_measured<br/>cause: measurement-incomplete /<br/>accelerator-state-unknown / …<br/>exit 20"]
+
+    FRESH{"reading age<br/>within MaxProfileAge?<br/>(default 5s)"}
+    MEASURED -->|yes| FRESH
+    FRESH -->|no| H_STALE["HOST REFUSAL<br/>measurement_stale<br/>carries age vs limit<br/>exit 21"]
+
+    PIN{"pin set?"}
+    FRESH -->|yes| PIN
+    PIN -->|"yes, matches nothing"| W_PINMISS["unsupported_configuration<br/>requirement = catalogue-entry<br/>no entry to measure against"]
+    PIN -->|"yes, matched"| CANDS["candidate set = the pinned entry<br/>(a CONSTRAINT, not a bypass —<br/>every check below still applies)"]
+    PIN -->|no| CANDS
+
+    EMPTY{"any candidate<br/>in this family?"}
+    CANDS --> EMPTY
+    EMPTY -->|no| W_NOCAND["unsupported_configuration<br/>requirement = catalogue-entry"]
+
+    CONF{"1 CONFIGURATION<br/>accelerator required and host<br/>measured to have none?<br/>OR streaming runtime and<br/>family not on the roster?"}
+    EMPTY -->|yes| CONF
+    CONF -->|yes| R_CONF
+
+    MEM{"2a MEMORY<br/>required <= available<br/>minus 15% of TOTAL?"}
+    CONF -->|no| MEM
+    MEM -->|no| R_RES_M
+
+    STO{"2b STORAGE<br/>required <= free<br/>minus 5% of FREE?<br/>(never derived from memory)"}
+    MEM -->|yes| STO
+    STO -->|no| R_RES_S
+
+    TERMS{"3 USAGE TERMS<br/>licence permits the<br/>declared purpose?"}
+    STO -->|yes| TERMS
+    TERMS -->|no| R_TERMS
+
+    OFFER(["OFFERED<br/>helixllm/host/model:variant<br/>+ headroom + terms + expected capability"])
+    TERMS -->|yes| OFFER
+
+    R_CONF["<b>unsupported_configuration</b><br/>nothing here can run it<br/>MORE MEMORY DOES NOT HELP<br/>remedy: different-approach"]
+    R_RES_M["<b>insufficient_resources</b> — MEMORY<br/>names required / available-after-reserve / reserved<br/>remedy: change-host-or-pick-smaller"]
+    R_RES_S["<b>insufficient_resources</b> — STORAGE<br/>a model can fit memory 10x over<br/>and still be refused on disk<br/>remedy: change-host-or-pick-smaller"]
+    R_TERMS["<b>excluded_by_usage_terms</b><br/>THE HOST COULD SERVE IT<br/>names licence, the EXCLUDING term,<br/>granted?, threshold, clause ref<br/>remedy: different-model-or-declared-usage"]
+
+    FAMILY{"family: anything offered?"}
+    OFFER --> FAMILY
+    R_CONF --> FAMILY
+    R_RES_M --> FAMILY
+    R_RES_S --> FAMILY
+    R_TERMS --> FAMILY
+    W_NOCAND --> FAMILY
+    W_PINMISS --> FAMILY
+
+    FAMILY -->|yes| DONE([FamilyResult.Offered])
+    FAMILY -->|no| CLOSEST["FamilyRefusal reports the reason<br/>CLOSEST to satisfiable:<br/>terms > resources > unsupported<br/>— never send a user to buy hardware<br/>when the obstacle is a licence<br/>exit 22"]
+
+    classDef refusal fill:#fde2e2,stroke:#c0392b,stroke-width:2px
+    classDef host fill:#f4e2fd,stroke:#8e44ad,stroke-width:2px
+    classDef ok fill:#e2f8e8,stroke:#27ae60,stroke-width:2px
+    class R_CONF,R_RES_M,R_RES_S,R_TERMS,W_NOCAND,W_PINMISS,CLOSEST refusal
+    class H_NOTMEAS,H_STALE,E_USAGE host
+    class OFFER,DONE ok
