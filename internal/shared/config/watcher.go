@@ -129,6 +129,16 @@ func loadFromFile(path string) (*HelixConfig, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
+	// The placeholder guard runs on the file path too, so a hot reload cannot
+	// install a config whose secret is a literal "${...}" token. Only the
+	// placeholder check runs here, not the full Validate(): the watcher has
+	// always accepted partial configs (a JSON file carrying only the fields an
+	// operator wants to change), and tightening that is a separate decision
+	// from this security fix. The placeholder rule is the part that must hold
+	// on every path.
+	if err := checkNoUnexpandedPlaceholders(cfg); err != nil {
+		return nil, fmt.Errorf("config file %s: %w", path, err)
+	}
 	return cfg, nil
 }
 

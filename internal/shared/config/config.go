@@ -202,6 +202,12 @@ func Load() (*HelixConfig, error) {
 
 // Validate checks that the configuration values are semantically valid.
 func (c *HelixConfig) Validate() error {
+	// Checked first so that a value like HELIX_MODE="${HELIX_MODE}" is reported
+	// as the substitution failure it is, rather than as a confusing
+	// "invalid mode" further down. See placeholder.go for the scope rationale.
+	if err := checkNoUnexpandedPlaceholders(c); err != nil {
+		return err
+	}
 	validModes := map[string]bool{
 		"full": true, "gateway": true, "brain": true,
 		"knowledge": true, "agents": true, "control": true,
