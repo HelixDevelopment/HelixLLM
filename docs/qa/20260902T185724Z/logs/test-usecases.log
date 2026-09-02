@@ -1,0 +1,4 @@
+./bin/helixllm --challenges --banks-dir=challenges/banks/workflows/ --base-url=${HELIX_BASE_URL:-https://localhost:8443}
+/bin/sh: 1: ./bin/helixllm: not found
+make: *** [Makefile:58: test-usecases] Error 127
+EXIT_CODE=2 DURATION_SEC=0

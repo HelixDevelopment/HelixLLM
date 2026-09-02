@@ -1,0 +1,4 @@
+./bin/helixllm --challenges --banks-dir=challenges/banks/ --base-url=https://localhost:8443
+make: ./bin/helixllm: No such file or directory
+make: *** [Makefile:61: test-challenges] Error 127
+EXIT_CODE=2 DURATION_SEC=0

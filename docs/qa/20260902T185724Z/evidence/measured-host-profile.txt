@@ -1,0 +1,18 @@
+=== COMMAND: go test ./internal/capability/ -run 'OnThisMachine' -v -count=1 ===
+=== HOST: anton UTC: Wed Sep  2 06:58:44 PM UTC 2026 ===
+
+--- nvidia-smi ground truth (independent of the code under test) ---
+name, memory.total [MiB], memory.free [MiB], driver_version
+NVIDIA GeForce RTX 3060, 12288 MiB, 11750 MiB, 595.84
+
+--- measured profile as the code actually produced it ---
+=== RUN   TestMeasure_OnThisMachineProducesAUsableProfile
+    measure_test.go:51: host="anton" arch=amd64 cores=8/16 mem=16384622592/32478781440 storage=1248688152576 accel=1
+--- PASS: TestMeasure_OnThisMachineProducesAUsableProfile (0.04s)
+=== RUN   TestMeasureAccelerators_OnThisMachine
+    measure_accelerator_test.go:216: state=measured devices=1 gaps=[]
+    measure_accelerator_test.go:218:   identity="GPU-18c33a3a-313e-7a51-1a11-82a08ad1775c" model="NVIDIA GeForce RTX 3060" api=cuda total=12884901888 available=12320768000
+--- PASS: TestMeasureAccelerators_OnThisMachine (0.04s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/capability	0.092s
+EXIT=0

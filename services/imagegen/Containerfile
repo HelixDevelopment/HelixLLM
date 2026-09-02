@@ -53,10 +53,18 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HF_HOME=/models/hf \
     # from-source ops target Blackwell only — never a Hopper/Ada fallback arch.
     TORCH_CUDA_ARCH_LIST=12.0 \
-    # imagegen runtime config (all overridable via compose env — no hardcoded
-    # model/precision literal baked in as behaviour, §CONST-046 / §11.4.6):
-    IMAGEGEN_MODEL=black-forest-labs/FLUX.1-dev \
-    IMAGEGEN_PRECISION=nvfp4 \
+    # Operator knobs only — HOW to serve, never WHICH model.
+    #
+    # IMAGEGEN_MODEL and IMAGEGEN_PRECISION are DELIBERATELY ABSENT. They are
+    # OUTPUTS of measured selection, written by imagegen-boot from the chosen
+    # option. Baking them here defeats the refusal path entirely: the service's
+    # _decided() helper refuses when nothing chose, but an image that always sets
+    # the variable means _decided() always reads a value, so the refusal is
+    # UNREACHABLE and running this image directly serves a model no host was ever
+    # measured against.
+    #
+    # (The comment previously here claimed no model or precision literal was
+    # baked in as behaviour. Two lines below it, both were.)
     IMAGEGEN_QUANTIZE_T5=1 \
     IMAGEGEN_CPU_OFFLOAD=1 \
     IMAGEGEN_MAX_STEPS=28

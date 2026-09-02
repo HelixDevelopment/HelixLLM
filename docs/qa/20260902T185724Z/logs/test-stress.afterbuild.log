@@ -1,0 +1,4 @@
+./bin/helixllm --challenges --banks-dir=challenges/banks/benchmarks/ --base-url=${HELIX_BASE_URL:-https://localhost:8443}
+
+3 passed, 0 failed, 0 skipped
+EXIT_CODE=0 DURATION_SEC=0

@@ -1,0 +1,13 @@
+unit statement coverage — two readings taken during this sweep
+
+  83.4%  reported by 'make coverage' at 19:05Z (its own test-unit run)
+  83.5%  computed from the coverage-unit.out left by the confirming
+         test-unit re-run at 19:06Z (5 more tests had appeared in the tree)
+
+  Makefile COVERAGE_THRESHOLD = 91  ->  'make coverage' EXITS 2 (gate fails).
+
+verbatim tail of 'make coverage':
+---
+Total coverage: 83.4% (threshold: 91%)
+FAIL: coverage 83.4% is below 91% threshold
+make: *** [Makefile:82: coverage] Error 1

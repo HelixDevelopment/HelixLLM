@@ -1,0 +1,29 @@
+=== COMMAND: go test ./internal/catalogue/... -run 'Shipped|Commercial|WeightSource' -v -count=1 ===
+=== HOST: anton UTC: Wed Sep  2 07:05:28 PM UTC 2026 ===
+
+=== RUN   TestFamiliesWithACommerciallyUsableOption
+=== RUN   TestFamiliesWithACommerciallyUsableOption/text
+=== RUN   TestFamiliesWithACommerciallyUsableOption/vision
+=== RUN   TestFamiliesWithACommerciallyUsableOption/image-generation
+=== RUN   TestFamiliesWithACommerciallyUsableOption/speech-to-text
+=== RUN   TestFamiliesWithACommerciallyUsableOption/text-to-speech
+=== RUN   TestFamiliesWithACommerciallyUsableOption/video-generation
+=== NAME  TestFamiliesWithACommerciallyUsableOption
+    commercial_coverage_test.go:58: commercially-usable options per family: map[embedding:[nomic-embed-text-v1.5 nomic-embed-text-v1.5] image-generation:[stable-diffusion-1.5 pixart-sigma-xl-2-1024-ms sdxl-1.0-base flux.1-schnell flux.2-klein-4b qwen-image] speech-to-text:[whisper-medium parakeet-tdt-0.6b-v3] text:[qwen3-0.6b qwen3-30b-a3b qwen3.6-27b qwen3.6-35b-a3b qwen3-235b-a22b glm-5.2] text-to-speech:[kokoro-82m] vector:[starvector-8b-im2svg] video-generation:[wan2.2-ti2v-5b wan2.2-t2v-a14b] vision:[smolvlm2-256m-video-instruct smolvlm2-500m-video-instruct moondream2 qwen2.5-vl-3b-instruct qwen3-vl-4b-instruct qwen3-vl-8b-instruct]]
+--- PASS: TestFamiliesWithACommerciallyUsableOption (0.01s)
+    --- PASS: TestFamiliesWithACommerciallyUsableOption/text (0.00s)
+    --- PASS: TestFamiliesWithACommerciallyUsableOption/vision (0.00s)
+    --- PASS: TestFamiliesWithACommerciallyUsableOption/image-generation (0.00s)
+    --- PASS: TestFamiliesWithACommerciallyUsableOption/speech-to-text (0.00s)
+    --- PASS: TestFamiliesWithACommerciallyUsableOption/text-to-speech (0.00s)
+    --- PASS: TestFamiliesWithACommerciallyUsableOption/video-generation (0.00s)
+=== RUN   TestNonCommercialTermsNameTheRestrictingTerm
+--- PASS: TestNonCommercialTermsNameTheRestrictingTerm (0.00s)
+=== RUN   TestCommercialSafeTermsPermitEveryDeclaredUsage
+--- PASS: TestCommercialSafeTermsPermitEveryDeclaredUsage (0.00s)
+=== RUN   TestShippedCatalogueLoads
+    shipped_data_test.go:34: shipped catalogue: 34 entries across 8 families, 30 carrying a source
+--- PASS: TestShippedCatalogueLoads (0.01s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/catalogue	0.029s
+EXIT=0

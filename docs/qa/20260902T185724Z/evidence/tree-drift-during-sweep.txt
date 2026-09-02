@@ -1,0 +1,46 @@
+=== PROBE 4: the working tree changed DURING this sweep ===
+=== HOST: anton UTC: Wed Sep  2 07:06:23 PM UTC 2026 ===
+
+--- git HEAD (unchanged all sweep) ---
+4f7deae845f88c2c14ba4da3a02928f3cd66ef56
+
+--- git status at 19:06Z (sweep start status was: only '?? videogen-boot') ---
+ M cmd/visiongen-boot/vision_boot_test.sh
+ M internal/capability/measure_darwin_parse.go
+?? docs/qa/20260902T185724Z/
+?? internal/brain/stream_identifier_test.go
+?? internal/catalogue/data/embedding.yaml
+?? internal/catalogue/data/vector.yaml
+?? internal/catalogue/weight_source_coverage_test.go
+?? internal/selection/family_order_binding_test.go
+?? services/vectorize/__pycache__/
+?? services/vectorize/model_choice.py
+
+--- files whose mtime falls INSIDE the sweep window (18:57Z-19:06Z = 20:57-21:06 local) ---
+2026-09-02+21:01:52.9911178460  cmd/visiongen-boot/vision_boot_test.sh
+2026-09-02+21:02:20.9071838830  internal/brain/stream_identifier_test.go
+2026-09-02+21:02:21.3059452710  internal/catalogue/data/embedding.yaml
+2026-09-02+21:02:50.6548954140  internal/brain/brain.go
+2026-09-02+21:03:16.6918220270  internal/catalogue/weight_source_coverage_test.go
+2026-09-02+21:03:31.3505774790  internal/catalogue/data/vector.yaml
+2026-09-02+21:03:50.8628369070  internal/catalogue/data/video.yaml
+2026-09-02+21:05:05.2536670500  internal/capability/measure_darwin_parse.go
+2026-09-02+21:05:34.1346335070  internal/selection/family_order_binding_test.go
+2026-09-02+21:05:37.4444065500  services/vectorize/__pycache__/model_choice.cpython-314.pyc
+2026-09-02+21:06:00.7396840240  internal/selection/family.go
+2026-09-02+21:06:09.6133269200  internal/catalogue/entry.go
+2026-09-02+21:06:10.8918542920  services/vectorize/model_choice.py
+
+--- effect: shipped catalogue count moved 31/6 -> 34/8 mid-sweep ---
+18:58:52Z reading: 31 entries across 6 families, 27 carrying a source
+19:05:28Z reading: 34 entries across 8 families, 30 carrying a source
+cause: internal/catalogue/data/{embedding,vector}.yaml are new+untracked
+total 272
+drwxrwxr-x 2 milosvasic milosvasic  4096 2026-09-02 21:03:31.351350523 +0200 .
+drwxrwxr-x 4 milosvasic milosvasic  4096 2026-09-02 21:03:16.693315849 +0200 ..
+-rw-rw-r-- 1 milosvasic milosvasic 14825 2026-09-02 21:02:21.305945271 +0200 embedding.yaml
+-rw-rw-r-- 1 milosvasic milosvasic 72778 2026-09-02 20:54:50.209346679 +0200 speech_audio.yaml
+-rw-rw-r-- 1 milosvasic milosvasic 67984 2026-09-02 20:08:57.745355182 +0200 text.yaml
+-rw-rw-r-- 1 milosvasic milosvasic 14175 2026-09-02 21:03:31.350577479 +0200 vector.yaml
+-rw-rw-r-- 1 milosvasic milosvasic 24759 2026-09-02 21:03:50.862836907 +0200 video.yaml
+-rw-rw-r-- 1 milosvasic milosvasic 61479 2026-09-02 20:14:22.189322577 +0200 vision_image.yaml

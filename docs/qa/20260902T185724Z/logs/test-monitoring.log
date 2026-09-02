@@ -1,0 +1,15 @@
+go test -v -count=1 -tags=monitoring ./tests/monitoring/...
+=== RUN   TestMetrics_EndpointAccessible
+    metrics_test.go:24: GET /internal/metrics: Get "https://localhost:8443/internal/metrics": dial tcp 127.0.0.1:8443: connect: connection refused
+--- FAIL: TestMetrics_EndpointAccessible (0.00s)
+=== RUN   TestHealth_AggregatesComponents
+    metrics_test.go:42: GET /internal/health: Get "https://localhost:8443/internal/health": dial tcp 127.0.0.1:8443: connect: connection refused
+--- FAIL: TestHealth_AggregatesComponents (0.00s)
+=== RUN   TestLogging_RequestIdHeader
+    metrics_test.go:54: GET /internal/health: Get "https://localhost:8443/internal/health": dial tcp 127.0.0.1:8443: connect: connection refused
+--- FAIL: TestLogging_RequestIdHeader (0.00s)
+FAIL
+FAIL	github.com/HelixDevelopment/HelixLLM/tests/monitoring	0.046s
+FAIL
+make: *** [Makefile:69: test-monitoring] Error 1
+EXIT_CODE=2 DURATION_SEC=0

@@ -1,0 +1,15 @@
+=== COMMAND: go run ./cmd/videogen-boot plan ===
+=== HOST: anton UTC: Wed Sep  2 06:57:58 PM UTC 2026 ===
+
+DECLARED-USAGE: commercial (default — the narrowest purpose; set HELIXLLM_DECLARED_USAGE to declare another)
+MEASURED host=anton cpu=16 memory_available=15456MiB storage_available=1191461MiB accelerators=1 (measured)
+WITHHELD ltx-video-13b:gguf-q4: excluded_by_usage_terms — licence LTX-Video-Open-Weights-License-0.X does not permit "commercial" (term=revenue-cap, granted=false, ref=LTX-Video-Open-Weights-License-0.X §2); the host could serve it; remedy=different-model-or-declared-usage
+CHOSEN helixllm/anton/wan2.2-ti2v-5b:fp8-480p — decided from the measured host "anton", not from configuration.
+  requires: memory=10240MiB storage=32618MiB accelerator=true
+  leaves:   memory=5216MiB (16.8% of total) storage=1158843MiB
+  licence:  Apache-2.0 permits the declared usage "commercial"
+  weights:  Wan-AI/Wan2.2-TI2V-5B-Diffusers (backend wan, precision fp8)
+  clip:     832x480, 49 frames @ 16 fps (3.06s) — the shape this option was selected AT
+PLAN-OK: this host would serve helixllm/anton/wan2.2-ti2v-5b:fp8-480p (nothing was booted).
+
+=== EXIT_CODE=0 DURATION_SEC=1 ===

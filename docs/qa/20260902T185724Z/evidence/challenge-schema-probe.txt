@@ -1,0 +1,48 @@
+=== PROBE 2: which YAML schema does the loader understand? ===
+=== HOST: anton UTC: Wed Sep  2 07:01:07 PM UTC 2026 ===
+
+--- schema census of the whole bank tree ---
+FILE                                           top:challenges top:steps n_challenge_entries
+challenges/banks/api/anthropic_compat.yaml     0        1        4
+challenges/banks/api/openai_compat.yaml        0        1        5
+challenges/banks/benchmarks/cold_start.yaml    1        0        1
+challenges/banks/benchmarks/latency.yaml       0        1        6
+challenges/banks/benchmarks/p99_latency.yaml   1        0        2
+challenges/banks/benchmarks/throughput.yaml    0        1        6
+challenges/banks/chaos/container.yaml          0        1        6
+challenges/banks/chaos/network.yaml            0        1        6
+challenges/banks/chaos/provider_failure.yaml   1        0        2
+challenges/banks/chaos/redis_failure.yaml      1        0        1
+challenges/banks/e2e/full_workflow.yaml        1        0        1
+challenges/banks/llm/llamacpp_only.yaml        0        1        10
+challenges/banks/llm/routing.yaml              0        1        4
+challenges/banks/performance/nonblocking.yaml  0        1        2
+challenges/banks/performance/responsiveness.yaml 0        1        2
+challenges/banks/rag/ingestion.yaml            0        1        4
+challenges/banks/rag/retrieval.yaml            0        1        4
+challenges/banks/regression/dead_code.yaml     0        1        7
+challenges/banks/regression/known_bugs.yaml    0        1        10
+challenges/banks/safety/concurrency.yaml       1        0        3
+challenges/banks/security/owasp.yaml           0        1        10
+challenges/banks/security/scanning.yaml        1        0        3
+challenges/banks/stress/concurrent.yaml        1        0        2
+challenges/banks/stress/memory.yaml            1        0        1
+challenges/banks/workflows/coding.yaml         0        1        12
+challenges/banks/workflows/debugging.yaml      0        1        6
+challenges/banks/workflows/documentation.yaml  0        1        5
+challenges/banks/workflows/review.yaml         0        1        6
+
+--- scanning.yaml is the only 'challenges:'-schema file in security/; it declares: ---
+  - name: health_endpoint_no_sensitive_data
+  - name: security_headers_present
+  - name: invalid_auth_rejected
+
+--- runner on scanning.yaml ALONE (copied to an isolated dir) ---
+
+3 passed, 0 failed, 0 skipped
+exit=0
+
+--- runner on owasp.yaml ALONE ('steps:' schema) ---
+
+0 passed, 0 failed, 0 skipped
+exit=0

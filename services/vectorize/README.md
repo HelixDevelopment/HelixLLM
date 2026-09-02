@@ -118,6 +118,72 @@ carries a paired mutation (§1.1): the fidelity check is temporarily neutered
 (forced to always pass) to prove the golden-bad fixtures WOULD wrongly pass
 without a load-bearing check, then reverted and re-proven correct.
 
+## Measured model selection (vector + embedding) — `model_choice.py`
+
+`vtracer` is **not** a model, so it is not under measured selection: it has no
+weights, no licence gating a usage purpose, and no per-host memory figure to
+admit against. It is served unconditionally by the Go shim above. That is a
+deliberate boundary, not an omission — putting an algorithm in a *model*
+catalogue would mean inventing every field the catalogue exists to check.
+
+What IS under measured selection is the model side of these two capability
+families, decided by `model_choice.py`:
+
+```bash
+python3 model_choice.py --family vector      # StarVector-8B tier
+python3 model_choice.py --family embedding   # local text embeddings
+```
+
+It uses `container/helix_model_gate.py` — the shared catalogue/usage-terms
+vocabulary the audio family built — rather than adding another schema. (The Go
+lanes already carry a DUPLICATION NOTICE recording that `videogen-boot` is the
+third near-copy of one decision; a Go copy here would have been a fourth, and
+could not have been shared anyway since this service is its own Go module.)
+
+**Configuration says WHERE, never WHICH** (FR-056). `HELIXLLM_CATALOGUE_PATHS`
+points at catalogue files, `HELIXLLM_USAGE_PURPOSE` declares how output will be
+used (defaults to the *narrowest* purpose, `commercial`, and always reports that
+it defaulted), and `HELIXLLM_{VECTOR,EMBEDDING}_FORBID_MODELS` removes
+candidates. None of them can introduce a model. There is no fixed default: an
+unmeasurable host is told why and the process exits non-zero.
+
+The three withheld reasons stay distinct all the way to the shell, each with its
+own exit code, because each implies a different remedy:
+
+| Exit | Meaning | Remedy |
+|-----:|---------|--------|
+| 0  | a model was decided | — |
+| 20 | host could not be measured | investigate the measurement |
+| 21 | insufficient resources | more memory / disk |
+| 22 | unsupported configuration | an accelerator; more memory will not help |
+| 23 | excluded by usage terms | obtain a licence, or widen the declared purpose |
+| 24 | catalogue unreadable | fix the catalogue path |
+
+Real behaviour on the development host (RTX 3060, 11752 MiB free):
+
+```
+$ python3 model_choice.py --family vector
+DECLARED-USAGE: commercial (default - the narrowest purpose; set HELIXLLM_USAGE_PURPOSE to declare another)
+MEASURED memory_available=3238MiB storage_available=1190610MiB accelerator=yes accelerator_free=11752MiB
+CANNOT-CHOOSE (vector): this host lacks the resources every vector model needs
+  WITHHELD starvector-8b-im2svg:bf16: insufficient_resources - starvector-8b-im2svg:bf16 needs 15014294040 bytes of memory; 12322865152 bytes are free
+  No model is started: there is deliberately no default, because a model that was
+  not chosen from a measurement may not fit this host (FR-056).
+$ echo $?
+21
+```
+
+That refusal is the correct answer for this host, and it is the same conclusion
+the "StarVector tier status" section below reached by hand in July — now reached
+mechanically, from a measurement, with the shortfall named in bytes.
+
+Tests: `python3 -m unittest test_model_choice -v`. The anti-simulation guard
+(`assert_real_embedding`) is self-validated against golden-good and golden-bad
+fixtures so it is proven to have teeth even on a host with no weights; the
+real-inference test runs against a real `llama-server` when
+`HELIXLLM_EMBED_GGUF` points at a real `.gguf`, and otherwise SKIPS with a
+stated reason rather than asserting on a fabricated vector.
+
 ## StarVector tier status
 
 **Deferred as a documented follow-up, not forced in.** At proof time

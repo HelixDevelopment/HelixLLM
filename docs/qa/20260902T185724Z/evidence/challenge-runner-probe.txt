@@ -1,0 +1,30 @@
+=== PROBE: does the challenge runner actually read --banks-dir? ===
+=== HOST: anton UTC: Wed Sep  2 07:00:37 PM UTC 2026 ===
+
+--- ground truth: is anything listening on 8443? ---
+NOTHING LISTENING ON :8443
+curl_exit=0
+
+--- A: real bank dir (security, 2 yaml files) ---
+
+3 passed, 0 failed, 0 skipped
+exit=0
+
+--- B: NON-EXISTENT bank dir ---
+failed to load banks: read banks dir /nonexistent/definitely/not/here/: open /nonexistent/definitely/not/here/: no such file or directory
+exit=1
+
+--- C: empty dir ---
+
+0 passed, 0 failed, 0 skipped
+exit=0
+
+--- D: workflows dir (4 yaml files) ---
+
+0 passed, 0 failed, 0 skipped
+exit=0
+
+--- E: garbage base-url with real bank dir ---
+
+3 passed, 0 failed, 0 skipped
+exit=0

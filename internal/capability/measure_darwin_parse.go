@@ -14,6 +14,20 @@ import (
 // where it can be tested from any host. That keeps the untestable surface as
 // small as the platform allows, rather than letting a whole axis go unexercised
 // because the CI host is the wrong OS (§11.4.81).
+//
+// HONEST BOUNDARY: the output shapes this file parses — the vm_stat header and
+// page-class names, the sysctl leaf names — were taken from DOCUMENTED formats,
+// not captured from a live macOS machine. No one has run this against any
+// release. The tests in measure_darwin_parse_test.go prove these parsers handle
+// THAT SHAPE and refuse malformed input; they do not prove the shape matches
+// what any given macOS actually prints.
+//
+// This warning is repeated here, and not only in the test file, because this is
+// the file that encodes the assumption. A reader who arrives at the parser to
+// change it would otherwise have no way to learn that its ground truth is
+// documentation rather than observation. Every failure path here returns an
+// error rather than a figure, so a wrong assumption yields a refusal and never a
+// fabricated measurement — but the assumption is real and unconfirmed.
 
 // darwinFeatureLeaves maps sysctl's per-capability arm64 leaves onto features.
 // The leaf is present on every arm64 Mac and carries "1" or "0"; a "0" is a

@@ -1,0 +1,26 @@
+=== PROBE 3: is 'shipped catalogue' count stable across -run filters? ===
+=== HOST: anton UTC: Wed Sep  2 07:05:45 PM UTC 2026 ===
+
+--- run 1: -run ShippedCatalogueLoads ONLY ---
+    shipped_data_test.go:34: shipped catalogue: 34 entries across 8 families, 30 carrying a source
+--- PASS: TestShippedCatalogueLoads (0.01s)
+PASS
+--- run 1: -run 'Shipped|Commercial|WeightSource' ---
+--- PASS: TestFamiliesWithACommerciallyUsableOption (0.01s)
+--- PASS: TestNonCommercialTermsNameTheRestrictingTerm (0.00s)
+--- PASS: TestCommercialSafeTermsPermitEveryDeclaredUsage (0.00s)
+    shipped_data_test.go:34: shipped catalogue: 34 entries across 8 families, 30 carrying a source
+--- PASS: TestShippedCatalogueLoads (0.01s)
+--- run 2: -run ShippedCatalogueLoads ONLY ---
+    shipped_data_test.go:34: shipped catalogue: 34 entries across 8 families, 30 carrying a source
+--- PASS: TestShippedCatalogueLoads (0.01s)
+PASS
+--- run 2: -run 'Shipped|Commercial|WeightSource' ---
+--- PASS: TestFamiliesWithACommerciallyUsableOption (0.01s)
+--- PASS: TestNonCommercialTermsNameTheRestrictingTerm (0.00s)
+--- PASS: TestCommercialSafeTermsPermitEveryDeclaredUsage (0.00s)
+    shipped_data_test.go:34: shipped catalogue: 34 entries across 8 families, 30 carrying a source
+--- PASS: TestShippedCatalogueLoads (0.01s)
+
+--- whole package, no filter ---
+    shipped_data_test.go:34: shipped catalogue: 34 entries across 8 families, 30 carrying a source

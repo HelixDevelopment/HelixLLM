@@ -1,0 +1,18 @@
+=== COMMAND: go run ./cmd/visiongen-boot plan ===
+=== HOST: anton UTC: Wed Sep  2 06:58:19 PM UTC 2026 ===
+
+DECLARED-USAGE: commercial (default — the narrowest purpose; set HELIXLLM_DECLARED_USAGE to declare another)
+MEASURED host=anton cpu=16 memory_available=16772MiB storage_available=1191357MiB accelerators=1 (measured)
+WITHHELD minicpm-v-4.5:q4_k_m: excluded_by_usage_terms — licence minicpm-model-license does not permit "commercial" (term=research-only, granted=false, ref=MiniCPM Model License — free for research and academic use; COMMERCIAL USE REQUIRES REGISTRATION WITH THE VENDOR, so it is not granted by the licence as published); the host could serve it; remedy=different-model-or-declared-usage
+CANNOT-CHOOSE: this host was measured and can serve 6 vision model(s), but none of their weights are present in /home/milosvasic/models/vlm_cache:
+  helixllm/anton/qwen3-vl-8b-instruct:q4_k_m (read model directory /home/milosvasic/models/vlm_cache: open /home/milosvasic/models/vlm_cache: no such file or directory)
+  helixllm/anton/qwen3-vl-4b-instruct:q4_k_m (read model directory /home/milosvasic/models/vlm_cache: open /home/milosvasic/models/vlm_cache: no such file or directory)
+  helixllm/anton/qwen2.5-vl-3b-instruct:q4_k_m (read model directory /home/milosvasic/models/vlm_cache: open /home/milosvasic/models/vlm_cache: no such file or directory)
+  helixllm/anton/moondream2:int4 (read model directory /home/milosvasic/models/vlm_cache: open /home/milosvasic/models/vlm_cache: no such file or directory)
+  helixllm/anton/smolvlm2-256m-video-instruct:fp16 (read model directory /home/milosvasic/models/vlm_cache: open /home/milosvasic/models/vlm_cache: no such file or directory)
+  helixllm/anton/smolvlm2-500m-video-instruct:fp16 (read model directory /home/milosvasic/models/vlm_cache: open /home/milosvasic/models/vlm_cache: no such file or directory)
+  No model is started: booting some other file that happens to be in that directory would be a model nobody chose.
+  Remedy: obtain the weights for one of the options above, or point VISIONGEN_MODEL_DIR at the directory that holds them.
+exit status 24
+
+=== EXIT_CODE=1 DURATION_SEC=1 ===

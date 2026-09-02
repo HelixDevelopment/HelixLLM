@@ -1,0 +1,16 @@
+go test -v -count=1 -tags=performance -timeout=5m ./tests/performance/...
+=== RUN   TestPerformance_HealthLatency
+    baseline_test.go:57: Health: p50=0s p95=0s p99=0s (n=0)
+--- PASS: TestPerformance_HealthLatency (0.01s)
+=== RUN   TestPerformance_ModelsLatency
+    baseline_test.go:66: Models: p50=0s p95=0s p99=0s (n=0)
+--- PASS: TestPerformance_ModelsLatency (0.01s)
+=== RUN   TestPerformance_HealthThroughput
+    baseline_test.go:101: Health throughput: 0 req/s
+    baseline_test.go:103: health throughput = 0 req/s, want >= 100
+--- FAIL: TestPerformance_HealthThroughput (5.00s)
+FAIL
+FAIL	github.com/HelixDevelopment/HelixLLM/tests/performance	5.072s
+FAIL
+make: *** [Makefile:72: test-performance] Error 1
+EXIT_CODE=2 DURATION_SEC=6

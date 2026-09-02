@@ -1,0 +1,19 @@
+=== COMMAND: go run ./cmd/imagegen-boot plan ===
+=== HOST: anton UTC: Wed Sep  2 06:58:20 PM UTC 2026 ===
+
+DECLARED-USAGE: commercial (default — the narrowest purpose; set HELIXLLM_DECLARED_USAGE to declare another)
+MEASURED host=anton cpu=16 memory_available=16083MiB storage_available=1191298MiB accelerators=1 (measured)
+WITHHELD sdxl-turbo:fp16: excluded_by_usage_terms — licence stabilityai-non-commercial-research-community does not permit "commercial" (term=research-only, granted=false, ref=Stability AI Non-Commercial Research Community Licence — research and non-commercial use only; not cleared for a commercial-capable default catalogue without a separate commercial licence); the host could serve it; remedy=different-model-or-declared-usage
+WITHHELD stable-diffusion-3.5-medium:fp16: excluded_by_usage_terms — licence stabilityai-community-license does not permit "commercial" (term=revenue-cap, granted=false, ref=Stability AI Community Licence — free for research and for commercial use under $1M annual revenue); the host could serve it; remedy=different-model-or-declared-usage
+WITHHELD stable-diffusion-3.5-large:fp8: excluded_by_usage_terms — licence stabilityai-community-license does not permit "commercial" (term=revenue-cap, granted=false, ref=Stability AI Community Licence — same terms as SD 3.5 Medium); the host could serve it; remedy=different-model-or-declared-usage
+WITHHELD flux.1-dev:nvfp4: excluded_by_usage_terms — licence flux-1-dev-non-commercial-license does not permit "commercial" (term=non-commercial, granted=false, ref=flux-1-dev-non-commercial-license — flatly non-commercial, with no revenue threshold that would permit commercial use. The HF API confirms gated:auto, so an account must accept the licence before the weights can be fetched.); the host could serve it; remedy=different-model-or-declared-usage
+WITHHELD flux.2-dev:gguf-q4_k: insufficient_resources — memory short by 6682MiB (needs 18119MiB, 11437MiB available after 4646MiB held back to keep the host responsive); remedy=change-host-or-pick-smaller
+WITHHELD qwen-image:fp8: insufficient_resources — memory short by 3821MiB (needs 15258MiB, 11437MiB available after 4646MiB held back to keep the host responsive); remedy=change-host-or-pick-smaller
+CHOSEN helixllm/anton/flux.1-schnell:nvfp4 — decided from the measured host "anton", not from configuration.
+  requires: memory=7168MiB storage=6246MiB accelerator=true
+  leaves:   memory=8915MiB (28.8% of total) storage=1185052MiB
+  licence:  Apache-2.0 permits the declared usage "commercial"
+  weights:  black-forest-labs/FLUX.1-schnell (precision nvfp4)
+PLAN-OK: this host would serve helixllm/anton/flux.1-schnell:nvfp4 (nothing was booted).
+
+=== EXIT_CODE=0 DURATION_SEC=2 ===

@@ -49,14 +49,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_ARCH_LIST=12.0 \
     # videogen runtime config (all overridable via compose env — no hardcoded
     # model/precision literal baked in as behaviour, §CONST-046 / §11.4.6):
-    VIDEOGEN_BACKEND=wan \
-    VIDEOGEN_MODEL=Wan-AI/Wan2.2-TI2V-5B-Diffusers \
-    VIDEOGEN_PRECISION=fp8 \
+    # Operator knobs only — HOW to serve, never WHICH model or at what shape.
+    #
+    # VIDEOGEN_MODEL, _PRECISION, _BACKEND, _SIZE, _NUM_FRAMES and _FPS are
+    # DELIBERATELY ABSENT. All six are OUTPUTS of measured selection, written by
+    # videogen-boot from the chosen option — the clip shape included, because the
+    # memory admission was granted FOR that shape. Baking any of them makes the
+    # service's _decided() refusal path unreachable: it refuses when nothing
+    # chose, but an image that always sets the value means nothing ever appears
+    # unchosen.
     VIDEOGEN_CPU_OFFLOAD=1 \
-    VIDEOGEN_MAX_STEPS=30 \
-    VIDEOGEN_NUM_FRAMES=49 \
-    VIDEOGEN_FPS=16 \
-    VIDEOGEN_SIZE=832x480
+    VIDEOGEN_MAX_STEPS=30
 
 RUN set -eux; \
     apt-get update; \

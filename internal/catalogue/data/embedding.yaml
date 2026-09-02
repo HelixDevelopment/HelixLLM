@@ -1,0 +1,273 @@
+# HelixLLM adaptive-model-serving catalogue — EMBEDDING family.
+#
+# Wire shape: internal/catalogue/load.go (strict — KnownFields(true); an
+#   unrecorded key refuses the WHOLE file). Only `entries` and
+#   `streaming_roster` are permitted at the top level, so this file is a MAPPING
+#   with an `entries:` key.
+# Field semantics: specs/002-adaptive-local-model-serving/data-model.md
+#   § "Model Option" (the Go carrier is internal/catalogue/entry.go).
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+# ---------------------------------------------------------------------------
+# `FamilyEmbedding` has been a declared capability family since the constant
+# block was written: it is in entry.go's const block, in `CapabilityFamily.Known()`,
+# in selection's `familyOrder`, in `container/helix_model_gate.py`'s
+# KNOWN_FAMILIES, and it is asserted by internal/catalogue/family_test.go. What
+# it did NOT have was a single catalogue entry.
+#
+# That is not a cosmetic gap. With no entry, `selection.evaluateFamily` takes its
+# `noCandidatesFamily` path and the Python gate's `select()` raises
+# `CannotChoose(unsupported_configuration, "no catalogued model serves the
+# embedding capability on any host")` — on EVERY host, regardless of what that
+# host could actually run. The family was declared and unofferable at the same
+# time. This file is what makes measured selection able to answer for it.
+#
+# ---------------------------------------------------------------------------
+# IN-REPO SOURCES (primary — preferred over anything inferred)
+# ---------------------------------------------------------------------------
+#   internal/brain/models/catalog.go  (DefaultCatalog, the `nomic-embed-text-v1.5-q4_k_m`
+#       ModelDefinition). This repository ALREADY records this exact model as an
+#       embedding model it serves, with:
+#           HuggingFaceRepo: nomic-ai/nomic-embed-text-v1.5-GGUF
+#           Filename:        nomic-embed-text-v1.5.Q4_K_M.gguf
+#           Parameters:      137_000_000
+#           Quantization:    Q4_K_M
+#           VRAMRequired:    90 * 1024 * 1024   == 94_371_840 bytes
+#           ContextLength:   2048
+#           License:         Apache-2.0
+#           EmbeddingDims:   768
+#           Architecture:    nomic-bert
+#       The `memory_required_bytes` of the q4_k_m entry below is that recorded
+#       VRAMRequired figure verbatim. This is the same class of in-repo primary
+#       source that video.yaml took `cmd/videogen-boot/main.go`'s `needBytes()`
+#       from: a figure this repository already commits to, not one invented here.
+#   internal/knowledge/llama_embedder.go
+#       The real local embedding path — "produce dense embeddings locally (e.g.
+#       nomic-embed-text-v1.5 via llama.cpp)". It takes (baseURL, model,
+#       dimension) as PARAMETERS; it names no model of its own. That is why the
+#       catalogue, not the embedder, is the right place for the decision.
+#
+# ---------------------------------------------------------------------------
+# EXTERNAL SOURCES (accessed 2026-09-02, §11.4.99)
+# ---------------------------------------------------------------------------
+#   https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF
+#       HF model API, 2026-09-02 — repository revision sha
+#       0188c9bf409793f810680a5a431e7b899c46104c, `"gated": false`,
+#       cardData.license == "apache-2.0".
+#   HF model API (`?blobs=true`), 2026-09-02 — MEASURED per-file byte sizes:
+#       nomic-embed-text-v1.5.Q4_K_M.gguf     84_106_624 B  ( 80.21 MiB)
+#       nomic-embed-text-v1.5.f16.gguf       274_290_560 B  (261.58 MiB)
+#       (repository total across all 16 files: 1_858_297_093 B — NOT used, see
+#       the STORAGE note directly below.)
+#
+# ---------------------------------------------------------------------------
+# STORAGE IS ONE FILE HERE, NOT THE WHOLE REPOSITORY
+# ---------------------------------------------------------------------------
+# A deliberate difference from video.yaml, and it matters. A GGUF build is a
+# SINGLE self-contained weight file: llama.cpp is pointed at one `.gguf` and
+# needs nothing else from the repository. So `storage_required_bytes` below is
+# the measured size of THAT ONE FILE, not the 1.86 GB repository total, which
+# holds fourteen alternative quantisations a host will never download.
+#
+# Using the repository total would overstate the disk requirement by ~22x for
+# the q4_k_m build and withhold the entry from hosts that can comfortably serve
+# it — a withholding with a real remedy attached ("free disk space") that the
+# operator could act on and still not fix, because the requirement was never
+# real. Contrast video.yaml, whose diffusers entries genuinely need a whole
+# `from_pretrained` subtree and correctly record a subtree total.
+#
+# ---------------------------------------------------------------------------
+# MEASURED, RECORDED, AND DERIVED ARE KEPT APART
+# ---------------------------------------------------------------------------
+# Every figure below is one of three things, and which one is always stated:
+#   RECORDED  — this repository already commits to it (brain/models/catalog.go).
+#   MEASURED  — read from the HF blob API on 2026-09-02, byte-exact.
+#   DERIVED   — computed from a MEASURED quantity by a rule stated in the note,
+#               and carrying an explicit `UNVERIFIED:` marker naming the exact
+#               figure it affects.
+# No figure here is an estimate with its provenance rubbed off. An invented
+# memory figure becomes a wrong admission decision later — a model that is
+# offered, starts, and then cannot run — which is the precise failure this whole
+# catalogue exists to prevent.
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY (§11.4.6 honest boundary)
+# ---------------------------------------------------------------------------
+# No `integrity.digest` is stated: no weight file has been downloaded and
+# digested on this host, so there is nothing to state. An entry in this state
+# LOADS and may be OFFERED — `Entry.Validate` deliberately does not require an
+# integrity expectation — and is refused by `Entry.ValidateForAcquisition`,
+# which is the gate that actually precedes touching a weight file. That is the
+# intended outcome. Inventing a digest here would defeat SC-011 completely:
+# the check would still run, and would pass, against a value nobody verified.
+#
+# `size_bytes` IS stated on each entry, because it is the one integrity field
+# that HAS been measured (HF blob API, above). It gives the cheap
+# truncated-download check real teeth before any digest exists.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY ABSENT
+# ---------------------------------------------------------------------------
+# * `streaming_family` is stated on NO entry, and this file declares no
+#   `streaming_roster`. The streaming runtime serves a closed roster of TEXT
+#   model families; no embedding family is on it, and none is inferable from
+#   `architecture: dense` — eligibility is roster membership and nothing else
+#   (D1). Stating nothing is the accurate record, not an omission.
+# * `throughput_tokens_per_second` is stated on NO entry. Throughput is not the
+#   meaningful unit for an embedding model — it emits one fixed-width vector per
+#   input, not a token stream — and coercing it into a token rate would produce
+#   a number that is not merely imprecise but a different quantity (FR-005).
+#   The comparable terms for this family are context window and vector
+#   dimension; the dimension is carried in `annotations.embedding_dimensions`
+#   because `ExpectedCapability` has no field for it and inventing one is a
+#   carrier change, not a data change.
+# * Other well-known embedding models (BGE-M3, E5, GTE, Qwen3-Embedding) are NOT
+#   listed. Nothing in this repository records a figure for any of them, so
+#   every number would have had to come from outside and none could be called
+#   RECORDED or MEASURED-here. They are catalogue-able the moment someone
+#   measures them; they are not catalogue-able by being well known.
+
+entries:
+
+  # -------------------------------------------------------------------------
+  # The build this repository already commits to serving.
+  #
+  # Every figure is RECORDED (brain/models/catalog.go) or MEASURED (HF blob
+  # API). Nothing here is derived, and nothing is estimated.
+  # -------------------------------------------------------------------------
+  - model_id: nomic-embed-text-v1.5
+    variant: q4_k_m
+    family: embedding
+    architecture: dense
+    descriptor:
+      parameter_count: 137000000
+      quantisation: q4_k_m
+      specialisations:
+        - text-embedding
+        - retrieval
+    # RECORDED: brain/models/catalog.go VRAMRequired = 90 * 1024 * 1024.
+    memory_required_bytes: 94371840
+    # MEASURED: the single Q4_K_M .gguf, HF blob API 2026-09-02.
+    storage_required_bytes: 84106624
+    # A 137M-parameter model at ~80 MiB of weights runs on a processor. Marking
+    # it accelerator-required would withhold it from every host without a GPU
+    # and leave the family empty on exactly the hosts that most need a small
+    # local embedder.
+    requires_accelerator: false
+    source: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF
+    usage_terms:
+      license_id: apache-2.0
+      # Apache-2.0 grants use for any purpose and carries no purpose-excluding
+      # term. `restrictions` is therefore absent rather than empty-but-present:
+      # there is no term to name, and naming one would make a withholding
+      # reportable that could never occur.
+      permitted:
+        - commercial
+        - personal
+        - research
+        - evaluation
+    runtime: in-memory
+    expected_capability:
+      context_tokens: 2048
+      modalities:
+        - text
+    integrity:
+      algorithm: sha256
+      size_bytes: 84106624
+    notes:
+      - "MEMORY IS RECORDED, NOT MEASURED HERE: 94371840 B is brain/models/catalog.go's
+        own VRAMRequired figure for this exact build, carried across verbatim. It is
+        consistent with the MEASURED 84106624 B weight file (weights plus a small
+        runtime margin), which is why it is carried rather than second-guessed."
+      - "STORAGE IS ONE FILE: 84106624 B is the measured size of
+        nomic-embed-text-v1.5.Q4_K_M.gguf alone. A GGUF build needs no other file
+        from the repository, so the 1858297093 B repository total (fourteen other
+        quantisations) is deliberately not used."
+      - "UNVERIFIED: no digest has been captured — no weight file has been
+        downloaded on this host. `integrity.digest` is absent and
+        Entry.ValidateForAcquisition refuses this entry at the acquisition gate,
+        which is correct. Populate the digest from HF revision
+        0188c9bf409793f810680a5a431e7b899c46104c at first authorized download."
+    annotations:
+      embedding_dimensions: 768
+      weights_repo: nomic-ai/nomic-embed-text-v1.5-GGUF
+      weights_file: nomic-embed-text-v1.5.Q4_K_M.gguf
+      hf_revision: 0188c9bf409793f810680a5a431e7b899c46104c
+      hf_gated: false
+      base_architecture: nomic-bert
+      memory_provenance: "recorded:internal/brain/models/catalog.go"
+      storage_provenance: "measured:huggingface-blob-api:2026-09-02"
+      serving_path: "llama.cpp server; internal/knowledge/llama_embedder.go speaks its API"
+
+  # -------------------------------------------------------------------------
+  # The full-precision build of the SAME model.
+  #
+  # It exists so this family is a genuine CHOICE rather than a single forced
+  # option: a host with memory to spare should be offered the unquantised
+  # weights, and `prefer()` orders offers by memory descending precisely so the
+  # most capable option a host can actually serve comes first. With one entry
+  # the family would "work" while never exercising selection at all.
+  #
+  # Its memory figure is DERIVED, and that is marked on the entry rather than
+  # smoothed over.
+  # -------------------------------------------------------------------------
+  - model_id: nomic-embed-text-v1.5
+    variant: f16
+    family: embedding
+    architecture: dense
+    descriptor:
+      parameter_count: 137000000
+      quantisation: f16
+      specialisations:
+        - text-embedding
+        - retrieval
+    # DERIVED from a MEASURED quantity — see the note. A GGUF is a header plus a
+    # raw tensor dump, so the resident weight bytes equal the file bytes; the
+    # file is MEASURED at 274290560 B. This is a FLOOR: it excludes the KV/
+    # activation working set, which is why the note carries an UNVERIFIED marker.
+    memory_required_bytes: 274290560
+    # MEASURED: the single f16 .gguf, HF blob API 2026-09-02.
+    storage_required_bytes: 274290560
+    requires_accelerator: false
+    source: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF
+    usage_terms:
+      license_id: apache-2.0
+      permitted:
+        - commercial
+        - personal
+        - research
+        - evaluation
+    runtime: in-memory
+    expected_capability:
+      context_tokens: 2048
+      modalities:
+        - text
+    integrity:
+      algorithm: sha256
+      size_bytes: 274290560
+    notes:
+      - "MEMORY IS DERIVED, NOT RECORDED: brain/models/catalog.go records no f16
+        build, so no in-repo figure exists to carry. 274290560 B is the MEASURED
+        f16 .gguf size used directly as the resident-weights figure, on the stated
+        rule that a GGUF file is a small header plus raw tensors — the bytes on
+        disk are the bytes in memory."
+      - "UNVERIFIED: that derived figure is a FLOOR. It counts weights only and
+        excludes the KV cache, activations and allocator overhead at the recorded
+        2048-token context. The true peak is higher by an amount nobody has
+        measured on this host. Replace it with a measured peak at first run; until
+        then this entry may be offered to a host that can hold the weights but not
+        the full working set."
+      - "STORAGE IS ONE FILE: 274290560 B is nomic-embed-text-v1.5.f16.gguf alone,
+        for the same reason as the q4_k_m entry."
+      - "UNVERIFIED: no digest has been captured — see the q4_k_m entry's note."
+    annotations:
+      embedding_dimensions: 768
+      weights_repo: nomic-ai/nomic-embed-text-v1.5-GGUF
+      weights_file: nomic-embed-text-v1.5.f16.gguf
+      hf_revision: 0188c9bf409793f810680a5a431e7b899c46104c
+      hf_gated: false
+      base_architecture: nomic-bert
+      memory_provenance: "derived-from-measured:gguf-file-bytes:2026-09-02"
+      storage_provenance: "measured:huggingface-blob-api:2026-09-02"
+      serving_path: "llama.cpp server; internal/knowledge/llama_embedder.go speaks its API"

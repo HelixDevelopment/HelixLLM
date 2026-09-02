@@ -1,0 +1,248 @@
+# HelixLLM adaptive-model-serving catalogue — VECTOR (vector-graphics) family.
+#
+# Wire shape: internal/catalogue/load.go (strict — KnownFields(true); an
+#   unrecorded key refuses the WHOLE file). Only `entries` and
+#   `streaming_roster` are permitted at the top level, so this file is a MAPPING
+#   with an `entries:` key.
+# Field semantics: specs/002-adaptive-local-model-serving/data-model.md
+#   § "Model Option" (the Go carrier is internal/catalogue/entry.go).
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+# ---------------------------------------------------------------------------
+# Same gap as embedding.yaml: `FamilyVector` is declared in entry.go, admitted
+# by `CapabilityFamily.Known()`, ranked in selection's `familyOrder`, listed in
+# `container/helix_model_gate.py`'s KNOWN_FAMILIES, and asserted by
+# internal/catalogue/family_test.go — and had no entry. A declared family with
+# no candidates is refused identically on every host, whatever that host could
+# actually run.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS *NOT* IN THIS FILE, AND WHY THAT IS CORRECT
+# ---------------------------------------------------------------------------
+# `services/vectorize/` already ships a REAL, working vector-graphics capability:
+# vtracer (visioncortex VTracer, Rust) behind a Go HTTP shim, raster -> SVG, plus
+# `rsvg-convert` for the round-trip rasterisation. It is the DEFAULT path per
+# docs/research/07.2026/02_vision_generative/CAPABILITIES_MASTER_PLAN_v2.md
+# (P3-T4'), and it is not catalogued here.
+#
+# That is deliberate and it is not a gap. vtracer is not a model. It has no
+# weights to acquire, no licence that gates a usage purpose, no accelerator
+# requirement, and no per-host memory figure to admit against — it is a
+# deterministic CPU algorithm whose cost is a function of the input image, not
+# of a resident parameter set. Putting it in a MODEL catalogue would require
+# inventing every field the catalogue exists to check, and would make the
+# vector family look "measured" while the thing being measured had no
+# measurement to give. The catalogue records models; vtracer is served
+# unconditionally by the shim, and `services/vectorize/model_choice.py` says so
+# explicitly rather than by silence.
+#
+# So this file records the one thing in this capability that IS a model.
+#
+# ---------------------------------------------------------------------------
+# IN-REPO SOURCES (primary)
+# ---------------------------------------------------------------------------
+#   services/vectorize/README.md § "StarVector tier status"
+#       Records the tier as a DOCUMENTED, DELIBERATE DEFERRAL, not an oversight,
+#       and gives the reason: at proof time (2026-07-11) `nvidia-smi` showed
+#       12632 MiB free on the single resident GPU, entirely spoken for by the
+#       resident helixllm-coder — "free VRAM sits at the very bottom of
+#       StarVector-8B's own 12-16 GB estimated footprint ... leaving no safe
+#       headroom". Its stated recommendation is to re-attempt "only after a
+#       free-VRAM re-check shows a clean >=16 GB margin".
+#       That 12-16 GB is an ESTIMATE from the capabilities plan. It is recorded
+#       here as CORROBORATION for the measured figure below — never as the
+#       figure itself.
+#   services/vectorize/README.md § "Why vtracer is the default"
+#       Quotes the model card's scope limit verbatim; carried into
+#       `annotations.content_scope` below because it is the single most
+#       important thing a caller must know before choosing this model over
+#       vtracer.
+#
+# ---------------------------------------------------------------------------
+# EXTERNAL SOURCES (accessed 2026-09-02, §11.4.99)
+# ---------------------------------------------------------------------------
+#   https://huggingface.co/starvector/starvector-8b-im2svg
+#       HF model API, 2026-09-02 — revision sha
+#       518beea8dcb5f7a37c5911e92d1d62a76beee7f9, `"gated": false`,
+#       cardData.license == "apache-2.0".
+#   .../resolve/main/config.json (fetched 2026-09-02) — verbatim fields:
+#       "torch_dtype": "bfloat16", "hidden_size": 4608,
+#       "num_hidden_layers": 32, "num_attention_heads": 36, "num_kv_heads": 4,
+#       "image_encoder_type": "siglip_384", "image_size": 384,
+#       "max_length_train": 16000, "vocab_size": 49152,
+#       "starcoder_model_name": "bigcode/starcoder2-7b".
+#       `torch_dtype: bfloat16` is load-bearing — see the MEMORY note.
+#   HF model API (`?blobs=true`), 2026-09-02 — MEASURED byte sizes:
+#       model-00001-of-00004.safetensors   4_889_586_776 B
+#       model-00002-of-00004.safetensors   4_946_285_040 B
+#       model-00003-of-00004.safetensors   4_999_851_312 B
+#       model-00004-of-00004.safetensors     178_570_912 B
+#       safetensors subtotal              15_014_294_040 B  (13.98 GiB)
+#       repository total, all 16 files    15_015_839_040 B  (13.98 GiB)
+#
+# ---------------------------------------------------------------------------
+# THE MEMORY FIGURE — WHAT IT IS AND WHAT IT IS NOT
+# ---------------------------------------------------------------------------
+# This is the one figure in this file that could have been faked, so it is
+# spelled out completely.
+#
+# It is DERIVED from a MEASURED quantity by a rule that config.json makes valid:
+# a safetensors file is a small JSON header followed by raw tensor bytes in the
+# stored dtype, and `config.json` states `"torch_dtype": "bfloat16"`. So the
+# checkpoint is stored bf16 and loads bf16, and the resident weight bytes equal
+# the measured file bytes: 15_014_294_040.
+#
+# It is a FLOOR, not a peak. It counts weights and nothing else — no activations,
+# no KV cache (32 layers, 4 KV heads, up to 16000 training-length tokens), no
+# SigLIP-384 image-encoder working set, no CUDA context, no allocator slack. The
+# real peak is higher by an amount NOBODY HAS MEASURED, on this host or any
+# other. That is stated as an `UNVERIFIED:` note on the entry, not smoothed away.
+#
+# Understating memory is the DANGEROUS direction — it is what causes a model to
+# be offered, start, and then fail — so the consequence is stated plainly rather
+# than left for a reader to work out: until a first-run peak is captured, this
+# entry may be offered to a host that can hold the weights but not the full
+# working set. Two things bound that risk today, and neither is invented here:
+# the selection layer holds back its own responsiveness reserve before admitting
+# anything, and the independent in-repo 12-16 GB plan estimate brackets the
+# derived 13.98 GiB rather than contradicting it.
+#
+# What would make this figure VERIFIED: one calibration run capturing peak
+# device memory during a real im2svg generation, recorded the way
+# docs/qa/phase4_videogen_20260707/README.md records the video VRAM table.
+# Until then it stays marked.
+#
+# ---------------------------------------------------------------------------
+# INTEGRITY (§11.4.6 honest boundary)
+# ---------------------------------------------------------------------------
+# No `integrity.digest` is stated: no weight file has been downloaded on this
+# host, so there is nothing to state. The entry LOADS and may be OFFERED —
+# `Entry.Validate` does not require an integrity expectation — and is refused by
+# `Entry.ValidateForAcquisition`, the gate that precedes touching a weight file.
+# `size_bytes` records the MEASURED repository total, which is the one integrity
+# figure that has actually been measured.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS DELIBERATELY ABSENT
+# ---------------------------------------------------------------------------
+# * `streaming_family` and `streaming_roster`: the streaming runtime serves a
+#   closed roster of text families. This is not on it and none is inferable from
+#   `architecture: dense` (D1).
+# * `throughput_tokens_per_second`: the model autoregressively emits SVG source,
+#   so a token rate is arguably meaningful — but none has been measured here, and
+#   an unmeasured throughput presented next to measured byte figures reads as
+#   evidence when it is not. Absent is the accurate record.
+# * Every other im2svg / vectorisation model. Nothing in this repository records
+#   a figure for any of them.
+
+entries:
+
+  - model_id: starvector-8b-im2svg
+    variant: bf16
+    family: vector
+    architecture: dense
+    descriptor:
+      parameter_count: 8000000000
+      quantisation: bf16
+      specialisations:
+        - image-to-svg
+        - icon
+        - logotype
+        - technical-diagram
+        - chart
+    # DERIVED from MEASURED safetensors bytes; valid because config.json states
+    # torch_dtype bfloat16. A FLOOR — weights only. See the MEMORY section above
+    # and the UNVERIFIED note below.
+    memory_required_bytes: 15014294040
+    # MEASURED: full repository total, HF blob API 2026-09-02. Unlike the GGUF
+    # entries in embedding.yaml, a transformers `from_pretrained` load needs the
+    # whole subtree — all four shards plus config, tokenizer and preprocessor —
+    # so the repository total is the correct disk figure here, not one file.
+    storage_required_bytes: 15015839040
+    # An 8B bf16 VLM has no processor-viable configuration: it would not be
+    # slow-but-usable, it would be unusable. A host with no accelerator is told
+    # what it LACKS (a distinct reason with a distinct remedy) and offered
+    # nothing — which is the correct answer, not a coverage gap.
+    requires_accelerator: true
+    source: https://huggingface.co/starvector/starvector-8b-im2svg
+    usage_terms:
+      license_id: apache-2.0
+      # Apache-2.0 carries no purpose-excluding term, so `restrictions` is
+      # absent rather than empty-but-present. NOTE the scope limit recorded in
+      # `annotations.content_scope` is a CAPABILITY limit from the model card,
+      # NOT a licence restriction — encoding it as a licence term would report
+      # "excluded_by_usage_terms" for what is really "wrong tool for this input",
+      # and those have completely different remedies.
+      permitted:
+        - commercial
+        - personal
+        - research
+        - evaluation
+    runtime: in-memory
+    expected_capability:
+      # config.json max_length_train: 16000 — the SVG-source sequence length the
+      # model was trained at.
+      context_tokens: 16000
+      modalities:
+        - image
+        - text
+    integrity:
+      algorithm: sha256
+      size_bytes: 15015839040
+    notes:
+      - "MEMORY IS DERIVED, NOT MEASURED-IN-USE: 15014294040 B is the MEASURED sum
+        of the four safetensors shards (HF blob API, 2026-09-02), used directly as
+        the resident-weights figure on the rule that safetensors stores raw tensors
+        in the checkpoint dtype and config.json states torch_dtype bfloat16."
+      - "UNVERIFIED: that figure is a FLOOR — weights only. It excludes activations,
+        the KV cache (32 layers, 4 KV heads, up to 16000 tokens), the SigLIP-384
+        image-encoder working set, CUDA context and allocator slack. No peak has
+        been captured on any host. CONSEQUENCE, stated rather than left implicit:
+        this entry may be offered to a host that can hold the weights but not the
+        full working set. Replace with a measured peak from one im2svg calibration
+        run, recorded as docs/qa/phase4_videogen_20260707/README.md records the
+        video VRAM table."
+      - "CORROBORATION, not the source of the figure: services/vectorize/README.md
+        records an independent 12-16 GB estimated footprint from the capabilities
+        plan. The derived 13.98 GiB falls inside that band, which is why it is
+        carried; the band itself is an estimate and is not used as a figure."
+      - "SCOPE LIMIT — the model card states verbatim that StarVector models 'will
+        not work for natural images or illustrations, as they have not been trained
+        on those images'. This is a capability limit, not a licence term, and is
+        carried in annotations.content_scope. For natural images, illustrations and
+        pixelised graphics the correct path is the vtracer default in
+        services/vectorize/, which is content-agnostic and is not a catalogued
+        model at all."
+      - "UNVERIFIED: no digest has been captured — no weight file has been
+        downloaded on this host. integrity.digest is absent and
+        Entry.ValidateForAcquisition refuses this entry at the acquisition gate,
+        which is correct. Populate from HF revision
+        518beea8dcb5f7a37c5911e92d1d62a76beee7f9 at first authorized download."
+    annotations:
+      weights_repo: starvector/starvector-8b-im2svg
+      hf_revision: 518beea8dcb5f7a37c5911e92d1d62a76beee7f9
+      hf_gated: false
+      content_scope: >-
+        Icons, logotypes, technical diagrams, graphs and charts ONLY. The model
+        card states StarVector "will not work for natural images or
+        illustrations, as they have not been trained on those images". Use the
+        vtracer default path in services/vectorize/ for those inputs.
+      default_path_is_not_a_model: >-
+        The vector-graphics DEFAULT in this repository is vtracer (CPU, no
+        weights, no licence gate, no host admission), served unconditionally by
+        services/vectorize/. It is deliberately not catalogued: it is an
+        algorithm, not a model, and has no measurable per-host requirement to
+        admit against.
+      image_encoder: siglip_384
+      base_language_model: bigcode/starcoder2-7b
+      hidden_size: 4608
+      num_hidden_layers: 32
+      num_kv_heads: 4
+      memory_provenance: "derived-from-measured:safetensors-bytes-bf16:2026-09-02"
+      storage_provenance: "measured:huggingface-blob-api:2026-09-02"
+      deferral_status: >-
+        services/vectorize/README.md defers wiring this tier until a free-VRAM
+        re-check shows a clean >=16 GB margin. Cataloguing it does NOT wire it:
+        it makes the family answerable by measured selection, which will withhold
+        it with a named shortfall on a host that cannot serve it.

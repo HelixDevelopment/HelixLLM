@@ -1,0 +1,16 @@
+=== CONFIRMING RE-RUN (second reading, after the mid-sweep tree drift) ===
+=== HOST: anton START UTC: Wed Sep  2 07:06:39 PM UTC 2026 ===
+--- tree fingerprint BEFORE re-run ---
+987fc3d68c1e16c11239f6755184bc8e  -
+
+test-unit  (2nd) exit=0 dur=9s  PASS=1650 SKIP=2 FAIL=0 pkg_ok=38 pkg_FAIL=0
+--- PASS: TestAgentCardHasRequiredFields (0.01s)
+--- PASS: TestMessageSendHappyPath (0.01s)
+--- PASS: TestMessageSendRejectsMissingAuth (0.00s)
+--- PASS: TestDispatchRejectsMalformedRequest (0.00s)
+--- PASS: TestTasksGetRoundTrip (0.01s)
+test-integration (2nd) exit=0 dur=3s PASS=35 SKIP=4 FAIL=0
+
+--- tree fingerprint AFTER re-run ---
+987fc3d68c1e16c11239f6755184bc8e  -
+=== END UTC: Wed Sep  2 07:06:51 PM UTC 2026 ===

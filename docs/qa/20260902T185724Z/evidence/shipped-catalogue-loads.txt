@@ -1,0 +1,9 @@
+=== COMMAND: go test ./internal/catalogue/... -run ShippedCatalogueLoads -v -count=1 ===
+=== HOST: anton UTC: Wed Sep  2 06:58:52 PM UTC 2026 ===
+
+=== RUN   TestShippedCatalogueLoads
+    shipped_data_test.go:34: shipped catalogue: 31 entries across 6 families, 27 carrying a source
+--- PASS: TestShippedCatalogueLoads (0.01s)
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/catalogue	0.015s
+EXIT=0

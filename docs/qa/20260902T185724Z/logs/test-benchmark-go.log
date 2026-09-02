@@ -1,0 +1,155 @@
+go test -bench=. -benchmem -count=3 -run=^$ ./internal/...
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/a2a	0.006s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/agents	0.008s
+goos: linux
+goarch: amd64
+pkg: github.com/HelixDevelopment/HelixLLM/internal/agents/tools
+cpu: AMD Ryzen 7 2700X Eight-Core Processor         
+BenchmarkListDirectoryRecursive-16    	     813	   1648650 ns/op	  245579 B/op	    2987 allocs/op
+BenchmarkListDirectoryRecursive-16    	     745	   1772487 ns/op	  245652 B/op	    2987 allocs/op
+BenchmarkListDirectoryRecursive-16    	     585	   1952409 ns/op	  245696 B/op	    2987 allocs/op
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/agents/tools	5.044s
+goos: linux
+goarch: amd64
+pkg: github.com/HelixDevelopment/HelixLLM/internal/brain
+cpu: AMD Ryzen 7 2700X Eight-Core Processor         
+BenchmarkComplexityAnalyzer-16               	 1596454	       733.6 ns/op	     152 B/op	       5 allocs/op
+BenchmarkComplexityAnalyzer-16               	 1683705	       634.0 ns/op	     152 B/op	       5 allocs/op
+BenchmarkComplexityAnalyzer-16               	 1923739	       683.8 ns/op	     152 B/op	       5 allocs/op
+BenchmarkRegistryBestAvailable-16            	 9391467	       128.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegistryBestAvailable-16            	 8816358	       135.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegistryBestAvailable-16            	 7521915	       153.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBrain_Complete-16                   	   10000	    447456 ns/op	 1524342 B/op	       4 allocs/op
+BenchmarkBrain_Complete-16                   	   10000	    457360 ns/op	 1524340 B/op	       4 allocs/op
+BenchmarkBrain_Complete-16                   	   10000	    454561 ns/op	 1524340 B/op	       4 allocs/op
+BenchmarkLlamaCpp_JSONToolCallBridge-16      	    8070	    149750 ns/op	   13139 B/op	     156 allocs/op
+BenchmarkLlamaCpp_JSONToolCallBridge-16      	    7653	    165924 ns/op	   13366 B/op	     156 allocs/op
+BenchmarkLlamaCpp_JSONToolCallBridge-16      	    7548	    157411 ns/op	   13328 B/op	     156 allocs/op
+BenchmarkLlamaCpp_XMLToolCallBridge-16       	    9925	    141320 ns/op	   12135 B/op	     130 allocs/op
+BenchmarkLlamaCpp_XMLToolCallBridge-16       	    8019	    160576 ns/op	   12132 B/op	     130 allocs/op
+BenchmarkLlamaCpp_XMLToolCallBridge-16       	    6766	    154056 ns/op	   12045 B/op	     130 allocs/op
+BenchmarkLlamaCpp_MarkdownFencedJSON-16      	    7323	    173812 ns/op	   13116 B/op	     156 allocs/op
+BenchmarkLlamaCpp_MarkdownFencedJSON-16      	    6933	    169003 ns/op	   13151 B/op	     156 allocs/op
+BenchmarkLlamaCpp_MarkdownFencedJSON-16      	    7141	    148197 ns/op	   13160 B/op	     156 allocs/op
+BenchmarkLlamaCpp_NoToolCall_PlainText-16    	    9903	    147677 ns/op	   11787 B/op	     126 allocs/op
+BenchmarkLlamaCpp_NoToolCall_PlainText-16    	    6166	    171388 ns/op	   11804 B/op	     126 allocs/op
+BenchmarkLlamaCpp_NoToolCall_PlainText-16    	    6700	    178259 ns/op	   11691 B/op	     126 allocs/op
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/brain	40.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/brain/models	0.009s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/capability	0.004s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/catalogue	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/control	0.008s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/discovery	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/failover	0.006s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/fallback	0.006s
+goos: linux
+goarch: amd64
+pkg: github.com/HelixDevelopment/HelixLLM/internal/gateway
+cpu: AMD Ryzen 7 2700X Eight-Core Processor         
+BenchmarkToolManager_CompressAndSelect_10-16     	   12313	     84613 ns/op	   24269 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_10-16     	   14022	     78103 ns/op	   24269 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_10-16     	   17030	     83821 ns/op	   24268 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_50-16     	   12852	     97156 ns/op	   24270 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_50-16     	   10000	    100457 ns/op	   24270 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_50-16     	   13093	     87508 ns/op	   24270 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_100-16    	   14176	     88279 ns/op	   24271 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_100-16    	   13922	     84179 ns/op	   24270 B/op	     414 allocs/op
+BenchmarkToolManager_CompressAndSelect_100-16    	   14467	     89612 ns/op	   24270 B/op	     414 allocs/op
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway	17.705s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware	0.006s
+goos: linux
+goarch: amd64
+pkg: github.com/HelixDevelopment/HelixLLM/internal/knowledge
+cpu: AMD Ryzen 7 2700X Eight-Core Processor         
+BenchmarkBM25Search-16            	   10000	    111090 ns/op	   54613 B/op	     316 allocs/op
+BenchmarkBM25Search-16            	   12436	     81470 ns/op	   54666 B/op	     316 allocs/op
+BenchmarkBM25Search-16            	   13516	    106486 ns/op	   54742 B/op	     316 allocs/op
+BenchmarkQueryExpansion-16        	  215362	      5065 ns/op	    1296 B/op	      17 allocs/op
+BenchmarkQueryExpansion-16        	  245578	      4552 ns/op	    1296 B/op	      17 allocs/op
+BenchmarkQueryExpansion-16        	  255672	      4154 ns/op	    1296 B/op	      17 allocs/op
+BenchmarkCodeAwareChunker-16      	   38311	     31276 ns/op	   19892 B/op	     124 allocs/op
+BenchmarkCodeAwareChunker-16      	   38923	     33243 ns/op	   19892 B/op	     124 allocs/op
+BenchmarkCodeAwareChunker-16      	   32467	     32795 ns/op	   19892 B/op	     124 allocs/op
+BenchmarkMemoryStore_Upsert-16    	 1119122	      1727 ns/op	    3523 B/op	       3 allocs/op
+BenchmarkMemoryStore_Upsert-16    	  932373	      1185 ns/op	    3525 B/op	       3 allocs/op
+BenchmarkMemoryStore_Upsert-16    	 1000000	      1155 ns/op	    3572 B/op	       3 allocs/op
+BenchmarkMemoryStore_Search-16    	    2278	    604514 ns/op	   98472 B/op	       4 allocs/op
+BenchmarkMemoryStore_Search-16    	    1729	    695180 ns/op	   98472 B/op	       4 allocs/op
+BenchmarkMemoryStore_Search-16    	    2132	    585092 ns/op	   98472 B/op	       4 allocs/op
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/knowledge	23.991s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/lifecycle	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/mcpgateway	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/mode	0.003s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/naming	0.003s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/runtime	0.004s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/selection	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/server	0.009s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/server/middleware	0.006s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/analytics	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/config	0.003s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/events	0.004s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/hardware	0.007s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/health	0.004s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/i18n	0.003s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/logging	0.003s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/messaging	0.004s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/metrics	0.010s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/observability	0.007s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/plugins	0.003s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/proxy	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/shared/rpc	0.004s
+goos: linux
+goarch: amd64
+pkg: github.com/HelixDevelopment/HelixLLM/internal/telemetry
+cpu: AMD Ryzen 7 2700X Eight-Core Processor         
+BenchmarkModelPerf_RecordAt-16             	65105370	        16.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkModelPerf_RecordAt-16             	75174493	        17.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkModelPerf_RecordAt-16             	74748187	        15.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkModelPerf_RecordAtContended-16    	11358247	        91.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkModelPerf_RecordAtContended-16    	13104272	        87.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkModelPerf_RecordAtContended-16    	13669190	        88.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRecorder_RecordAtByModelID-16     	24813529	        43.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRecorder_RecordAtByModelID-16     	30846266	        38.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRecorder_RecordAtByModelID-16     	32231794	        37.87 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/telemetry	11.927s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/testing	0.005s
+PASS
+ok  	github.com/HelixDevelopment/HelixLLM/internal/vrambroker	0.007s
+EXIT_CODE=0 DURATION_SEC=102

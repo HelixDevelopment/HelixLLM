@@ -116,7 +116,17 @@ if ! "$IMAGEMAGICK" -size 128x128 xc:black -fill red -draw "rectangle 10,10 60,6
 	fail "could not generate test image via ImageMagick ($IMAGEMAGICK) — environment gap, not a service defect"
 fi
 
-B64="$(base64 -w0 "$TMP_PNG")"
+# Portable encode: `base64 -w0` is a GNU coreutils extension that BSD/macOS
+# base64 does not accept. Plain `base64` encodes on both; `tr -d '\n'` strips
+# GNU's 76-column wrapping. The emptiness check matters because this script
+# runs under `set -u` only: a failed command substitution would leave B64
+# empty and the request would carry a zero-byte image, which a VLM can still
+# answer from the text prompt alone — i.e. a PASS for an image the endpoint
+# never received.
+B64="$(base64 < "$TMP_PNG" | tr -d '\n')"
+if [ -z "$B64" ]; then
+	fail "could not base64-encode the test image — environment gap, not a service defect"
+fi
 python3 - "$TMP_REQ" "$B64" <<'PYEOF'
 import json, sys
 outpath, b64 = sys.argv[1], sys.argv[2]
