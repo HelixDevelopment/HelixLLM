@@ -17,8 +17,16 @@ bin/
 *.out
 vendor/
 
-# TLS certs (dev)
-certs/
+# TLS certs (dev) — CONST-053 / §11.4.30: private keys/certs are never
+# versioned. Regeneration mechanism (§11.4.77): scripts/gen_dev_certs.sh
+# (self-signed, CN=helixllm, dev-only). See certs/README.md.
+# NOTE: intentionally file-glob (*.pem / *.key), not a `certs/` directory
+# ignore — a directory-level ignore would also hide certs/README.md from
+# git, and negation cannot re-include a file whose parent directory is
+# itself excluded.
+*.pem
+*.key
+!certs/README.md
 
 # IDE
 .idea/
