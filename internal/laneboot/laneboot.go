@@ -178,6 +178,49 @@ func measure(ctx context.Context, weightsDir string) capability.HostCapabilityPr
 	return profile
 }
 
+// selectionRequest builds the selection every lane makes.
+//
+// It is a named function rather than a literal inline because two of its fields
+// are not describing the model or the host — they are this binary declaring how
+// it will USE what it is given, and both have to stay in agreement with the
+// admission gate a few steps later in the same process:
+//
+//   - Reserve carries the ADMISSION GATE's own device-memory margin
+//     (runtime.SelectionReserve), so selection holds back what the gate will
+//     hold back.
+//   - AcceleratorBound says the memory figure will be SPENT ON THE DEVICE.
+//     Every lane computes its admission need as the chosen option's
+//     MemoryRequiredBytes and hands it to vrambroker.Acquire; without this,
+//     selection checks that figure against host RAM and the lane spends it
+//     against the card.
+//
+// Those two together are what make "this binary cannot offer a model it will
+// then refuse to start" true. The margin alone did not: it only ever applied on
+// an axis that entries with requires_accelerator: false never reached, and the
+// shipped text catalogue is mostly such entries. On a host with plenty of RAM
+// and a small card the lane chose a 16-24 GiB model, announced it, and was then
+// refused by its own gate.
+func selectionRequest(
+	profile capability.HostCapabilityProfile,
+	loaded catalogue.Catalogue,
+	family catalogue.CapabilityFamily,
+	purpose catalogue.UsagePurpose,
+	pin *selection.Pin,
+	maxProfileAge time.Duration,
+) selection.Request {
+	return selection.Request{
+		Profile:          profile,
+		Entries:          loaded.Entries(),
+		Families:         []catalogue.CapabilityFamily{family},
+		DeclaredUsage:    purpose,
+		Pin:              pin,
+		Now:              time.Now().UTC(),
+		MaxProfileAge:    maxProfileAge,
+		Reserve:          runtime.SelectionReserve(),
+		AcceleratorBound: true,
+	}
+}
+
 // Decide measures the host and returns the options it can actually serve for
 // one family, in the order the catalogue records them.
 //
@@ -219,20 +262,7 @@ func Decide(
 	// there is no stricter requirement.
 	policy := capability.FreshnessPolicy{MaxAge: capability.DefaultMaxMeasurementAge}
 
-	result, err := selection.Select(selection.Request{
-		Profile:       profile,
-		Entries:       loaded.Entries(),
-		Families:      []catalogue.CapabilityFamily{family},
-		DeclaredUsage: purpose,
-		Pin:           pin,
-		Now:           time.Now().UTC(),
-		MaxProfileAge: policy.MaxAge,
-		// The device-memory margin is the ADMISSION GATE's, and this binary
-		// is where the two meet: it selects here and admits through
-		// vrambroker below. Stating the gate's margin to selection is what
-		// stops this binary offering a model it will then refuse to start.
-		Reserve: runtime.SelectionReserve(),
-	})
+	result, err := selection.Select(selectionRequest(profile, loaded, family, purpose, pin, policy.MaxAge))
 	if err != nil {
 		return nil, loaded, profile, purpose, RefusalError(result, err)
 	}

@@ -75,6 +75,35 @@ func fraction(of capability.Bytes, f float64) capability.Bytes {
 	return capability.Bytes(float64(of) * f)
 }
 
+// fitPolicy is everything about the CALLER that changes how a candidate is
+// measured, as opposed to anything about the candidate itself.
+//
+// It exists because the two members answer to different owners and were being
+// conflated. The reserve is what the host keeps back. acceleratorBound is a
+// fact about the LANE doing the asking — see [Request.AcceleratorBound] — and
+// an entry has no way to know it.
+type fitPolicy struct {
+	reserve          Reserve
+	acceleratorBound bool
+}
+
+// deviceAxisApplies reports whether the device-memory axis is asked for this
+// candidate.
+//
+// Two independent grounds, and neither implies the other:
+//
+//   - The ENTRY mandates a device (RequiresAccelerator). Its memory figure is
+//     recorded as a device figure — video.yaml states it as "the value actually
+//     passed to vrambroker.Acquire" — so device memory is the only axis that
+//     figure means anything on.
+//   - The LANE spends the figure on a device whatever the entry says. A text
+//     model that runs perfectly well on a processor is still admitted against
+//     the card by a lane that admits everything against the card, and the size
+//     of the card is then a constraint on it regardless of its flag.
+func (p fitPolicy) deviceAxisApplies(e catalogue.Entry) bool {
+	return e.RequiresAccelerator || p.acceleratorBound
+}
+
 // axis is one measured dimension an option is checked against. Memory and
 // storage are evaluated through the same shape but never through the same
 // value: a single combined figure cannot report which of the two was short,
@@ -160,16 +189,28 @@ func servingDevice(devices []capability.Accelerator) (capability.Accelerator, bo
 	return best, true
 }
 
-// acceleratorAxis derives the device-memory axis for an entry that mandates an
-// accelerator.
+// acceleratorAxis derives the device-memory axis.
 //
-// The requirement compared here is the entry's own memory figure, because for
-// an accelerator-required entry that figure IS the device-memory requirement:
-// the catalogue records it as the value handed to the runtime's VRAM admission
-// gate, and repeats it as the entry's minimum free device memory. Checking it
-// only against host RAM answers a question nobody asked — a 4 GiB card in a
-// 64 GiB machine clears a 19 GB requirement with room to spare, and the option
-// is offered to a user whose card cannot hold a third of it.
+// The requirement compared here is the entry's own memory figure, and it is the
+// right figure on this axis for either of the two reasons the axis is asked at
+// all (see [fitPolicy.deviceAxisApplies]).
+//
+// For an accelerator-required entry that figure IS the device-memory
+// requirement: the catalogue records it as the value handed to the runtime's
+// VRAM admission gate, and repeats it as the entry's minimum free device
+// memory.
+//
+// For an accelerator-bound LANE it is the figure the lane will itself spend on
+// the device: every *-boot binary computes its admission need as the chosen
+// option's MemoryRequiredBytes and hands exactly that to
+// vrambroker.Acquire. Checking that same figure against the card here is not a
+// new claim about the model — it is selection asking the question the gate two
+// steps later is going to ask anyway.
+//
+// Either way, checking it only against host RAM answers a question nobody
+// asked — a 4 GiB card in a 64 GiB machine clears a 19 GB requirement with room
+// to spare, and the option is offered to a user whose card cannot hold a third
+// of it.
 func acceleratorAxis(d capability.Accelerator, e catalogue.Entry, r Reserve) axis {
 	return axis{
 		resource:  ResourceAccelerator,
@@ -187,17 +228,28 @@ func acceleratorAxis(d capability.Accelerator, e catalogue.Entry, r Reserve) axi
 // memory more than twenty times over and does not fit its disk at all: a check
 // that combines the axes, or that returns early on memory alone, reports the
 // wrong resource and sends the user to fix something that is not broken.
-func fits(p capability.HostCapabilityProfile, e catalogue.Entry, r Reserve) (Headroom, *Shortfall) {
+func fits(p capability.HostCapabilityProfile, e catalogue.Entry, policy fitPolicy) (Headroom, *Shortfall) {
+	r := policy.reserve
 	mem := memoryAxis(p, e, r)
 	store := storageAxis(p, e, r)
 
 	if s, isShort := mem.short(); isShort {
 		return Headroom{}, &s
 	}
-	// The device axis is only asked when the entry mandates a device. An entry
-	// that runs on the processor is not made infeasible by a small card, and an
-	// entry that mandates one has already been shown a device exists: supports()
-	// runs before this and refuses the no-device host for configuration.
+	// The device axis is asked on either of the two grounds
+	// fitPolicy.deviceAxisApplies names. An entry that runs on the processor,
+	// asked for by a caller that does not put it on a device, is not made
+	// infeasible by a small card.
+	//
+	// It stays conditional on a device having been MEASURED, and that is an
+	// honest boundary rather than an oversight (§11.4.6). An accelerator-
+	// required entry on a no-device host is already refused by supports(),
+	// which runs before this. An accelerator-BOUND caller on a no-device host
+	// is asking selection to check a card that was not measured, and selection
+	// has nothing to check it against; the refusal there belongs to the
+	// admission gate, which fails closed on an unreadable budget
+	// (vrambroker.ErrBudgetUnavailable). Inventing a refusal here would be
+	// selection guessing at a device it cannot see.
 	//
 	// Which device answered is carried out on the headroom. The choice is made
 	// once, here, and a caller that has to act on the same card — draw its
@@ -205,7 +257,7 @@ func fits(p capability.HostCapabilityProfile, e catalogue.Entry, r Reserve) (Hea
 	// the choice and risking a different answer.
 	var servingIdentity capability.DeviceIdentity
 	var acceleratorRemaining uint64
-	if e.RequiresAccelerator {
+	if policy.deviceAxisApplies(e) {
 		if device, measured := servingDevice(p.Accelerators); measured {
 			ax := acceleratorAxis(device, e, r)
 			if s, isShort := ax.short(); isShort {

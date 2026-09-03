@@ -326,6 +326,11 @@ type FleetOptions struct {
 	// placement (FR-033). Zero leaves freshness unbounded, appropriate only
 	// when the caller has just measured every host.
 	MaxProfileAge time.Duration
+	// AcceleratorBound says every placement decided by this fleet will spend
+	// the placed option's memory requirement on the accelerator. It means
+	// exactly what [Request.AcceleratorBound] means, and is stated here for the
+	// same reason: it is a fact about the caller, and an entry cannot know it.
+	AcceleratorBound bool
 }
 
 // Errors reported by the fleet.
@@ -364,9 +369,17 @@ type Fleet struct {
 	placements map[PlacementID]placementRecord
 	nextID     uint64
 
-	reserve       Reserve
-	healthTTL     time.Duration
-	maxProfileAge time.Duration
+	reserve          Reserve
+	acceleratorBound bool
+	healthTTL        time.Duration
+	maxProfileAge    time.Duration
+}
+
+// policy is the fleet's standing measurement policy, assembled once from the
+// two fields that change how a candidate is weighed. Both are fixed at
+// construction, so every host in a placement is measured on the same terms.
+func (f *Fleet) policy() fitPolicy {
+	return fitPolicy{reserve: f.reserve, acceleratorBound: f.acceleratorBound}
 }
 
 // deviceCommit is one accelerator's line in the ledger.
@@ -401,14 +414,15 @@ func NewFleet(opts FleetOptions) (*Fleet, error) {
 	}
 
 	f := &Fleet{
-		hosts:         make(map[string]Host, len(opts.Hosts)),
-		order:         make([]string, 0, len(opts.Hosts)),
-		committed:     make(map[string]Commitment, len(opts.Hosts)),
-		devices:       make(map[string]map[capability.DeviceIdentity]deviceCommit, len(opts.Hosts)),
-		placements:    make(map[PlacementID]placementRecord),
-		reserve:       reserve,
-		healthTTL:     ttl,
-		maxProfileAge: opts.MaxProfileAge,
+		hosts:            make(map[string]Host, len(opts.Hosts)),
+		order:            make([]string, 0, len(opts.Hosts)),
+		committed:        make(map[string]Commitment, len(opts.Hosts)),
+		devices:          make(map[string]map[capability.DeviceIdentity]deviceCommit, len(opts.Hosts)),
+		placements:       make(map[PlacementID]placementRecord),
+		reserve:          reserve,
+		acceleratorBound: opts.AcceleratorBound,
+		healthTTL:        ttl,
+		maxProfileAge:    opts.MaxProfileAge,
 	}
 
 	for _, h := range opts.Hosts {
@@ -590,7 +604,7 @@ func (f *Fleet) Place(req PlacementRequest) (PlacementResult, error) {
 		// The model is weighed against what this host has left, not against
 		// what it had when it was measured (FR-042).
 		weighed++
-		option, withheld := evaluateEntry(req.Entry, f.effective(h), req.DeclaredUsage, f.reserve)
+		option, withheld := evaluateEntry(req.Entry, f.effective(h), req.DeclaredUsage, f.policy())
 		if withheld != nil {
 			view.Excluded = &HostExclusion{
 				Reason:      exclusionFor(withheld.Reason),

@@ -55,12 +55,12 @@ func evaluateFamily(
 	candidates []catalogue.Entry,
 	p capability.HostCapabilityProfile,
 	declared catalogue.UsagePurpose,
-	reserve Reserve,
+	policy fitPolicy,
 ) FamilyResult {
 	result := FamilyResult{Family: family}
 
 	for _, e := range candidates {
-		offered, withheld := evaluateEntry(e, p, declared, reserve)
+		offered, withheld := evaluateEntry(e, p, declared, policy)
 		if withheld != nil {
 			result.Withheld = append(result.Withheld, *withheld)
 			continue
@@ -149,7 +149,7 @@ func evaluateEntry(
 	e catalogue.Entry,
 	p capability.HostCapabilityProfile,
 	declared catalogue.UsagePurpose,
-	reserve Reserve,
+	policy fitPolicy,
 ) (*Option, *Withheld) {
 	base := Withheld{
 		ModelID: e.ModelID,
@@ -163,7 +163,7 @@ func evaluateEntry(
 		return nil, &base
 	}
 
-	headroom, shortfall := fits(p, e, reserve)
+	headroom, shortfall := fits(p, e, policy)
 	if shortfall != nil {
 		base.Reason = ReasonInsufficientResources
 		base.Shortfall = shortfall

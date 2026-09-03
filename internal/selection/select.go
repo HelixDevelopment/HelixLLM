@@ -49,6 +49,32 @@ type Request struct {
 	// Reserve is what to hold back so the host stays responsive while serving.
 	// The zero Reserve means DefaultReserve.
 	Reserve Reserve
+
+	// AcceleratorBound says the caller will spend the chosen option's memory
+	// requirement on the ACCELERATOR, whatever the entry's own
+	// RequiresAccelerator flag says.
+	//
+	// It is a fact about the CALLER, which is why it is stated here and not
+	// read off the entry. Every *-boot lane admits its chosen option through
+	// vrambroker.Acquire, and the figure it admits is that option's
+	// MemoryRequiredBytes — the same number selection has just checked. Without
+	// this field selection checks that number against host RAM and the lane
+	// then spends it against device memory: two different resources, one
+	// number, and nothing comparing them.
+	//
+	// What that costs, measured on the shipped catalogue: on a host with 44 GiB
+	// of free RAM and a 4 GiB card, the text family offered four options
+	// needing 16-24 GiB, each of which the lane would have tried to admit
+	// against that card. The lane's own doc comment claimed it "cannot offer a
+	// model it will then refuse to start" on the strength of passing the
+	// admission gate's margin to Reserve — but the margin was only ever applied
+	// on an axis that accelerator-optional entries never reached.
+	//
+	// Setting it does NOT reclassify the model. An entry stays
+	// processor-servable, its catalogue figures stay exactly what they were
+	// sourced as, and a caller that does not bind the accelerator gets the same
+	// answer as before. It states where THIS caller will put the bytes.
+	AcceleratorBound bool
 }
 
 // Errors Select reports. They are distinct because their remedies are: a
@@ -126,12 +152,15 @@ func Select(req Request) (Result, error) {
 		reserve = DefaultReserve()
 	}
 
-	result.Families = evaluate(req, reserve)
+	result.Families = evaluate(req, fitPolicy{
+		reserve:          reserve,
+		acceleratorBound: req.AcceleratorBound,
+	})
 	return result, nil
 }
 
 // evaluate produces one FamilyResult per requested family.
-func evaluate(req Request, reserve Reserve) []FamilyResult {
+func evaluate(req Request, policy fitPolicy) []FamilyResult {
 	entries := req.Entries
 
 	// A pin narrows the candidate set and nothing else. Everything that follows
@@ -179,7 +208,7 @@ func evaluate(req Request, reserve Reserve) []FamilyResult {
 			continue
 		}
 		seen[f] = struct{}{}
-		results = append(results, evaluateFamily(f, byFamily[f], req.Profile, req.DeclaredUsage, reserve))
+		results = append(results, evaluateFamily(f, byFamily[f], req.Profile, req.DeclaredUsage, policy))
 	}
 
 	sortFamilies(results)
