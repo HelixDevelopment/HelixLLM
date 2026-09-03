@@ -334,3 +334,43 @@ would rebuild the always-passing harness that was just dismantled. The count
 moved 83 → 79 because five defects were actually repaired, and the report states
 plainly that the sixth delta is a pre-existing flake rather than counting it as
 a win.
+
+---
+
+## Follow-up: `:8443` now runs the fixed binary (2026-09-03, later the same day)
+
+The verification above deliberately ran the fixed binary on `:8444` and left the
+**stale** one on `:8443`. That stale process then kept serving for 16 hours:
+
+```
+pid 30808  ./bin/helixllm   started Wed Sep  2 22:13:40   binary mtime Sep 2 22:13
+HEAD at the time of this note: 1efda3b (Sep 3 12:48)
+```
+
+Its `/v1/models` was still answering
+
+```json
+{"object":"list","data":null}
+```
+
+— the exact defect `ab34fa8` ("a listing of nothing is an empty list, not null")
+had already fixed **in source**. Source-green said nothing about what was
+serving; this is the §11.4.108 SOURCE → RUNTIME gap, and no gate catches it
+because every gate reads the source.
+
+Rebuilt from HEAD and restarted on `:8443`. It now returns a real list:
+
+```json
+{"object":"list","data":[{"id":"helixllm-anton-llama-3-1-70b-instruct-q4_k_m-b57fe6665058",
+  "owned_by":"llamacpp","model_identity":"helixllm/anton/Llama-3.1-70B-Instruct-Q4_K_M",
+  "host":"anton","availability":"withheld","withheld_reason":"provider_unavailable"}]}
+```
+
+The `withheld` is CORRECT, not a regression: `anton` IS this host, no GGUF
+weights exist on it, and no `llama-server` is running. Note separately that
+`HELIX_LLM_LOCAL_MODEL` defaults to that 70B Q4_K_M (~40 GB) while the host has
+30 GB RAM and 12 GB VRAM — it could not run its own default even with weights.
+
+**Operational note for anyone re-running this triage:** compare
+`ps -o lstart= -p <pid>` against `git log -1` before trusting any live probe.
+A 200 from a stale process is evidence about the stale process and nothing more.
