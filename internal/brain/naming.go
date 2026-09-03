@@ -196,31 +196,69 @@ func (b *Brain) ResolveModelName(name string) (string, bool) {
 	return joinModelVariant(id.Model, id.Variant), true
 }
 
+// RegisterNames records an identifier for every HelixLLM-served model currently
+// offered, so the registry can answer a request without deriving anything on
+// the request path.
+//
+// This exists because resolution must not perform I/O. Deriving the option list
+// asks EVERY provider whether it is available, and for a local runtime that is
+// an HTTP call with a multi-second timeout — so a lazy "derive it if the
+// registry misses" fallback made every unresolved request (a cloud model's
+// upstream id included) probe a backend it was never going to use, and let one
+// wedged local runtime add its whole timeout to unrelated traffic. Registration
+// is therefore done ONCE, up front, from the model lists alone: no Available()
+// call, no network, no per-request write lock.
+//
+// It is idempotent — [naming.Registry.Register] returns the existing identifier
+// for an identity already recorded — so it is safe to call again whenever the
+// model lists are refreshed, which is what keeps the registry current as hosts
+// come and go.
+func (b *Brain) RegisterNames() {
+	b.RegisterNamesFor(naming.ClaudeToolkit)
+}
+
+// RegisterNamesFor is [Brain.RegisterNames] for one consumer's ruleset.
+//
+// Failures are deliberately silent here: an unnameable model or a digest
+// collision is a WITHHELD OPTION, and [Brain.ModelOptionsFor] is the surface
+// that reports it with its reason (FR-019). Registration only pre-populates
+// what that surface would record anyway, so failing loudly in two places would
+// report the same condition twice while giving this one nowhere to report it.
+func (b *Brain) RegisterNamesFor(rs naming.Ruleset) {
+	for _, p := range b.providers {
+		h, hosted := p.(ServingHost)
+		if !hosted {
+			continue
+		}
+		host := strings.TrimSpace(h.ServingHost())
+		if host == "" {
+			continue
+		}
+		for _, m := range p.Models() {
+			model, variant := splitModelVariant(m)
+			id, err := naming.NewIdentity(host, model, variant)
+			if err != nil {
+				continue
+			}
+			_, _ = b.names.Register(id, rs)
+		}
+	}
+}
+
 // resolveIdentity maps a published identifier back to the identity it stands
 // for, or reports false for anything that is not one of our identifiers.
 //
 // It is the shared half of [Brain.ResolveModelName] and [Brain.PinModel]: the
 // first needs only the model name, the second also needs the HOST, and deriving
 // the identity twice in two places is how the two would drift apart.
+//
+// It consults ONLY the registry, and performs no I/O — see [Brain.RegisterNames]
+// for why, and for where the registry is filled.
 func (b *Brain) resolveIdentity(name string) (naming.Identity, bool) {
 	if name == "" {
 		return naming.Identity{}, false
 	}
-	if id, ok := b.names.IdentityFor(naming.ClaudeToolkit, name); ok {
-		return id, true
-	}
-	// The identifier may not have been listed yet in this process. Derive
-	// over the current options rather than requiring a prior listing.
-	for _, opt := range b.ModelOptionsFor(naming.ClaudeToolkit) {
-		if opt.Identifier == name && opt.Identity != "" {
-			parsed, err := naming.ParseIdentity(opt.Identity)
-			if err != nil {
-				return naming.Identity{}, false
-			}
-			return parsed, true
-		}
-	}
-	return naming.Identity{}, false
+	return b.names.IdentityFor(naming.ClaudeToolkit, name)
 }
 
 // PinModel reports whether a request named a SPECIFIC served model and, if so,
@@ -270,28 +308,63 @@ func (b *Brain) PinModel(requested string) (provider, model string, ok bool) {
 	}
 	sort.Strings(names)
 
+	var candidates []string
 	for _, name := range names {
 		p := b.providers[name]
 		if !serves(p, model) {
 			continue
 		}
-		if wantHost == "" {
-			return name, model, true
+		if wantHost != "" {
+			// The identifier named a host. Two machines can serve the same
+			// model name under DIFFERENT identifiers (the host is part of the
+			// identity and of the digest), so honouring the host is what keeps
+			// one identifier from landing on the other machine's copy.
+			h, hosted := p.(ServingHost)
+			if !hosted || !strings.EqualFold(strings.TrimSpace(h.ServingHost()), wantHost) {
+				continue
+			}
 		}
-		// The identifier named a host. Two machines can serve the same model
-		// name under DIFFERENT identifiers (the host is part of the identity
-		// and of the digest), so honouring the host is what keeps one
-		// identifier from landing on the other machine's copy.
-		if h, hosted := p.(ServingHost); hosted &&
-			strings.EqualFold(strings.TrimSpace(h.ServingHost()), wantHost) {
-			return name, model, true
-		}
+		candidates = append(candidates, name)
 	}
 
-	if identifier {
-		// One of our identifiers, but its host is no longer serving. Specific
-		// request, specific answer unavailable — say so rather than let it fall
-		// through to whatever else happens to be up.
+	switch {
+	case len(candidates) == 1:
+		// The only provider that serves it. Whether it is up is the caller's
+		// problem to report, not a reason to look elsewhere — and asking here
+		// would cost a health probe on every pinned request.
+		return candidates[0], model, true
+
+	case len(candidates) > 1:
+		// Several providers serve this exact name. Sorted order is a tie-break
+		// for determinism, NOT a reason to hand back a provider that is down
+		// while a sibling is serving the SAME model: that is not the silent
+		// substitution this function prevents, it is a request the deployment
+		// could have served and didn't. Availability is consulted only in this
+		// branch, so the single-provider case stays probe-free.
+		for _, name := range candidates {
+			if b.providers[name].Available() {
+				return name, model, true
+			}
+		}
+		// None of them are up. Name the first so the failure says which
+		// provider was expected to answer.
+		return candidates[0], model, true
+	}
+
+	// Nothing serves it. Two very different reasons to be here:
+	if identifier || naming.ClaudeToolkit.HasIdentifierPrefix(requested) {
+		// One of OUR identifiers — either resolved but its host is no longer
+		// serving, or carrying our provenance prefix and standing for nothing
+		// this deployment publishes (a STALE identifier: identifiers are
+		// re-minted whenever the host segment of the identity changes, and a
+		// client's configuration still holds the old one).
+		//
+		// Both are the same request: one specific model, named deliberately.
+		// Reporting "nothing pinned" for either is what the chain reads as
+		// "this caller named no model", which sends it to its own top-ranked
+		// entry — the exact silent misroute the identifier exists to prevent,
+		// aimed at the callers most likely to hit it. A name carrying our
+		// prefix is never a request for any-available-model.
 		return "", model, true
 	}
 	return "", "", false

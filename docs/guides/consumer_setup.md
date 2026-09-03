@@ -174,6 +174,12 @@ Both spellings of loopback resolve to the same machine name, so flipping
 If a derived identifier ever collided with a different identity, that option is withheld with reason
 `identifier-conflict` rather than silently replacing the other one.
 
+**Migration — identifiers minted before the loopback change.** The move from the loopback literal to
+the machine name re-minted every locally-served identifier once. A configuration still holding an old
+`helixllm-127-0-0-1-…` (or `helixllm-localhost-…`) id names a model this gateway no longer publishes:
+such a request now **fails with 503** rather than being answered by a different model. Re-run
+discovery — `GET /v1/models` — and replace the ids in your configuration with the ones it returns.
+
 ---
 
 ## HelixCode

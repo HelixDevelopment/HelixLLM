@@ -86,6 +86,30 @@ var ClaudeToolkit = Ruleset{
 	MaxLength:           64,
 }
 
+// IdentifierPrefix is the literal every identifier this ruleset derives opens
+// with — the provenance prefix followed by the separator ("helixllm-" for
+// [ClaudeToolkit]). It is derived from the ruleset rather than written out as a
+// constant because the prefix and the separator are both ruleset fields: a
+// consumer with a different separator would otherwise be matched against the
+// wrong literal.
+func (rs Ruleset) IdentifierPrefix() string {
+	return rs.Prefix + string(rs.Separator)
+}
+
+// HasIdentifierPrefix reports whether name is SHAPED like one of this ruleset's
+// identifiers — that is, whether it carries our provenance prefix.
+//
+// Shape is not membership: a name can carry the prefix and stand for nothing
+// this deployment publishes, which is exactly what a stale identifier is. That
+// distinction is the point of the method. A caller that cannot resolve such a
+// name now knows the difference between "a model name we do not recognise",
+// which may still be a served upstream id, and "one of OUR identifiers that
+// resolves to nothing" — a request for one specific thing that cannot be
+// honoured, and must not be quietly answered by something else.
+func (rs Ruleset) HasIdentifierPrefix(name string) bool {
+	return strings.HasPrefix(name, rs.IdentifierPrefix())
+}
+
 // Validate reports whether the ruleset can actually produce a conforming
 // identifier. A ruleset whose own prefix or separator fails its own rules would
 // emit identifiers the consumer rejects at the far end, so it fails here

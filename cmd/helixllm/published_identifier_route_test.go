@@ -4,16 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/fallback"
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
+	"github.com/HelixDevelopment/HelixLLM/internal/naming"
 	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
@@ -105,16 +109,20 @@ type servingStack struct {
 // those entries go into a fallback.Chain, and the Chain is registered as the
 // gateway's Completer with the Brain kept only as ModelBrain. Any divergence
 // here would make this test guard a wiring production does not use.
-func newServingStack(t *testing.T, providers ...*recordingProvider) *servingStack {
+// It takes brain.Provider rather than *recordingProvider so a test can drive
+// the stack with a REAL provider. That matters: recordingProvider.Available()
+// is a bool, so it cannot observe whether a code path performs the network
+// probe a real provider's availability check performs (F3).
+func newServingStack(t *testing.T, providers ...brain.Provider) *servingStack {
 	t.Helper()
 
 	if len(providers) == 0 {
 		t.Fatal("newServingStack needs at least one provider")
 	}
 
-	b := brain.New(brain.Config{DefaultProvider: providers[0].name})
+	b := brain.New(brain.Config{DefaultProvider: providers[0].Name()})
 	for _, p := range providers {
-		b.RegisterProvider(p.name, p)
+		b.RegisterProvider(p.Name(), p)
 	}
 
 	sb := fallback.NewScorerBridge(fallback.ScorerBridgeConfig{})
@@ -381,5 +389,306 @@ func TestChatCompletions_RawServedNameIsNotOverwrittenByTheChainEntry(t *testing
 			"overwriting an explicitly requested model with it silently answers from a "+
 			"model the caller did not ask for.",
 			"qwen2.5:7b", got)
+	}
+}
+
+// A client holding an identifier this deployment no longer publishes must be
+// told so, not answered by something else.
+//
+// Identifiers are re-minted whenever the host segment of the identity changes,
+// and one such change has already shipped: the serving host moved from the
+// loopback literal to the machine name. Every identifier published before that
+// change is now stale — the population is not hypothetical, it is one the
+// codebase created. A stale identifier resolves to no identity, is served by no
+// provider, and so used to leave PinModel reporting "nothing pinned", which is
+// the signal the chain reads as "this caller named no model" and answers from
+// its own top-ranked entry.
+//
+// That is precisely the misroute the identifier exists to prevent, aimed at the
+// one population most likely to hit it: a caller whose configuration was
+// written from a real /v1/models listing. A string carrying our own provenance
+// prefix is unambiguously a request for one specific thing, so "the caller
+// wants any available model" is not an available reading of it.
+func TestChatCompletions_StaleIdentifierFailsRatherThanFallingThrough(t *testing.T) {
+	local := &recordingProvider{
+		name:   "llamacpp",
+		host:   "gpu-01",
+		models: []string{"llama3:8b", "qwen2.5:7b"},
+	}
+	cloud := &recordingProvider{
+		name:   "chutes",
+		models: []string{"deepseek-chat"},
+	}
+	stack := newServingStack(t, local, cloud)
+
+	// An identifier of exactly the shape published before the serving host
+	// moved off the loopback literal: our prefix, a host segment, a model
+	// segment, a digest. Nothing registered stands for it any more.
+	const stale = "helixllm-127-0-0-1-qwen2-5-7b-ba85a3230a59"
+
+	w := stack.chat(t, stale)
+
+	if w.Code == 200 {
+		t.Errorf("POST /v1/chat/completions with the stale identifier %q returned 200: %s\n"+
+			"An identifier this deployment does not publish was answered by SOMETHING. "+
+			"A caller holding a re-minted identifier gets a confident reply from a model "+
+			"it never named and no way to detect the substitution.", stale, w.Body.String())
+	}
+	if got := cloud.received(); len(got) != 0 {
+		t.Errorf("the %q provider answered %v for the stale identifier %q; "+
+			"a request naming one specific model must fail rather than reach another one",
+			cloud.name, got, stale)
+	}
+	if got := local.received(); len(got) != 0 {
+		t.Errorf("the %q provider received %v for the stale identifier %q; "+
+			"the identifier resolves to nothing, so nothing may be dispatched for it",
+			local.name, got, stale)
+	}
+}
+
+// countingLlamaCpp is a real llama.cpp endpoint: it counts /health probes and
+// answers completions. It exists so a test can observe the NETWORK COST of a
+// request, which a bool-valued stub provider cannot show.
+type countingLlamaCpp struct {
+	server *httptest.Server
+
+	probes atomic.Int64
+	// hold, when non-nil, blocks every /health probe until it is closed —
+	// the state a wedged local runtime is in.
+	hold chan struct{}
+}
+
+func newCountingLlamaCpp(t *testing.T) *countingLlamaCpp {
+	t.Helper()
+	c := &countingLlamaCpp{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		c.probes.Add(1)
+		if c.hold != nil {
+			select {
+			case <-c.hold:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ChatCompletionRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(api.ChatCompletionResponse{
+			ID:     "resp-llamacpp",
+			Model:  req.Model,
+			Object: "chat.completion",
+			Choices: []api.ChatCompletionChoice{{
+				Message:      api.ChatMessage{Role: "assistant", Content: "answered by llamacpp"},
+				FinishReason: "stop",
+			}},
+		})
+	})
+	c.server = httptest.NewServer(mux)
+	t.Cleanup(c.server.Close)
+	return c
+}
+
+// A request for a CLOUD model must not touch the local backend at all.
+//
+// Resolving a model name used to fall back to re-deriving the whole option
+// list on a registry miss, and deriving that list asks EVERY provider whether
+// it is available — which for llama.cpp is an HTTP GET /health with a
+// two-second timeout. So every request that named anything not already in the
+// registry — every cloud-routed request included — paid for a probe of a
+// backend it was never going to use, and a wedged local runtime added its full
+// timeout to requests that had nothing to do with it.
+//
+// The oracle is the probe count taken from the real endpoint, because the
+// defect is invisible in the response: the request succeeds either way.
+func TestChatCompletions_CloudRequestDoesNotProbeTheLocalBackend(t *testing.T) {
+	endpoint := newCountingLlamaCpp(t)
+	local := brain.NewLlamaCppProvider(endpoint.server.URL, []string{"llama3:8b", "qwen2.5:7b"})
+	cloud := &recordingProvider{name: "chutes", models: []string{"deepseek-chat"}}
+
+	stack := newServingStack(t, local, cloud)
+
+	// Startup wiring is allowed to probe; this test is about the REQUEST path.
+	endpoint.probes.Store(0)
+
+	w := stack.chat(t, "deepseek-chat")
+	if w.Code != 200 {
+		t.Fatalf("POST /v1/chat/completions for a cloud model returned %d: %s", w.Code, w.Body.String())
+	}
+	if got := endpoint.probes.Load(); got != 0 {
+		t.Errorf("a request for the cloud model %q probed the local llama.cpp /health endpoint %d time(s), want 0.\n"+
+			"Resolving a model name must not perform network I/O against providers the request "+
+			"does not name: a slow or wedged local backend then delays every unrelated request.",
+			"deepseek-chat", got)
+	}
+}
+
+// The same defect, measured as the latency a user actually feels: a wedged
+// local backend must not delay a cloud request.
+func TestChatCompletions_WedgedLocalBackendDoesNotDelayACloudRequest(t *testing.T) {
+	endpoint := newCountingLlamaCpp(t)
+	endpoint.hold = make(chan struct{})
+	t.Cleanup(func() { close(endpoint.hold) })
+
+	local := brain.NewLlamaCppProvider(endpoint.server.URL, []string{"llama3:8b", "qwen2.5:7b"})
+	cloud := &recordingProvider{name: "chutes", models: []string{"deepseek-chat"}}
+	stack := newServingStack(t, local, cloud)
+	endpoint.probes.Store(0)
+
+	start := time.Now()
+	w := stack.chat(t, "deepseek-chat")
+	elapsed := time.Since(start)
+
+	if w.Code != 200 {
+		t.Fatalf("POST /v1/chat/completions for a cloud model returned %d: %s", w.Code, w.Body.String())
+	}
+	// The provider's own health probe gives up after two seconds, so a request
+	// that waits on it lands at ~2s while one that never probes lands in
+	// microseconds. One second separates them with room to spare.
+	if elapsed > time.Second {
+		t.Errorf("a cloud request took %v while the local llama.cpp /health endpoint was wedged.\n"+
+			"It waited on a backend it never uses; the local health probe's own timeout is "+
+			"being charged to every unrelated request.", elapsed)
+	}
+}
+
+// A model name two providers serve must reach one that is actually serving it.
+//
+// With no host named there is nothing to disambiguate on, so provider selection
+// falls back to sorted order for determinism. Taking the first serving provider
+// WITHOUT consulting availability turns that tie-break into a failure: the same
+// model is up on another provider and is never tried, and the caller is told the
+// model cannot be served when it can.
+//
+// This is a different case from substitution. Refusing to answer with a
+// DIFFERENT model is the contract; refusing to answer with the SAME model from
+// a provider that has it is just a lost request.
+func TestChatCompletions_RawNameServedByTwoProvidersReachesTheAvailableOne(t *testing.T) {
+	down := &recordingProvider{
+		name:   "aaa-ollama",
+		host:   "gpu-01",
+		models: []string{"llama3:8b"},
+		down:   true,
+	}
+	up := &recordingProvider{
+		name:   "zzz-llamacpp",
+		host:   "gpu-02",
+		models: []string{"llama3:8b"},
+	}
+	stack := newServingStack(t, down, up)
+
+	w := stack.chat(t, "llama3:8b")
+
+	if w.Code != 200 {
+		t.Fatalf("POST /v1/chat/completions for %q returned %d: %s\n"+
+			"Two providers serve that model and %q is available. Sorted order is a tie-break "+
+			"for determinism, not a reason to fail a request the deployment can serve.",
+			"llama3:8b", w.Code, w.Body.String(), up.name)
+	}
+	if got := up.received(); len(got) != 1 || got[0] != "llama3:8b" {
+		t.Errorf("the available provider %q received %v, want exactly [%q]", up.name, got, "llama3:8b")
+	}
+	if got := down.received(); len(got) != 0 {
+		t.Errorf("the unavailable provider %q was dispatched to with %v", down.name, got)
+	}
+}
+
+// A named model that cannot be served right now is an AVAILABILITY condition,
+// and must be reported as one.
+//
+// The chain's own exhausted-providers failure already answers 503, which is
+// what tells a client, a load balancer and a readiness probe to retry with
+// backoff. The pinned path reaches the identical situation — nothing can serve
+// this request now — so answering 500 there tells all three that the build is
+// broken and that retrying is pointless.
+func TestChatCompletions_PinnedButUnservableIsServiceUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model func(*servingStack) string
+		down  bool
+	}{
+		{
+			name:  "identifier whose host stopped serving",
+			model: func(s *servingStack) string { return s.identifierFor(t, "qwen2.5:7b") },
+			down:  true,
+		},
+		{
+			name:  "identifier this deployment no longer publishes",
+			model: func(*servingStack) string { return "helixllm-127-0-0-1-qwen2-5-7b-ba85a3230a59" },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			local := &recordingProvider{
+				name:   "llamacpp",
+				host:   "gpu-01",
+				models: []string{"llama3:8b", "qwen2.5:7b"},
+			}
+			cloud := &recordingProvider{name: "chutes", models: []string{"deepseek-chat"}}
+			stack := newServingStack(t, local, cloud)
+
+			model := tc.model(stack)
+			local.down = tc.down
+
+			w := stack.chat(t, model)
+			if w.Code != 503 {
+				t.Errorf("POST /v1/chat/completions with %q returned %d, want 503: %s\n"+
+					"Nothing can serve the model the caller named. 503 says \"retry with backoff\"; "+
+					"500 says \"this build is broken\" and stops clients, load balancers and "+
+					"readiness probes from doing the right thing.", model, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// A client's FIRST request may name an identifier it read from a PREVIOUS run,
+// so resolution must work with no listing in this process.
+//
+// Resolution is registry-only and does no I/O, which means an identifier is
+// resolvable only once something has registered it. Listing models registers as
+// a side effect — so every test that fetches its identifier from
+// Brain.ModelOptions() populates the registry itself and would pass even if the
+// startup registration were removed entirely. This test therefore derives the
+// expected identifier INDEPENDENTLY, from the identity, without touching the
+// Brain: the only thing that can have filled the registry is the serving stack's
+// own construction.
+//
+// Without that registration the request would not merely misroute — it would be
+// REFUSED, because a name carrying our prefix that resolves to nothing is now an
+// explicit error. Registering is what keeps that strictness from turning a valid
+// identifier into a 503.
+func TestChatCompletions_IdentifierResolvesWithoutAnyPriorModelListing(t *testing.T) {
+	local := &recordingProvider{
+		name:   "llamacpp",
+		host:   "gpu-01",
+		models: []string{"llama3:8b", "qwen2.5:7b"},
+	}
+	cloud := &recordingProvider{name: "chutes", models: []string{"deepseek-chat"}}
+	stack := newServingStack(t, local, cloud)
+
+	id, err := naming.NewIdentity(local.host, "qwen2.5", "7b")
+	if err != nil {
+		t.Fatalf("build identity: %v", err)
+	}
+	identifier, err := naming.Derive(id, naming.ClaudeToolkit)
+	if err != nil {
+		t.Fatalf("derive identifier: %v", err)
+	}
+
+	w := stack.chat(t, identifier)
+	if w.Code != 200 {
+		t.Fatalf("POST /v1/chat/completions with %q returned %d before any /v1/models listing: %s\n"+
+			"The identifier is one this deployment publishes, so it must resolve. Nothing had "+
+			"listed models in this process, which means the naming registry was never populated "+
+			"at startup — and an unregistered identifier is now refused rather than misrouted.",
+			identifier, w.Code, w.Body.String())
+	}
+	if got := local.received(); len(got) != 1 || got[0] != "qwen2.5:7b" {
+		t.Errorf("the serving provider received %v, want exactly [%q]", got, "qwen2.5:7b")
+	}
+	if got := cloud.received(); len(got) != 0 {
+		t.Errorf("the %q provider answered %v", cloud.name, got)
 	}
 }

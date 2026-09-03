@@ -34,6 +34,31 @@ func IsProvidersExhausted(err error) bool {
 	return errors.Is(err, ErrProvidersExhausted)
 }
 
+// ErrPinnedModelUnavailable marks the condition "the SPECIFIC model this
+// request named cannot be served right now" — the pinned path's sibling of
+// ErrProvidersExhausted.
+//
+// It exists for the same reason: the two conditions are the same KIND of
+// answer, so they must reach the client as the same status. A request whose
+// named model has no serving provider, or whose serving provider is down, is
+// an availability condition — 503, retry with backoff — not an internal fault.
+// Reporting it as 500 tells every client, load balancer and readiness probe
+// that the build is broken and that retrying is pointless.
+//
+// It is deliberately NOT ErrProvidersExhausted: nothing was exhausted, because
+// the pinned path never iterates the chain. Keeping them distinct lets a caller
+// tell "your model is not being served" from "none of ours are", while
+// [IsUnservable] answers the question the HTTP boundary actually asks.
+var ErrPinnedModelUnavailable = errors.New("pinned model unavailable")
+
+// IsUnservable reports whether err is an availability condition — the request
+// cannot be served RIGHT NOW — rather than a fault in a provider that answered.
+// It is the single question the HTTP boundary asks, so both sentinels are
+// checked in one place instead of at each call site.
+func IsUnservable(err error) bool {
+	return IsProvidersExhausted(err) || errors.Is(err, ErrPinnedModelUnavailable)
+}
+
 // Chain is the central fallback orchestrator.  It holds an ordered list of
 // ChainEntry values and routes each request to the first available provider,
 // automatically failing over on 429 / 5xx errors.
@@ -121,19 +146,21 @@ func (c *Chain) pin(requested string) (provider, model string, ok bool) {
 // see. That is the deliberate trade: an explicit failure over a silent swap.
 func (c *Chain) pinnedProvider(providerName, model, requested string) (brain.Provider, error) {
 	if providerName == "" {
-		return nil, fmt.Errorf(
-			"model %q (requested as %q) is not served by any registered provider", model, requested)
+		return nil, fmt.Errorf("%w: model %q (requested as %q) is not served by any registered provider",
+			ErrPinnedModelUnavailable, model, requested)
 	}
 	provider, ok := c.providers[providerName]
 	if !ok {
+		// Not an availability condition: the Brain and the chain disagree about
+		// which providers exist, which is a wiring fault in this build and
+		// stays a 500. Retrying cannot fix it.
 		return nil, fmt.Errorf(
 			"provider %q serves model %q (requested as %q) but is not registered with the chain",
 			providerName, model, requested)
 	}
 	if !provider.Available() {
-		return nil, fmt.Errorf(
-			"provider %q serving model %q (requested as %q) is not available",
-			providerName, model, requested)
+		return nil, fmt.Errorf("%w: provider %q serving model %q (requested as %q) is not available",
+			ErrPinnedModelUnavailable, providerName, model, requested)
 	}
 	return provider, nil
 }

@@ -675,6 +675,14 @@ func buildEmbedder(cfg *config.HelixConfig, log logging.Logger) knowledge.Embedd
 func newFallbackChain(b *brain.Brain, entries []fallback.ChainEntry, rl *fallback.RateLimitTracker) *fallback.Chain {
 	chain := fallback.NewChain(b.Providers(), rl)
 	chain.SetEntries(entries)
+	// Fill the naming registry BEFORE the chain starts serving. Resolution on
+	// the request path is registry-only and performs no I/O (see
+	// Brain.RegisterNames), so an identifier that was never registered resolves
+	// to nothing — and a request naming it fails instead of reaching the model
+	// it names. Registering here, rather than at some call site a future edit
+	// might forget, ties it to the one place the pinner is installed: the
+	// registry is filled for exactly the providers the chain will pin against.
+	b.RegisterNames()
 	// The Brain owns the naming registry and the provider set, so it is what
 	// can say which provider a published identifier actually names.
 	chain.SetModelPinner(b)

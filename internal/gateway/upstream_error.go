@@ -60,7 +60,7 @@ func UpstreamErrorLogDetail(err error) string {
 // upstreamErrorMessageKey picks the client-safe message for an upstream
 // failure, mirroring the split completerErrorStatus makes on status.
 func upstreamErrorMessageKey(err error) string {
-	if fallback.IsProvidersExhausted(err) {
+	if fallback.IsUnservable(err) {
 		return i18n.KeyGatewayUpstreamUnavailable
 	}
 	return i18n.KeyGatewayUpstreamFailed
