@@ -83,6 +83,12 @@ var (
 	ErrSweepTooLarge = errors.New("discovery: address range exceeds the configured sweep bound")
 	// ErrBadEndpoint means an endpoint could not be parsed.
 	ErrBadEndpoint = errors.New("discovery: malformed endpoint")
+	// ErrNoVerifiedAddress means an Instance carries no probe-verified peer
+	// address, so there is no address known to have authenticated to dial.
+	ErrNoVerifiedAddress = errors.New("discovery: instance carries no verified address")
+	// ErrUnpinnableTransport means the configured HTTP transport cannot be made
+	// to dial a fixed address, so a request to it could not be pinned.
+	ErrUnpinnableTransport = errors.New("discovery: transport cannot be pinned to a verified address")
 )
 
 // ServedModel is one model an instance serves, labelled with the host serving
@@ -112,6 +118,15 @@ type Instance struct {
 	// later re-check would resolve the name again and could get a different
 	// answer than the connection we actually verified.
 	PeerLoopback bool
+	// VerifiedAddr is the literal network address the probe connected to and
+	// checked: the address the channel-bound proof was verified against, or,
+	// under the loopback exemption, the address confirmed to be loopback. It is
+	// carried forward for the same reason PeerLoopback is, and for a sharper
+	// purpose: [Discoverer.Send] DIALS it, so the host that receives request
+	// content is the host that authenticated, and not whoever a second lookup
+	// of the endpoint name happens to return. Empty means the Instance did not
+	// come from a probe, and Send refuses it.
+	VerifiedAddr string
 	// Trusted records whether it proved it holds the pre-shared secret. An
 	// instance that did not is never a model source and never receives request
 	// content (FR-024, FR-025).
@@ -193,6 +208,13 @@ type Discoverer struct {
 	tracker      *Tracker
 	timeout      time.Duration
 	maxSweep     int
+
+	// pinnedMu guards pinned, the per-address clients Send dials with. They are
+	// cached rather than built per call because each one owns a connection
+	// pool: a fresh transport for every Send would never reuse a connection and
+	// would leave one idle behind each time.
+	pinnedMu sync.Mutex
+	pinned   map[string]*http.Client
 }
 
 // New validates the options and builds a Discoverer.
@@ -229,6 +251,7 @@ func New(opts Options) (*Discoverer, error) {
 		tracker:      NewTracker(opts.HealthTTL, now),
 		timeout:      timeout,
 		maxSweep:     maxSweep,
+		pinned:       make(map[string]*http.Client),
 	}
 	return d, nil
 }
@@ -609,6 +632,24 @@ func (d *Discoverer) probe(ctx context.Context, mode Reachability, endpoint stri
 		}
 	}
 
+	// The address that passed the check above is recorded, not re-derived later.
+	// This is the same discipline as PeerLoopback and for a stronger reason: it
+	// is what Send dials, so the peer that receives the user's content is the
+	// peer that authenticated.
+	//
+	// An unreadable address is a refusal rather than an empty pin. Nothing above
+	// can reach here with peerAddr empty -- AttestAudience rejects it when a
+	// proof is required, and isLoopbackPeer("") is false so the exemption cannot
+	// apply either -- but the invariant is asserted here rather than inferred
+	// from two functions elsewhere, because an Instance trusted with no address
+	// to dial is exactly the state Send must never be handed.
+	if peerAddr == "" {
+		return fail(ReasonAuthenticationFailed, fmt.Errorf(
+			"%w: the address of the connection to %s could not be read, so there is no "+
+				"verified peer to record (FR-024)", ErrUntrusted, endpoint))
+	}
+	inst.VerifiedAddr = peerAddr
+
 	inst.Trusted = true
 	inst.ServedOptions = d.servedModels(endpoint, att)
 	d.tracker.Success(endpoint)
@@ -668,18 +709,34 @@ func (d *Discoverer) servedModels(endpoint string, att attestation) []ServedMode
 // by presenting the secret, so even a trusted peer never receives the credential
 // itself.
 //
-// Honest boundary: the attestation's channel binding is established against the
-// connection the PROBE opened. This request opens a NEW connection, and if the
-// endpoint is a name rather than a literal address it is resolved again here, so
-// a name that resolved to the attested instance during the probe and to some
-// other host now would not be caught by the probe's binding. Closing that gap
-// means pinning the verified peer address for the lifetime of the instance and
-// dialling it directly, which changes how endpoints are dialled; it is a
-// separate change and is NOT claimed here.
+// The address is PINNED. The attestation's channel binding is established
+// against the connection the PROBE opened; this request opens a new one, and if
+// the endpoint were resolved again here then a name that pointed at the attested
+// instance during the probe and somewhere else now would carry the user's
+// content to a host that never authenticated. The probe's binding says nothing
+// about a connection it did not make. So the connection is dialled at
+// inst.VerifiedAddr -- the literal address that passed the check -- rather than
+// at whatever the endpoint resolves to now.
+//
+// Only the DIAL TARGET is pinned. The URL keeps its scheme, host and path, so
+// the Host header and, over TLS, the SNI and certificate check still use the
+// configured name; a pinned request is indistinguishable from an ordinary one at
+// the far end.
+//
+// An Instance with no verified address is REFUSED rather than dialled by name.
+// A silent fallback to re-resolution would be the hole above, reachable by any
+// caller or future code path that produced an Instance without going through
+// probe -- and it would look like it worked.
 func (d *Discoverer) Send(ctx context.Context, inst Instance, content RequestContent) ([]byte, error) {
 	if !inst.Trusted {
 		return nil, fmt.Errorf("%w: %s is not authenticated, so no request content may be sent to it (FR-025)",
 			ErrUntrusted, inst.Endpoint)
+	}
+	if strings.TrimSpace(inst.VerifiedAddr) == "" {
+		return nil, fmt.Errorf("%w: %s did not come from a probe in this Discoverer, so no address "+
+			"is known to have authenticated; resolving its endpoint now would send content to "+
+			"whoever answers, not to whoever proved its identity (FR-025)",
+			ErrNoVerifiedAddress, inst.Endpoint)
 	}
 	if !d.tracker.Available(inst) {
 		return nil, fmt.Errorf("discovery: %s is not currently available (%s)",
@@ -715,7 +772,12 @@ func (d *Discoverer) Send(ctx context.Context, inst Instance, content RequestCon
 		req.Header.Set(ProofHeader, Proof(d.secret, nonce, RequestAudience))
 	}
 
-	resp, err := d.client.Do(req)
+	client, err := d.pinnedClient(inst.VerifiedAddr)
+	if err != nil {
+		return nil, fmt.Errorf("discovery: sending to %s: %w", inst.Endpoint, err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		d.tracker.Failure(inst.Endpoint, ReasonUnreachable)
 		return nil, fmt.Errorf("discovery: sending to %s: %w", inst.Endpoint, err)
@@ -731,6 +793,78 @@ func (d *Discoverer) Send(ctx context.Context, inst Instance, content RequestCon
 	}
 	d.tracker.Success(inst.Endpoint)
 	return answer, nil
+}
+
+// pinnedClient returns a client that dials addr for every request, whatever the
+// request URL's host resolves to.
+//
+// The client is COPIED rather than mutated, following newAttestClient: the base
+// client may have been supplied through Options.HTTPClient, and installing a
+// fixed dialler onto a caller's client would silently pin every unrelated
+// request they make through it. Only the copy's Transport is replaced.
+//
+// Two ways a custom DialContext can be BYPASSED are refused rather than ignored,
+// because a pin that quietly does not apply is worse than no pin -- it reads as
+// a guarantee and is not one:
+//
+//   - DialTLSContext, when set, builds the TLS connection itself and never calls
+//     DialContext, so an https request would resolve the name after all;
+//   - a PROXY, when one applies to the request, makes the transport dial the
+//     proxy instead of the origin, and the proxy -- not us -- then chooses which
+//     host the request reaches.
+//
+// A transport that is not an *http.Transport is refused for the same reason:
+// there is no way to reach the dialler inside an arbitrary RoundTripper, so the
+// address could not be pinned and the caller must be told rather than assured.
+//
+// Clients are cached per address because each carries a connection pool.
+func (d *Discoverer) pinnedClient(addr string) (*http.Client, error) {
+	d.pinnedMu.Lock()
+	defer d.pinnedMu.Unlock()
+
+	if c, ok := d.pinned[addr]; ok {
+		return c, nil
+	}
+
+	base := d.client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	transport, ok := base.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("%w: the configured HTTP transport is a %T, which has no dialler "+
+			"to fix at the verified address %s", ErrUnpinnableTransport, base, addr)
+	}
+	if transport.DialTLSContext != nil {
+		return nil, fmt.Errorf("%w: the configured transport dials TLS itself (DialTLSContext), "+
+			"so a request to %s would resolve the endpoint name instead", ErrUnpinnableTransport, addr)
+	}
+
+	pinnedTransport := transport.Clone()
+	pinnedTransport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var dialer net.Dialer
+		return dialer.DialContext(ctx, network, addr)
+	}
+	// Keep any proxy decision the caller configured, but turn "use a proxy" into
+	// a refusal: through a proxy the peer is the proxy's choice, not ours.
+	if proxy := transport.Proxy; proxy != nil {
+		pinnedTransport.Proxy = func(req *http.Request) (*url.URL, error) {
+			chosen, err := proxy(req)
+			if err != nil {
+				return nil, err
+			}
+			if chosen != nil {
+				return nil, fmt.Errorf("%w: a proxy is configured for %s, which would choose the "+
+					"peer instead of the verified address %s", ErrUnpinnableTransport, req.URL.Host, addr)
+			}
+			return nil, nil
+		}
+	}
+
+	client := *d.client
+	client.Transport = pinnedTransport
+	d.pinned[addr] = &client
+	return &client, nil
 }
 
 // normaliseAll trims and defaults the scheme on each endpoint, dropping blanks.

@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -403,5 +404,200 @@ func TestLocalHostModeStillExemptsLoopback(t *testing.T) {
 	}
 	if len(instances[0].ServedOptions) != 1 {
 		t.Errorf("loopback instance advertised %d usable models, want 1", len(instances[0].ServedOptions))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SECURITY-4: DNS rebinding between the probe and the send.
+//
+// The channel binding added for SECURITY-2 is established on the connection the
+// PROBE opened. Send opens a NEW connection, so if the endpoint is a NAME the
+// name is resolved a second time — and the answer to the second lookup is the
+// attacker's to choose. The probe's binding says nothing about it.
+// ---------------------------------------------------------------------------
+
+// rebindingDialer is a test-controlled name service. Every dial for any name is
+// routed to whichever backend the test currently points it at, so a name can
+// answer honestly for the probe and hostilely for the send — which is exactly
+// what an attacker who controls one DNS answer between two requests has.
+//
+// It replaces resolution at the transport, not at the resolver, because the
+// process resolver is global state and this package's tests run in parallel.
+type rebindingDialer struct {
+	mu     sync.Mutex
+	target string
+	dialed []string
+}
+
+func (r *rebindingDialer) point(addr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.target = addr
+}
+
+func (r *rebindingDialer) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	r.mu.Lock()
+	target := r.target
+	r.dialed = append(r.dialed, addr+" -> "+target)
+	r.mu.Unlock()
+	var d net.Dialer
+	return d.DialContext(ctx, network, target)
+}
+
+func (r *rebindingDialer) log() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.dialed))
+	copy(out, r.dialed)
+	return out
+}
+
+// addrOf reduces a server URL to the host:port a dialler would be handed.
+func addrOf(t *testing.T, rawURL string) string {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parsing %q: %v", rawURL, err)
+	}
+	return u.Host
+}
+
+// rebindingClient is a client whose every connection goes through dialer.
+// Keep-alives are off so each request dials again: a pooled connection would
+// hide the second lookup and make the test prove nothing about rebinding.
+func rebindingClient(dialer *rebindingDialer) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext:       dialer.dial,
+			DisableKeepAlives: true,
+		},
+		Timeout: 5 * time.Second,
+	}
+}
+
+// TestSendDialsTheAttestedAddressNotARebindableName.
+//
+// The endpoint is a NAME. It resolves to a genuine instance while the probe
+// runs, so the instance attests correctly and is trusted — everything about the
+// attestation is honest. The name then resolves to a hostile host, and the
+// user's prompt, open file and upstream credential are sent.
+//
+// Without pinning, Send re-resolves the name and posts all three to whoever
+// answers the second lookup. The endpoint that passed attestation and the
+// endpoint that receives the content are different machines, and nothing in the
+// exchange notices.
+func TestSendDialsTheAttestedAddressNotARebindableName(t *testing.T) {
+	honest := newInstanceServer(t, sharedSecret)
+	hostile := newRelayServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// Never reached when the address is pinned. If it ever is, the answer
+		// carries no proof, so the failure is loud rather than silent.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"host":"gpu-01","models":[]}`))
+	})
+
+	dialer := &rebindingDialer{target: addrOf(t, honest.url())}
+
+	// A name, not an address: the endpoint a rebinding attack needs. Its port
+	// is never dialled — the dialler above stands in for resolution — but it is
+	// written realistically so the endpoint is a normal one.
+	const namedEndpoint = "http://instance.discovery.test:8080"
+
+	opts := remoteOptions(t, namedEndpoint)
+	opts.HTTPClient = rebindingClient(dialer)
+
+	d, err := discovery.New(opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	instances, err := d.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("expected the endpoint to be reported once, got %d", len(instances))
+	}
+	inst := instances[0]
+	if !inst.Trusted {
+		t.Fatalf("the genuine instance did not attest during the probe, so this test would "+
+			"prove nothing about what happens afterwards: %+v", inst)
+	}
+
+	// The DNS answer flips. Nothing about the Instance we hold has changed.
+	dialer.point(addrOf(t, hostile.url()))
+
+	sendErr := sendCanaries(t, d, inst)
+
+	assertRelayWireClean(t, hostile, map[string]string{
+		promptCanary: "the user's prompt",
+		fileCanary:   "file content",
+		credCanary:   "a credential",
+		sharedSecret: "the pre-shared secret itself",
+	})
+
+	if got := len(hostile.traffic()); got != 0 {
+		t.Errorf("%d request(s) reached a host that never attested, after the name it shares "+
+			"with the attested instance was re-pointed at it; dial log: %v", got, dialer.log())
+	}
+
+	// Pinning is not a refusal: the content must still reach the instance that
+	// actually passed attestation. A Send that merely failed would satisfy the
+	// assertions above while breaking the feature.
+	if sendErr != nil {
+		t.Fatalf("Send to the attested instance failed: %v", sendErr)
+	}
+	delivered := false
+	for _, req := range honest.traffic() {
+		if req.Path == discovery.RequestPath && strings.Contains(string(req.Body), promptCanary) {
+			delivered = true
+		}
+	}
+	if !delivered {
+		t.Errorf("the prompt reached neither the attested instance nor the hostile one; " +
+			"Send must deliver to the address that passed attestation")
+	}
+}
+
+// TestSendRefusesAnInstanceWithNoVerifiedAddress is the fail-closed half of the
+// pin, and it is the half that keeps the guard from decaying. An Instance that
+// carries no verified address is one whose provenance this package cannot
+// account for: it did not come from a probe. Re-resolving its endpoint "just
+// this once" is precisely the behaviour the test above forbids, so it is
+// refused instead — loudly, at the FR-025 boundary, before a body is built.
+func TestSendRefusesAnInstanceWithNoVerifiedAddress(t *testing.T) {
+	hostile := newRelayServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"host":"gpu-01","models":[]}`))
+	})
+
+	d, err := discovery.New(remoteOptions(t, hostile.url()))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Trusted set by hand, as a caller outside this package could: the flag says
+	// authenticated, but no attestation ever happened, so there is no address to
+	// dial that this package verified.
+	inst := discovery.Instance{
+		Endpoint:     hostile.url(),
+		Reachability: discovery.Remote,
+		Trusted:      true,
+		Health:       discovery.Health{Reachable: true, LastSeen: time.Now()},
+	}
+
+	sendErr := sendCanaries(t, d, inst)
+
+	assertRelayWireClean(t, hostile, map[string]string{
+		promptCanary: "the user's prompt",
+		fileCanary:   "file content",
+		credCanary:   "a credential",
+		sharedSecret: "the pre-shared secret itself",
+	})
+	if got := len(hostile.traffic()); got != 0 {
+		t.Errorf("%d request(s) reached an endpoint for an Instance that never attested", got)
+	}
+	if sendErr == nil {
+		t.Errorf("Send accepted an Instance with no verified address; it must refuse rather " +
+			"than fall back to re-resolving the endpoint (FR-025)")
 	}
 }
