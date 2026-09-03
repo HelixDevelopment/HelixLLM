@@ -263,7 +263,8 @@ func (b *Brain) resolveIdentity(name string) (naming.Identity, bool) {
 
 // IsRetiredIdentifier reports whether name is one of the identifiers this
 // project has permanently STOPPED publishing — an identifier whose host segment
-// is one of the retired loopback renderings (naming.RetiredHosts).
+// is one of the retired loopback renderings (naming.RetiredHosts) AND which no
+// host this deployment currently publishes under accounts for.
 //
 // It exists so the layer that turns an unresolvable name into an error can tell
 // the two unresolvable cases apart without re-deciding which consumer ruleset
@@ -271,11 +272,16 @@ func (b *Brain) resolveIdentity(name string) (naming.Identity, bool) {
 // [Brain.resolveIdentity] makes it — a second copy in the fallback chain is how
 // the two would come to disagree about what an identifier even looks like.
 //
-// It is a package function rather than a method because it needs no registry:
-// the answer is a property of the NAME, which is precisely why it is available
-// for a name the registry cannot resolve.
-func IsRetiredIdentifier(name string) bool {
-	return naming.ClaudeToolkit.HasRetiredHostSegment(strings.TrimSpace(name))
+// It is a METHOD, not a package function. It was a package function on the
+// grounds that "the answer is a property of the NAME", and that was wrong twice
+// over: a live host can be called `localhost.lan`, and — until the resolver was
+// made total — a machine that could not name itself published the loopback
+// literal outright. Both put currently-published identifiers inside the retired
+// rendering, so the name is not enough and the registry has to be consulted.
+// The registry is exactly what [Brain.RegisterNamesFor] has already filled, and
+// consulting it performs no I/O, so this stays usable on the request path.
+func (b *Brain) IsRetiredIdentifier(name string) bool {
+	return b.names.IsRetiredIdentifier(naming.ClaudeToolkit, name)
 }
 
 // PinModel reports whether a request named a SPECIFIC served model and, if so,

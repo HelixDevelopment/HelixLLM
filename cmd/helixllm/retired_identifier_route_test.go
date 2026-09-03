@@ -249,3 +249,114 @@ func TestChatCompletions_RetiredLoopbackIdentifierIsPermanent(t *testing.T) {
 		}
 	})
 }
+
+// A model that is not in a LIVE host's list is temporarily absent, whatever the
+// host happens to be called.
+//
+// # The condition
+//
+// The retired check above matches on the identifier's HOST SEGMENT alone, and
+// caec9d3 justified that with a claim about the resolver: it "rejects anything
+// that names no machine … so no future identity can carry any of them", so an
+// identifier carrying a retired rendering could only be an old one. The claim
+// was false in two independent places.
+//
+//   - brain.LlamaCppProvider.ServingHost published the loopback literal
+//     verbatim whenever this machine could not say what it is called — the
+//     answer os.Hostname() gives on stock VM and live images. Such a deployment
+//     publishes `helixllm-127-0-0-1-…` right now.
+//   - namesNoMachine accepts `localhost.lan`, `localhost-2` and any other
+//     `localhost.<something>`: they name real, distinct machines and are
+//     published untouched, and they sanitise to a host segment that BEGINS with
+//     a retired rendering.
+//
+// On any of those hosts, asking for a model the live provider does not serve —
+// a model unloaded since the client last listed, say — produced a PERMANENT 404
+// saying "the serving host was renamed", about a host that had not been renamed
+// and an identifier the deployment is publishing at that moment. The same event
+// on `gpu-01` correctly produced 503. The status and the explanation were
+// decided by the machine's name.
+//
+// # The oracle
+//
+// The retired answer is now registry-aware: an identifier is retired only when
+// its host segment is a retired rendering AND no host currently registered
+// publishes identifiers under that segment. So the question this asks is the
+// one that matters — is a model missing from a host we are serving RIGHT NOW
+// reported as temporary? — and it asks it for every host spelling.
+//
+// The first change alone would not answer it: `localhost.lan` is a real machine
+// name that ServingHost must keep, so the registry has to be consulted.
+//
+// # Polarity (§11.4.115)
+//
+//	RED_MODE=1 go test -run TestChatCompletions_UnlistedModelOnALiveHost ./cmd/helixllm/
+//	           go test -run TestChatCompletions_UnlistedModelOnALiveHost ./cmd/helixllm/
+//
+// RED_MODE=1 asserts the pre-fix split — 404 on the four loopback-shaped hosts,
+// 503 on the machine-named one — so a run against the unfixed tree PASSES and
+// proves the reproduction is real. RED_MODE=0 is the standing guard: 503
+// everywhere, because the host is live in every row.
+func TestChatCompletions_UnlistedModelOnALiveHostStaysTemporary(t *testing.T) {
+	// Every host a real deployment can end up reporting. The first two are what
+	// ServingHost published verbatim when the machine could not name itself;
+	// the next two are real machine names that merely RENDER like a retired
+	// one; the last is the control that already behaved correctly.
+	for _, host := range []string{
+		"127.0.0.1",
+		"localhost",
+		"localhost.lan",
+		"localhost.localdomain",
+		"gpu-01",
+	} {
+		t.Run("host "+host, func(t *testing.T) {
+			local := &recordingProvider{
+				name:   "llamacpp",
+				host:   host,
+				models: []string{"llama3:8b"},
+			}
+			stack := newServingStack(t, local)
+
+			// The provider is up and serving llama3:8b under this very host, so
+			// the host segment below is one this deployment is publishing NOW.
+			// qwen2.5:7b is simply not in its list — unloaded, or listed by an
+			// earlier build of the same gateway.
+			unlisted, err := naming.NewIdentity(host, "qwen2.5", "7b")
+			if err != nil {
+				t.Fatalf("build an identity on host %q: %v", host, err)
+			}
+			identifier, err := naming.Derive(unlisted, naming.ClaudeToolkit)
+			if err != nil {
+				t.Fatalf("derive an identifier on host %q: %v", host, err)
+			}
+
+			// Sanity: the row only exercises the hazard if the identifier
+			// really does carry a retired-looking host segment. The control row
+			// must NOT.
+			looksRetired := naming.ClaudeToolkit.HasRetiredHostSegment(identifier)
+			if wantLooks := host != "gpu-01"; looksRetired != wantLooks {
+				t.Fatalf("identifier %q for host %q: HasRetiredHostSegment = %v, want %v — "+
+					"this row is not exercising the case it exists for",
+					identifier, host, looksRetired, wantLooks)
+			}
+
+			want := http.StatusServiceUnavailable
+			if redMode() && looksRetired {
+				want = http.StatusNotFound
+			}
+
+			w := stack.chat(t, identifier)
+			if w.Code != want {
+				t.Errorf("POST /v1/chat/completions with %q returned %d, want %d (RED_MODE=%v): %s\n"+
+					"The provider is UP and serving on host %q, which is therefore a host this "+
+					"deployment publishes right now. A model missing from its list is temporarily "+
+					"absent, not permanently retired — and nothing about this host was renamed.",
+					identifier, w.Code, want, redMode(), w.Body.String(), host)
+			}
+			if got := local.received(); len(got) != 0 {
+				t.Errorf("the %q provider answered %v for %q; a name nothing serves must never "+
+					"be answered by another model", local.name, got, identifier)
+			}
+		})
+	}
+}

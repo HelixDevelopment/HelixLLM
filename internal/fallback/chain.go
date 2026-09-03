@@ -120,6 +120,18 @@ type ModelPinner interface {
 	// our identifiers whose host is not serving, which is an error rather than
 	// an invitation to substitute.
 	PinModel(requested string) (provider, model string, ok bool)
+
+	// IsRetiredIdentifier reports whether requested is one of the identifiers
+	// this deployment has permanently stopped publishing, as opposed to one it
+	// simply cannot serve right now.
+	//
+	// It arrives through this interface, alongside the pin, because the answer
+	// depends on which hosts the naming registry currently holds identities
+	// for — a live machine can be called `localhost.lan`, whose identifiers
+	// open with the same segment a retired one does. The Chain has no registry,
+	// so deciding it here from the name alone told holders of live identifiers
+	// that their model was gone for good. See brain.Brain.IsRetiredIdentifier.
+	IsRetiredIdentifier(requested string) bool
 }
 
 // NewChain returns a Chain backed by the given provider map and rate limiter.
@@ -162,6 +174,22 @@ func (c *Chain) pin(requested string) (provider, model string, ok bool) {
 	return p.PinModel(requested)
 }
 
+// retired asks the installed pinner whether a requested name is one this
+// deployment has permanently stopped publishing.
+//
+// With no pinner installed the answer is false: a Chain that cannot resolve
+// names has no basis to call one permanently gone, and the retryable answer is
+// the safe one.
+func (c *Chain) retired(requested string) bool {
+	c.mu.RLock()
+	p := c.pinner
+	c.mu.RUnlock()
+	if p == nil {
+		return false
+	}
+	return p.IsRetiredIdentifier(requested)
+}
+
 // pinnedProvider returns the provider a pinned request must be served by, or an
 // error naming what the caller asked for.
 //
@@ -176,7 +204,7 @@ func (c *Chain) pin(requested string) (provider, model string, ok bool) {
 // see. That is the deliberate trade: an explicit failure over a silent swap.
 func (c *Chain) pinnedProvider(providerName, model, requested string) (brain.Provider, error) {
 	if providerName == "" {
-		if brain.IsRetiredIdentifier(requested) {
+		if c.retired(requested) {
 			// The name is one this deployment used to publish and never will
 			// again, so "retry shortly" would be a lie with a deadline that
 			// never arrives. The remedy is a re-fetch, not a retry, and the

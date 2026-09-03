@@ -193,6 +193,13 @@ published them and has permanently stopped — so the name is gone for good, not
 while. 503 means "retry with backoff", and a correct client obeying it against a name that can
 never resolve retries forever.
 
+**The 404 requires both halves.** The host rendering alone is not enough, because a real machine
+can be called `localhost.lan` or `localhost-2`, and its perfectly current identifiers open with
+`helixllm-localhost-` too. So a name is reported permanently gone only when its host segment is a
+retired rendering **and** no host this gateway is currently publishing under accounts for it. If
+you are serving from a machine whose name renders that way, its own ids stay live and a model
+merely missing from its list answers **503**, like any other host.
+
 Every OTHER unresolvable identifier still answers **503**, and that is deliberate: an id carries a
 digest, so for any host segment outside the retired set the gateway genuinely cannot tell a
 re-minted name from a machine that is rebooting — and telling a client to stop retrying a

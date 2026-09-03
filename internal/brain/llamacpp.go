@@ -24,6 +24,15 @@ type LlamaCppProvider struct {
 	models   []string
 	client   *http.Client
 	registry *models.Registry
+
+	// machineName resolves this machine's own name, and exists as a field so a
+	// test can drive the case where the machine cannot say what it is called.
+	// That case is not exotic — os.Hostname() answers "localhost" on stock VM
+	// images, live images and many containers — and it is the branch that
+	// decides whether a loopback literal can escape into a published identity.
+	// Without the seam it could only be exercised by renaming the host running
+	// the test suite.
+	machineName func() string
 }
 
 // NewLlamaCppProvider creates a new llama.cpp provider pointing at the given
@@ -36,6 +45,7 @@ func NewLlamaCppProvider(baseURL string, models []string) *LlamaCppProvider {
 		client: &http.Client{
 			Timeout: 5 * time.Minute, // LLM completions can be slow.
 		},
+		machineName: thisMachineName,
 	}
 }
 
@@ -74,17 +84,39 @@ func (p *LlamaCppProvider) Name() string { return "llamacpp" }
 //
 // A base URL that already names a real machine is returned untouched: the
 // substitution repairs a URL that names nothing, it does not overwrite one that
-// names something. If this machine cannot say what it is called, the URL's own
-// host is returned rather than a fabricated name.
+// names something.
+//
+// If this machine cannot say what it is called either — os.Hostname() answers
+// "localhost" on stock cloud images, live images and many containers — the
+// answer is NO HOST, not the loopback literal. Falling back to the literal
+// would hand back exactly the value the substitution exists to remove, on
+// exactly the machines least able to tolerate it, and both failures above would
+// still be live there. Reporting no host instead leaves the models un-prefixed,
+// which is what this function already does for a base URL with no parseable
+// host, and what every remote provider does.
+//
+// That makes the invariant total, and it is relied upon: naming.RetiredHosts
+// records the retired loopback renderings as a CLOSED historical set on the
+// grounds that this resolver can no longer emit one. Returning the literal here
+// made that a hopeful assertion; returning "" makes it true by construction.
 func (p *LlamaCppProvider) ServingHost() string {
 	host := hostFromBaseURL(p.baseURL)
 	if host == "" || !namesNoMachine(host) {
 		return host
 	}
-	if machine := thisMachineName(); machine != "" {
+	if machine := p.thisMachine(); machine != "" {
 		return machine
 	}
-	return host
+	return ""
+}
+
+// thisMachine resolves this machine's own name through the provider's seam,
+// falling back to the real resolver for a provider built as a bare literal.
+func (p *LlamaCppProvider) thisMachine() string {
+	if p.machineName != nil {
+		return p.machineName()
+	}
+	return thisMachineName()
 }
 
 // hostFromBaseURL extracts the host from a base URL, tolerating the bare

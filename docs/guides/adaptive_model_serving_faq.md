@@ -296,6 +296,14 @@ this: re-fetch from `/v1/models`. It is a 404 and not a 503 because the gateway
 it no longer does — the name is gone permanently, so telling you to retry with
 backoff would have you retrying something that can never come back.
 
+The gateway checks both halves before saying that. The host rendering on its own
+does not settle it, because a real machine can be called `localhost.lan` or
+`localhost-2`, and the ids it publishes right now begin with `helixllm-localhost-`
+as well. So the permanent answer needs the rendering to be a retired one *and* no
+host this gateway is currently publishing under to account for it. Serving from a
+machine named that way, you get the ordinary **503** for a model that is simply not
+in its list — nothing was renamed, so nothing is reported gone.
+
 Re-run discovery, or fetch the configuration again from
 `/v1/config/helixcode` or `/v1/config/opencode`, and use what comes back.
 
@@ -304,6 +312,15 @@ resolve to the same machine name, where previously flipping
 `HELIX_LLM_LOCAL_RPC_HOST` between `localhost` and `127.0.0.1` silently re-minted
 every identifier. The naming *scheme* did not change — only the host value fed
 into it.
+
+A loopback literal is never published now, not even as a last resort. If the
+machine cannot say what it is called — `hostname` answers `localhost` or
+`localhost.localdomain`, which is the default on many VM and live images — the
+gateway reports **no host at all** rather than falling back to `127.0.0.1`.
+Its locally served models then appear under their plain upstream ids
+(`llama3:8b`), exactly as a remote provider's models do, and you request them by
+that name. Giving the machine a real hostname is what brings the
+`helixllm-<host>-…` ids back.
 
 ---
 

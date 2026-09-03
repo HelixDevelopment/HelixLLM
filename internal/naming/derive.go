@@ -114,12 +114,24 @@ func (rs Ruleset) HasIdentifierPrefix(name string) bool {
 // serving host became the machine's own name, and will never publish again.
 //
 // They are listed rather than computed because they are a closed historical
-// fact, not a rule: the serving host resolver rejects anything that names no
-// machine (loopback in any spelling, the wildcard binds, *.localhost), so no
-// future identity can carry any of them. The two here are the ones the
-// DOCUMENTED setup actually produced — "localhost" was the default and
-// cmd/helixllm rewrote it to "127.0.0.1" for the embedded llama-server — which
-// is exactly the population whose configurations hold a retired identifier.
+// fact, not a rule: the serving host resolver reports NO HOST for anything that
+// names no machine (loopback in any spelling, the wildcard binds, *.localhost),
+// so no future identity can carry any of them. That is now true by
+// construction — brain.LlamaCppProvider.ServingHost returns "" rather than the
+// loopback literal even when this machine cannot name itself — and is pinned by
+// TestServingHost_NeverReturnsAValueThatNamesNoMachine. It was previously
+// asserted here while the resolver still published `127.0.0.1` verbatim on any
+// machine whose os.Hostname() answered "localhost".
+//
+// The two here are the ones the DOCUMENTED setup actually produced —
+// "localhost" was the default and cmd/helixllm rewrote it to "127.0.0.1" for
+// the embedded llama-server — which is exactly the population whose
+// configurations hold a retired identifier.
+//
+// A retired RENDERING is still not proof that a given identifier is retired,
+// because a real machine can be called `localhost.lan` or `localhost-2` and
+// renders into the same leading segment. Deciding that requires the registry;
+// see [Registry.IsRetiredIdentifier].
 //
 // Deliberately NOT a predicate over "anything that names no machine". A
 // predicate would classify identifiers this project never emitted, on a guess
@@ -148,16 +160,37 @@ var RetiredHosts = []string{"localhost", "127.0.0.1"}
 // A retired host that renders empty under a ruleset is skipped — that ruleset
 // cannot have produced an identifier carrying it.
 func (rs Ruleset) RetiredHostIdentifierPrefixes() []string {
-	sep := string(rs.Separator)
 	prefixes := make([]string, 0, len(RetiredHosts))
 	for _, host := range RetiredHosts {
-		segment := sanitise(host, rs)
-		if segment == "" {
-			continue
+		if prefix := rs.HostIdentifierPrefix(host); prefix != "" {
+			prefixes = append(prefixes, prefix)
 		}
-		prefixes = append(prefixes, rs.IdentifierPrefix()+segment+sep)
 	}
 	return prefixes
+}
+
+// HostIdentifierPrefix returns the literal prefix every identifier of this
+// ruleset carries when its identity's host is host — the provenance prefix, the
+// host rendered through this ruleset's own charset, and the separator that
+// closes the segment.
+//
+// It is the single place that spelling is computed, so the retired prefixes and
+// the LIVE ones are guaranteed to be built the same way. Two renderings of the
+// same shape have to be compared against each other, and computing one of them
+// in a second place is how they would come to disagree.
+//
+// The trailing separator is load-bearing: it is what makes a prefix match a
+// whole segment rather than a substring, so a machine genuinely called
+// "localhosting" is never mistaken for one called "localhost".
+//
+// A host that renders empty under a ruleset yields "": that ruleset cannot have
+// produced an identifier carrying it.
+func (rs Ruleset) HostIdentifierPrefix(host string) string {
+	segment := sanitise(host, rs)
+	if segment == "" {
+		return ""
+	}
+	return rs.IdentifierPrefix() + segment + string(rs.Separator)
 }
 
 // HasRetiredHostSegment reports whether name is one of this ruleset's
@@ -312,13 +345,20 @@ type Registry struct {
 	byIdentifier map[string]map[string]Identity
 	// byIdentity maps consumer name -> canonical identity string -> identifier.
 	byIdentity map[string]map[string]string
+	// liveHostPrefixes maps consumer name -> the identifier prefix carrying the
+	// host segment of an identity this registry holds. It answers "is this host
+	// one we are publishing under?" for a name that resolves to nothing, which
+	// no per-identifier lookup can, because an identifier for a model we do not
+	// serve is absent from byIdentifier however live its host is.
+	liveHostPrefixes map[string]map[string]struct{}
 }
 
 // NewRegistry returns an empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		byIdentifier: make(map[string]map[string]Identity),
-		byIdentity:   make(map[string]map[string]string),
+		byIdentifier:     make(map[string]map[string]Identity),
+		byIdentity:       make(map[string]map[string]string),
+		liveHostPrefixes: make(map[string]map[string]struct{}),
 	}
 }
 
@@ -360,6 +400,7 @@ func (r *Registry) Adopt(rs Ruleset, identifier string, id Identity) error {
 	if _, ok := r.byIdentifier[rs.Name]; !ok {
 		r.byIdentifier[rs.Name] = make(map[string]Identity)
 		r.byIdentity[rs.Name] = make(map[string]string)
+		r.liveHostPrefixes[rs.Name] = make(map[string]struct{})
 	}
 
 	if existing, ok := r.byIdentifier[rs.Name][identifier]; ok && existing != id {
@@ -369,7 +410,52 @@ func (r *Registry) Adopt(rs Ruleset, identifier string, id Identity) error {
 
 	r.byIdentifier[rs.Name][identifier] = id
 	r.byIdentity[rs.Name][id.String()] = identifier
+	if prefix := rs.HostIdentifierPrefix(id.Host); prefix != "" {
+		r.liveHostPrefixes[rs.Name][prefix] = struct{}{}
+	}
 	return nil
+}
+
+// IsRetiredIdentifier reports whether name is one of this ruleset's identifiers
+// that this deployment has PERMANENTLY stopped publishing.
+//
+// Two conditions, and both are needed:
+//
+//   - the host segment is one of the retired renderings
+//     ([Ruleset.HasRetiredHostSegment]), and
+//   - no host this registry currently holds an identity for publishes
+//     identifiers under that same segment.
+//
+// The second is what the name alone cannot supply. A retired RENDERING is not a
+// retired identifier: a real machine can be called `localhost.lan` or
+// `localhost-2`, and its perfectly current identifiers open with
+// `helixllm-localhost-`. Judging on the rendering alone told the holder of a
+// live identifier that their model was gone for good — and told it only to
+// users whose machine happened to be named that way, since the identical event
+// on `gpu-01` was correctly reported as temporary.
+//
+// The match is against the LIVE host's full prefix, not against the retired
+// rendering it starts with, and that distinction is the point: on a machine now
+// called `localhost.lan`, `helixllm-localhost-lan-…` is live while a
+// pre-rename `helixllm-localhost-…` is genuinely retired. Both answers stay
+// available.
+//
+// Anything this registry knows nothing about keeps the temporary answer, which
+// is the honest one for a host that may simply be rebooting.
+func (r *Registry) IsRetiredIdentifier(rs Ruleset, name string) bool {
+	name = strings.TrimSpace(name)
+	if !rs.HasRetiredHostSegment(name) {
+		return false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for prefix := range r.liveHostPrefixes[rs.Name] {
+		if strings.HasPrefix(name, prefix) {
+			return false
+		}
+	}
+	return true
 }
 
 // IdentityFor returns the identity a consumer's identifier stands for.
