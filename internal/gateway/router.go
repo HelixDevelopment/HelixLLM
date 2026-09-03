@@ -81,6 +81,12 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	v1.GET("/models/:id", HandleGetModel(opts.ModelBrain))
 	v1.POST("/embeddings", HandleEmbeddings(opts.ModelBrain, opts.Embedder))
 
+	// Consumer-configuration endpoints. The Claude Toolkit reads its models
+	// off /v1/models above; HelixCode and OpenCode need a configuration
+	// FRAGMENT, so they get one here rather than having no path at all.
+	v1.GET("/config/:consumer", HandleConsumerConfig(opts.ModelBrain))
+	v1.POST("/config/:consumer/merge", HandleConsumerConfigMerge(opts.ModelBrain))
+
 	// Hardware profile endpoint
 	v1.GET("/hardware", func(c *gin.Context) {
 		c.JSON(200, opts.HardwareProfile)

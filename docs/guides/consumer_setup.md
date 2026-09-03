@@ -17,9 +17,40 @@ Background: [adaptive model serving](./adaptive_model_serving.md) ·
 
 ---
 
-## What you give the exporter
+## How you get your configuration
 
-Both exporters take one `naming.Instance`:
+Ask the running instance for it. Both artefacts are served by the gateway you already point your
+tools at, under the same `/v1` group, the same API key and the same rate limit:
+
+```sh
+# The artefact, plus the roster and the withheld options with their reasons.
+curl -s http://gpu-01.local:8080/v1/config/helixcode
+curl -s http://gpu-01.local:8080/v1/config/opencode
+
+# Your own file, with the managed section added or replaced and nothing else touched.
+curl -s --data-binary @"$HOME/.env"            http://gpu-01.local:8080/v1/config/helixcode/merge
+curl -s --data-binary @"$HOME/.config/opencode/opencode.json" \
+     -H 'Content-Type: application/json'       http://gpu-01.local:8080/v1/config/opencode/merge
+```
+
+The endpoint you call **is** the endpoint written into the configuration — the address the request
+arrived on, upgraded to `https` when a terminating proxy says so. That is deliberate: the
+identifiers published here are ours, and only this gateway maps one back to the model name a
+provider answers to, so pointing a consumer straight at the llama.cpp instance behind it would
+publish identifiers nothing there can resolve.
+
+**Neither endpoint writes to your files.** The `GET` returns the artefact; the `merge` `POST` takes
+your current file content in the request body and returns the merged content. What lands on disk
+stays your decision.
+
+If this gateway fronts **more than one** serving host, `GET /v1/config/…` answers `400` and names
+them — each export describes exactly one host, so pick one with `?host=gpu-01`. Choosing for you
+would hand you one host's models under a configuration that never mentions which host.
+
+### What the endpoint builds for you
+
+Internally both exports take one `naming.Instance`, which the endpoint assembles from the live model
+listing:
 
 ```go
 inst := naming.Instance{
@@ -125,6 +156,21 @@ So an identifier is `helixllm-<readable>-<digest>`:
 
 Derivation is deterministic, so these names are stable in your configuration across releases.
 
+### The host segment names a machine
+
+`<host>` is the machine serving the model. When the backend's base URL is a **loopback or wildcard**
+address — `127.0.0.1`, `localhost`, `::1`, `0.0.0.0`, which is the ordinary case, since
+`HELIX_LLM_LOCAL_RPC_HOST` defaults to `localhost` and the embedded llama-server path rewrites it to
+`127.0.0.1` — the identity uses **this machine's own name** instead. Such an address names no
+machine, and it is the same string everywhere: publishing it verbatim meant two gateways on two
+different hosts published identical identities and identical ids, and the Claude Toolkit
+de-duplicates by id (`group_by(.provider_id) | map(.[0])`), so one host's models silently replaced
+the other's.
+
+A base URL that already names a real machine (`gpu-01.lan`, `10.0.0.7`) is used exactly as it is.
+Both spellings of loopback resolve to the same machine name, so flipping
+`HELIX_LLM_LOCAL_RPC_HOST` between `localhost` and `127.0.0.1` no longer re-mints your identifiers.
+
 If a derived identifier ever collided with a different identity, that option is withheld with reason
 `identifier-conflict` rather than silently replacing the other one.
 
@@ -134,11 +180,11 @@ If a derived identifier ever collided with a different identity, that option is 
 
 ### What the export produces
 
-```go
-cfg, err := naming.ExportHelixCode(inst)   // cfg.EnvFile, cfg.Models, cfg.Withheld
+```sh
+curl -s http://gpu-01.local:8080/v1/config/helixcode | jq -r .env_file
 ```
 
-`cfg.EnvFile` is an environment-file fragment:
+The `env_file` field is an environment-file fragment:
 
 ```sh
 # >>> helixllm managed block
@@ -155,9 +201,9 @@ handler that builds an OpenAI-compatible client from that variable and passes th
 `model` field through verbatim.
 
 **The model roster travels as comments**, because that route has no configuration slot for a model
-list — you name one identifier per request in the `model` field. `cfg.Models` gives you the same list
-programmatically: the identifier, the identity it stands for, and the name the instance itself
-answers to.
+list — you name one identifier per request in the `model` field. The response's `models` array gives you the same list
+as data: `identifier`, the `identity` it stands for, and the `wire_model` name the instance itself
+answers to. `withheld` lists the options deliberately not offered, each with its reason.
 
 The value is quoted because the file is sourced by a shell; `safeEndpoint` has already refused every
 character that could escape the quoting.
@@ -175,16 +221,18 @@ this is a self-restriction: nothing is relaxed to fit a name.
 
 ### Applying it
 
-```go
-updated, err := naming.MergeHelixCodeEnv(existingFileContents, cfg)
+```sh
+curl -s --data-binary @"$HOME/.env" \
+     http://gpu-01.local:8080/v1/config/helixcode/merge > /tmp/env.merged
+# read /tmp/env.merged, then move it into place yourself
 ```
 
 - Replaces the managed block if it is there, appends it if it is not, and leaves every other line
   exactly as it was.
 - Re-running is a no-op — the block is delimited, so the second run replaces what the first wrote.
-- **Refuses** if your file assigns `HELIX_LLM_LOCAL_OPENAI_ENDPOINT` *outside* the managed block
-  (`ErrForeignAssignment`, naming the line numbers). Which assignment wins depends on read order, so
-  neither silently winning nor silently losing would be honest. Resolve it and re-run.
+- **Refuses** (`409`) if your file assigns `HELIX_LLM_LOCAL_OPENAI_ENDPOINT` *outside* the managed
+  block, naming the line numbers. Which assignment wins depends on read order, so neither silently
+  winning nor silently losing would be honest. Resolve it and re-run.
 - Refuses if the managed block is not closed.
 
 It returns the merged text; it never writes to your file.
@@ -202,11 +250,11 @@ changes nothing.
 
 ### What the export produces
 
-```go
-cfg, err := naming.ExportOpenCode(inst)   // cfg.ProviderID, cfg.Document, cfg.Models, cfg.Withheld
+```sh
+curl -s http://gpu-01.local:8080/v1/config/opencode | jq .document
 ```
 
-`cfg.Document` is a JSON fragment carrying just this instance's provider entry:
+The `document` field is a JSON fragment carrying just this instance's provider entry:
 
 ```json
 {
@@ -232,7 +280,7 @@ Reading it:
 
 - **`npm`** is what OpenCode dispatches on. `@ai-sdk/openai-compatible` is the adapter that
   configures an OpenAI-compatible client.
-- **The provider key** (`cfg.ProviderID`) is derived from the *host*, not from a model. One instance
+- **The provider key** (the response's `provider_id`) is derived from the *host*, not from a model. One instance
   is one provider entry, because `options.baseURL` is per-entry — two hosts are two entries, not two
   models under one.
 - **The model key** is a derived, charset-safe identifier. The **`id` field is the wire model** —
@@ -245,8 +293,8 @@ Reading it:
 can reach the document through this path.
 
 **Withheld options are absent from the document entirely**, not listed as unavailable. An entry under
-`models` shows up in OpenCode's picker as selectable. `cfg.Withheld` still reports them, each with
-its reason, so you can show them somewhere they are not selectable.
+`models` shows up in OpenCode's picker as selectable. The response's `withheld` array still reports
+them, each with its reason, so you can show them somewhere they are not selectable.
 
 Marshalling is deterministic (Go sorts map keys), so the same instance always produces the same
 bytes.
@@ -266,8 +314,11 @@ the reference. (Model *ids* legitimately contain `/` — that is fine, they are 
 
 ### Applying it
 
-```go
-updated, err := naming.MergeOpenCode(existingOpencodeJSON, cfg)
+```sh
+curl -s --data-binary @"$HOME/.config/opencode/opencode.json" \
+     -H 'Content-Type: application/json' \
+     http://gpu-01.local:8080/v1/config/opencode/merge > /tmp/opencode.merged.json
+# read /tmp/opencode.merged.json, then move it into place yourself
 ```
 
 - Additive by key: providers you configured yourself are copied through byte-for-byte, as is every
@@ -275,7 +326,7 @@ updated, err := naming.MergeOpenCode(existingOpencodeJSON, cfg)
 - **Replaces our own entry wholesale** rather than merging field-wise — a model that stopped being
   offered must disappear, and a field-wise merge would leave it behind.
 - Re-running is a no-op.
-- Fails if your existing file does not parse, or if `provider` is not an object.
+- Fails (`409`) if your existing file does not parse, or if `provider` is not an object.
 
 It returns the merged document; it never writes to your file.
 
@@ -301,7 +352,7 @@ not doubled. HelixCode's export has no such tolerance — give it the bare origi
 
 ## Troubleshooting
 
-**A model I expect is missing from a consumer's config.** Check `cfg.Withheld`. An option is written
+**A model I expect is missing from a consumer's config.** Check the response's `withheld` array. An option is written
 only when the instance is healthy *and* the offer is available. `instance-unreachable` means the
 instance was not healthy; `model-unavailable` means the instance was up but not serving that model.
 

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -39,25 +41,59 @@ func NewLlamaCppProvider(baseURL string, models []string) *LlamaCppProvider {
 
 func (p *LlamaCppProvider) Name() string { return "llamacpp" }
 
-// ServingHost reports the machine this llama.cpp instance runs on, taken from
-// the configured base URL. It is what makes the models it serves nameable as
-// helixllm/<host>/<model> (FR-014, FR-023): without it they would be
-// indistinguishable from a remote vendor's models in a user's model list.
+// ServingHost reports the machine this llama.cpp instance runs on. It is what
+// makes the models it serves nameable as helixllm/<host>/<model> (FR-014,
+// FR-023): without it they would be indistinguishable from a remote vendor's
+// models in a user's model list.
 //
 // The port is deliberately dropped — the identity names the HOST, and two
 // instances on one machine are told apart by the models they serve, not by a
 // port number the user never sees. A base URL with no parseable host yields "",
 // which leaves the models un-prefixed rather than inventing a hostname.
+//
+// A LOOPBACK or wildcard base URL is resolved to this machine's own name
+// instead of being published verbatim, because such a URL names no machine.
+// That is the ordinary case, not an exotic one: HELIX_LLM_LOCAL_RPC_HOST
+// defaults to "localhost" and cmd/helixllm rewrites it to "127.0.0.1" whenever
+// the embedded llama-server is used. Publishing it verbatim caused two real
+// failures:
+//
+//   - `helixllm/127.0.0.1/<model>` names no machine an operator could find,
+//     which is exactly the question FR-023 exists to answer;
+//   - it is the SAME string on every machine, so two gateways on two different
+//     hosts published identical identities, identical digests and identical
+//     ids. The Claude Toolkit de-duplicates by that id
+//     (`group_by(.provider_id) | map(.[0])`), so one host's models silently
+//     replaced the other's. That collision sits one layer above the digest and
+//     no amount of hashing could have prevented it.
+//
+// Resolving both spellings to one machine name also removes a stability trap:
+// before, flipping HELIX_LLM_LOCAL_RPC_HOST between "localhost" and "127.0.0.1"
+// — which the embedded-server path does implicitly — re-minted every published
+// identifier and silently invalidated a user's tool configuration.
+//
+// A base URL that already names a real machine is returned untouched: the
+// substitution repairs a URL that names nothing, it does not overwrite one that
+// names something. If this machine cannot say what it is called, the URL's own
+// host is returned rather than a fabricated name.
 func (p *LlamaCppProvider) ServingHost() string {
-	u, err := url.Parse(p.baseURL)
-	if err != nil {
-		return ""
+	host := hostFromBaseURL(p.baseURL)
+	if host == "" || !namesNoMachine(host) {
+		return host
 	}
-	if u.Hostname() != "" {
+	if machine := thisMachineName(); machine != "" {
+		return machine
+	}
+	return host
+}
+
+// hostFromBaseURL extracts the host from a base URL, tolerating the bare
+// "host:port" form that does not parse as an authority.
+func hostFromBaseURL(baseURL string) string {
+	if u, err := url.Parse(baseURL); err == nil && u.Hostname() != "" {
 		return u.Hostname()
 	}
-	// A bare "host:port" with no scheme does not parse as an authority.
-	host := p.baseURL
+	host := baseURL
 	if i := strings.Index(host, "/"); i >= 0 {
 		host = host[:i]
 	}
@@ -65,6 +101,45 @@ func (p *LlamaCppProvider) ServingHost() string {
 		host = host[:i]
 	}
 	return host
+}
+
+// namesNoMachine reports whether a host is one of the addresses that is the
+// same on every machine and therefore identifies none of them: loopback in
+// either spelling, and the wildcard bind addresses.
+func namesNoMachine(host string) bool {
+	lower := strings.ToLower(strings.Trim(host, "[]"))
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
+		lower == "localhost.localdomain" {
+		return true
+	}
+	if ip := net.ParseIP(lower); ip != nil {
+		return ip.IsLoopback() || ip.IsUnspecified()
+	}
+	return false
+}
+
+// thisMachineName is the machine's own name, normalised the way an identity
+// host must be: lower-cased (hostnames are case-insensitive, RFC 4343) and
+// trimmed to the short name so the identity stays readable — a short name and
+// its FQDN are the same machine, and publishing both would make one machine
+// look like two.
+//
+// It returns "" when the machine cannot say what it is called, or calls itself
+// something that names no machine either, so the caller can fall back rather
+// than publish a fabricated name.
+func thisMachineName() string {
+	raw, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSpace(raw))
+	if i := strings.Index(name, "."); i > 0 {
+		name = name[:i]
+	}
+	if name == "" || namesNoMachine(name) {
+		return ""
+	}
+	return name
 }
 
 func (p *LlamaCppProvider) Models() []string {

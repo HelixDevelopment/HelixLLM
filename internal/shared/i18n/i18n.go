@@ -73,6 +73,18 @@ const (
 	// models this server could never serve.
 	KeyGatewayNoBackendModels        = "gateway_no_backend_models"
 	KeyGatewayNoBackendModelNotFound = "gateway_no_backend_model_not_found"
+
+	// FR-018 — the consumer-configuration endpoints (/v1/config/:consumer).
+	// These say WHY a configuration cannot be produced, so a user can tell
+	// "this server serves nothing" from "you have to name which host" from
+	// "that consumer has no export" — three different things for them to do.
+	KeyGatewayConfigUnknownConsumer = "gateway_config_unknown_consumer"
+	KeyGatewayConfigNoServedHosts   = "gateway_config_no_served_hosts"
+	KeyGatewayConfigHostAmbiguous   = "gateway_config_host_ambiguous"
+	KeyGatewayConfigHostUnknown     = "gateway_config_host_unknown"
+	KeyGatewayConfigExportFailed    = "gateway_config_export_failed"
+	KeyGatewayConfigMergeFailed     = "gateway_config_merge_failed"
+	KeyGatewayConfigBodyUnreadable  = "gateway_config_body_unreadable"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -127,6 +139,16 @@ var defaultEnglishMessages = map[string]string{
 		"so no models are being served",
 	KeyGatewayNoBackendModelNotFound: "model {{model}} not found: no model-serving backend " +
 		"is configured on this server, so no models are being served",
+
+	KeyGatewayConfigUnknownConsumer: "no configuration export exists for {{consumer}}",
+	KeyGatewayConfigNoServedHosts: "this server serves no models of its own, " +
+		"so there is no configuration to export",
+	KeyGatewayConfigHostAmbiguous: "this server serves models from more than one host " +
+		"({{hosts}}); name the one you want with the host query parameter",
+	KeyGatewayConfigHostUnknown:    "host {{host}} serves no models on this server",
+	KeyGatewayConfigExportFailed:   "the configuration could not be produced: {{detail}}",
+	KeyGatewayConfigMergeFailed:    "the configuration could not be merged into your file: {{detail}}",
+	KeyGatewayConfigBodyUnreadable: "your configuration file could not be read: {{detail}}",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so
