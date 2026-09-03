@@ -48,15 +48,35 @@ Requests without a valid key receive HTTP 401. The middleware is in `internal/ga
 
 Leave `HELIX_AUTH_API_KEYS` empty to disable authentication (open access).
 
-### JWT Authentication
+### JWT Authentication — NOT IMPLEMENTED
 
-Configure a JWT signing secret:
+**This server does not do JWT authentication.** Setting
+`HELIX_AUTH_JWT_SECRET` has no effect on access control. Do not count it as a
+protection.
 
-```bash
-HELIX_AUTH_JWT_SECRET=your-secret-key
-```
+This section previously said "when set, the system can issue and validate JWT
+tokens for session-based access", and listed the variable on the hardening
+checklist below. That was wrong, and the combination was the dangerous part: an
+operator could set the secret, tick the checklist, and believe the server was
+protected — while `HELIX_AUTH_API_KEYS` sat empty and the server was in
+open-access mode.
 
-When set, the system can issue and validate JWT tokens for session-based access. The `digital.vasic.auth` submodule provides the full JWT lifecycle.
+Verified 2026-09-03 rather than assumed:
+
+- No commit in this repository's entire history has ever added a JWT library
+  call (`git log -G 'jwt\.(Parse|NewWithClaims|SigningMethod)' --all` → 0).
+- `golang-jwt` is not a dependency; it does not appear in `go.mod`.
+- `digital.vasic.auth` appears in `go.mod` line 110 as a `replace` directive
+  ONLY, with no matching `require`, and is imported by no Go file. A `replace`
+  without a `require` does nothing.
+- `Auth.JWTSecret` is declared on the config struct and read by nothing.
+
+The config field is kept — removing it would break existing `.env` files that
+set it, and it is where an implementation would land. It is simply inert today.
+
+**The only authentication this server enforces is the API-key check above**
+(`internal/gateway/middleware/auth.go`), and it is open-access when
+`HELIX_AUTH_API_KEYS` is empty.
 
 ### Authentication Scope
 
@@ -147,7 +167,7 @@ Sensitive values in `.env`:
 |----------|-------------|
 | `HELIX_LLM_OPENAI_KEY` | High -- API key with billing access |
 | `HELIX_LLM_ANTHROPIC_KEY` | High -- API key with billing access |
-| `HELIX_AUTH_JWT_SECRET` | High -- token signing key |
+| `HELIX_AUTH_JWT_SECRET` | None today -- read by nothing; JWT auth is not implemented |
 | `HELIX_AUTH_API_KEYS` | High -- authentication credentials |
 | `HELIX_DB_PASSWORD` | Medium -- database access |
 | `HELIX_REDIS_PASSWORD` | Medium -- cache access |
@@ -174,7 +194,11 @@ For production deployments:
 
 - [ ] Use certificates from a trusted CA (not self-signed)
 - [ ] Set strong, unique API keys in `HELIX_AUTH_API_KEYS`
-- [ ] Set a strong `HELIX_AUTH_JWT_SECRET`
+- [ ] ~~Set a strong `HELIX_AUTH_JWT_SECRET`~~ — **removed: JWT authentication
+      is not implemented.** Setting it protects nothing; see above. It is struck
+      through rather than deleted so anyone who followed the old checklist can
+      see that this item was withdrawn, and re-check that
+      `HELIX_AUTH_API_KEYS` is actually set.
 - [ ] Set database and Redis passwords
 - [ ] Restrict `/internal/*` endpoints at the network level
 - [ ] Use Podman (rootless) for container runtime

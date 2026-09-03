@@ -8,7 +8,7 @@ HelixLLM uses 43 Go submodules from the vasic-digital ecosystem. Each module is 
 |--------|---------|-----------|-------------|
 | Streaming | `digital.vasic.streaming` | `submodules/Streaming` | SSE broker, WebSocket hub, gRPC streaming, and Gin adapters for real-time communication |
 | Middleware | `digital.vasic.middleware` | `submodules/Middleware` | Standard HTTP middleware: CORS, request logging, panic recovery, request ID generation |
-| Auth | `digital.vasic.auth` | `submodules/Auth` | JWT token lifecycle, API key validation, OAuth2 flows, Bearer/API-key middleware for Gin |
+| Auth | `digital.vasic.auth` | `submodules/Auth` | **NOT WIRED IN** — present in `go.mod` as a `replace` directive with no matching `require`, and imported by no Go file, so none of its JWT/OAuth2 capability is reachable from this server. The only authentication actually enforced is the API-key check in `internal/gateway/middleware/auth.go`. See `security.md`. |
 | RateLimiter | `digital.vasic.ratelimiter` | `submodules/RateLimiter` | Sliding-window rate limiting with in-memory and Redis-backed stores, Gin middleware |
 | Security | `digital.vasic.security` | `submodules/Security` | Content guardrails, PII detection and redaction, HTTP security headers, AES-256-GCM encryption |
 | I18n | `digital.vasic.i18n` | `submodules/I18n` | Multi-language API response localization, Accept-Language middleware |
