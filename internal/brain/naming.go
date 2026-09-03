@@ -132,6 +132,11 @@ func (b *Brain) ModelOptionsFor(rs naming.Ruleset) []ModelOption {
 		if h, ok := p.(ServingHost); ok {
 			host = strings.TrimSpace(h.ServingHost())
 		}
+		if host != "" {
+			// Same reason as in RegisterNamesFor: the host is live because the
+			// provider reports it, not because a model was listed under it.
+			b.names.NoteLiveHost(rs, host)
+		}
 
 		for _, m := range p.Models() {
 			opt := ModelOption{
@@ -234,6 +239,12 @@ func (b *Brain) RegisterNamesFor(rs naming.Ruleset) {
 		if host == "" {
 			continue
 		}
+		// Record the HOST as soon as the provider names it. A provider that
+		// reports a serving host but has not listed a model yet still publishes
+		// under that host, and the retired check asks about the host — deriving
+		// the live-host set only from the loop below would leave a starting
+		// runtime looking like a machine that had been renamed away.
+		b.names.NoteLiveHost(rs, host)
 		for _, m := range p.Models() {
 			model, variant := splitModelVariant(m)
 			id, err := naming.NewIdentity(host, model, variant)

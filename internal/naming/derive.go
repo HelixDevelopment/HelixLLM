@@ -416,6 +416,33 @@ func (r *Registry) Adopt(rs Ruleset, identifier string, id Identity) error {
 	return nil
 }
 
+// NoteLiveHost records that this consumer currently publishes under host, so
+// [Registry.IsRetiredIdentifier] can see the host even when no identity has
+// been registered for it.
+//
+// The two are not the same thing. An identity exists per served MODEL, but the
+// retired question is about the HOST — and a provider reports its serving host
+// before it has listed a single model (a runtime still starting up, a chained
+// instance whose cached list has not populated). Deriving the live-host set
+// only from registered identities made such a host invisible, so its
+// identifiers were judged by name alone and a host that was configured and
+// running was reported as renamed away.
+//
+// A host that renders empty under the ruleset is ignored; so is an empty one.
+func (r *Registry) NoteLiveHost(rs Ruleset, host string) {
+	prefix := rs.HostIdentifierPrefix(strings.TrimSpace(host))
+	if prefix == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.liveHostPrefixes[rs.Name]; !ok {
+		r.liveHostPrefixes[rs.Name] = make(map[string]struct{})
+	}
+	r.liveHostPrefixes[rs.Name][prefix] = struct{}{}
+}
+
 // IsRetiredIdentifier reports whether name is one of this ruleset's identifiers
 // that this deployment has PERMANENTLY stopped publishing.
 //

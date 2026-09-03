@@ -360,3 +360,74 @@ func TestChatCompletions_UnlistedModelOnALiveHostStaysTemporary(t *testing.T) {
 		})
 	}
 }
+
+// A configured host is a live host even before it has listed a single model.
+//
+// # The condition
+//
+// The registry-aware retired check reads which hosts this deployment publishes
+// under, and that set was built from REGISTERED IDENTITIES — one per served
+// model. A provider that reports a serving host but whose model list is empty
+// registers nothing, so it contributed no live host and the check fell back to
+// judging its identifiers by name alone. Two ways to be in that state:
+//
+//   - a chained older HelixLLM instance whose cached model list has not been
+//     populated yet (the naming.go prefix branch reaches the same code with no
+//     registry entry behind it);
+//   - any local runtime between start-up and its first model load.
+//
+// On a host whose name renders into a retired segment, that produced the same
+// permanent 404 this file already guards against — "the serving host was
+// renamed" about a host that is configured and running right now, and that will
+// answer normally seconds later once its list populates.
+//
+// The host is what the retired question is ABOUT, so it is recorded when the
+// provider reports it, not when a model happens to be listed under it.
+//
+// # Polarity (§11.4.115)
+//
+//	RED_MODE=1 go test -run TestChatCompletions_HostWithNoListedModels ./cmd/helixllm/
+//	           go test -run TestChatCompletions_HostWithNoListedModels ./cmd/helixllm/
+func TestChatCompletions_HostWithNoListedModelsIsStillLive(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "localhost.lan", "gpu-07"} {
+		t.Run("host "+host, func(t *testing.T) {
+			// Reports a serving host, lists nothing yet.
+			starting := &recordingProvider{name: "chained-helixllm", host: host, models: nil}
+			// A second provider so the stack has something to build entries
+			// from; its host is unrelated and must not stand in for the first.
+			serving := &recordingProvider{
+				name:   "llamacpp",
+				host:   "gpu-01",
+				models: []string{"llama3:8b"},
+			}
+			stack := newServingStack(t, serving, starting)
+
+			id, err := naming.NewIdentity(host, "qwen2.5", "7b")
+			if err != nil {
+				t.Fatalf("build an identity on host %q: %v", host, err)
+			}
+			identifier, err := naming.Derive(id, naming.ClaudeToolkit)
+			if err != nil {
+				t.Fatalf("derive an identifier on host %q: %v", host, err)
+			}
+
+			looksRetired := naming.ClaudeToolkit.HasRetiredHostSegment(identifier)
+			if wantLooks := host != "gpu-07"; looksRetired != wantLooks {
+				t.Fatalf("identifier %q for host %q: HasRetiredHostSegment = %v, want %v",
+					identifier, host, looksRetired, wantLooks)
+			}
+
+			want := http.StatusServiceUnavailable
+			if redMode() && looksRetired {
+				want = http.StatusNotFound
+			}
+
+			if w := stack.chat(t, identifier); w.Code != want {
+				t.Errorf("POST /v1/chat/completions with %q returned %d, want %d (RED_MODE=%v): %s\n"+
+					"A provider is configured and reporting host %q; it has simply not listed a "+
+					"model yet. Nothing was renamed, and the same request will succeed once its "+
+					"list populates.", identifier, w.Code, want, redMode(), w.Body.String(), host)
+			}
+		})
+	}
+}
