@@ -307,6 +307,21 @@ func (c *LSPClient) drainAllPending() {
 // call sends a JSON-RPC request and blocks until the response arrives or ctx is
 // cancelled. It returns the raw JSON result field.
 func (c *LSPClient) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
+	// Refuse before doing anything if the caller has already given up.
+	//
+	// The select at the bottom is not sufficient on its own. When the context
+	// is ALREADY cancelled and a response is ALREADY waiting, both of its
+	// cases are ready, and Go chooses among ready cases at random -- so an
+	// abandoned request completed roughly one time in forty, and the test that
+	// noticed was written off twice as flaky. It was not flaky; it was
+	// reporting a real coin flip.
+	//
+	// Checking first also stops us writing a request to the server that
+	// nobody is waiting for, and registering a pending entry to match it.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	id := c.nextID.Add(1)
 
 	req := lspRequest{
