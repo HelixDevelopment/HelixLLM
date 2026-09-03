@@ -9,6 +9,7 @@ package testing
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -38,12 +39,16 @@ var httpAssertions = map[string]bool{
 	"max_response_time_ms": true,
 	"max_latency":          true,
 	"response_time_p99_ms": true,
-	"min_count":            true,
-	"min_value":            true,
-	"not_all_zero":         true,
-	"all_match":            true,
-	"none_match":           true,
-	"json_path":            true,
+	// concurrent_latency_ratio expresses a latency budget RELATIVE to a
+	// serial, uncontended baseline of the same request rather than as an
+	// absolute wall-clock ceiling. See latency.go for why.
+	"concurrent_latency_ratio": true,
+	"min_count":                true,
+	"min_value":                true,
+	"not_all_zero":             true,
+	"all_match":                true,
+	"none_match":               true,
+	"json_path":                true,
 }
 
 // nonHTTPAssertions are declared by benchmark / chaos steps. They are
@@ -72,7 +77,7 @@ func knownNonHTTPAssertion(t string) bool {
 // Content and status assertions must hold for EVERY sample — a step that
 // fires 100 concurrent requests and asserts `status: 200` is asserting that
 // all 100 returned 200. Latency assertions are computed over the sample set.
-func evaluateStep(step ChallengeStep, samples []httpSample) StepResult {
+func evaluateStep(step ChallengeStep, samples, baseline []httpSample) StepResult {
 	name := step.Name
 	if name == "" {
 		name = step.http.Method + " " + step.http.Path
@@ -103,16 +108,45 @@ func evaluateStep(step ChallengeStep, samples []httpSample) StepResult {
 		}
 	}
 
+	// Two outcomes can come out of the assertion list and their precedence
+	// is load-bearing. A FAILURE is a property of the code and wins
+	// immediately. A SKIP is a property of the host — the run could not
+	// measure what the assertion claims — and it must never be able to hide
+	// a failure, so it is remembered and only applied once EVERY other
+	// assertion has been evaluated and none of them failed. This is the
+	// invariants-first ordering internal/lifecycle/evict_test.go uses.
+	var skip *skipError
 	for i, a := range step.Assertions {
-		if err := evalAssertion(a, samples); err != nil {
-			return StepResult{Name: name, Status: StatusFailed,
-				Detail: fmt.Sprintf("assertion #%d (%s): %v", i+1, a.Type, err)}
+		err := evalAssertionWithBaseline(step, a, samples, baseline)
+		if err == nil {
+			continue
 		}
+		var se skipError
+		if errors.As(err, &se) {
+			if skip == nil {
+				skip = &se
+			}
+			continue
+		}
+		return StepResult{Name: name, Status: StatusFailed,
+			Detail: fmt.Sprintf("assertion #%d (%s): %v", i+1, a.Type, err)}
+	}
+	if skip != nil {
+		return StepResult{Name: name, Status: StatusSkipped, Detail: skip.reason}
 	}
 
 	return StepResult{Name: name, Status: StatusPassed,
 		Detail: fmt.Sprintf("HTTP %d (%d sample(s), %s)",
 			samples[0].Status, len(samples), latencySummary(samples))}
+}
+
+// evalAssertionWithBaseline routes the assertions that need the step's
+// serial reference series, and delegates everything else to evalAssertion.
+func evalAssertionWithBaseline(step ChallengeStep, a Assertion, samples, baseline []httpSample) error {
+	if a.Type == "concurrent_latency_ratio" {
+		return evalConcurrentLatencyRatio(step, a, samples, baseline)
+	}
+	return evalAssertion(a, samples)
 }
 
 // evalAssertion returns nil when the assertion holds, else an error naming

@@ -126,6 +126,12 @@ type ChallengeStep struct {
 	// closed and an unknown name is a load error.
 	Requires []string `yaml:"requires"`
 
+	// Baseline, when set, runs a short SERIAL, uncontended reference series
+	// of the SAME request before the step's real (possibly concurrent) run,
+	// so a latency claim can be expressed relative to what this host can do
+	// rather than as an absolute wall-clock number. See latency.go.
+	Baseline *BaselineSpec `yaml:"baseline"`
+
 	// kind is resolved at load time by validateStep.
 	kind string `yaml:"-"`
 	// http is the normalised request, populated for kind == kindHTTP.
@@ -446,10 +452,13 @@ var httpMethods = map[string]bool{
 // cannot account for. A step that declares no executable action is an
 // ERROR at load time — it is never silently dropped into a skip.
 func validateStep(s *ChallengeStep) error {
-	// Preconditions are shape-independent, so they are validated before the
-	// shape switch and rejected at LOAD time. A typo'd precondition must
-	// never silently disable a challenge.
+	// Preconditions and the baseline spec are shape-independent, so they are
+	// validated before the shape switch and rejected at LOAD time. A typo'd
+	// precondition must never silently disable a challenge.
 	if err := validatePreconditions(s.Requires); err != nil {
+		return err
+	}
+	if err := validateBaseline(s.Baseline); err != nil {
 		return err
 	}
 
@@ -860,8 +869,12 @@ func (r *Runner) runHTTPStep(ctx context.Context, step ChallengeStep) StepResult
 
 	var last StepResult
 	for attempt := 1; attempt <= attempts; attempt++ {
+		// The serial reference series is taken FIRST and on every attempt,
+		// so a relative latency budget compares against what this host was
+		// doing at the moment of the run rather than an earlier, quieter one.
+		baseline := r.collectBaseline(ctx, step)
 		samples := r.collectSamples(ctx, step)
-		last = evaluateStep(step, samples)
+		last = evaluateStep(step, samples, baseline)
 		if last.Status == StatusPassed || attempt == attempts {
 			return last
 		}
