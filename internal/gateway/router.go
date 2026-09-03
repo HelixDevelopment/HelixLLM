@@ -26,9 +26,22 @@ type RouterOptions struct {
 	// fallback responses.
 	Brain Completer
 	// ModelBrain is used only by /v1/models and /v1/models/:id to list
-	// available models.  It must be the concrete *brain.Brain because those
-	// handlers need Brain.Models().  When nil the endpoints return the
-	// built-in hardcoded model list.
+	// available models. It must be the concrete *brain.Brain because those
+	// handlers need Brain.Models(), while Brain above is an interface that may
+	// be a fallback.Chain -- which is exactly why these are two options and not
+	// one.
+	//
+	// When nil the endpoints list NOTHING: an empty list carrying a reason that
+	// says no backend is configured. They used to return a built-in hardcoded
+	// list, and that is gone -- it was a fabricated three-entry advertisement
+	// for models this server could never serve.
+	//
+	// Setting Brain and leaving this nil is therefore a silent no-op for model
+	// listing, and it is an easy mistake because the two names are adjacent and
+	// one of them is obviously required. The integration test framework made
+	// exactly that mistake, and its two model-listing tests failed for so long
+	// that three separate agents independently concluded they needed live
+	// services. They needed this field.
 	ModelBrain *brain.Brain
 	// TOONEnabled controls whether the TOON content negotiation middleware
 	// is applied. When false, ContentNegotiation() is skipped entirely.
