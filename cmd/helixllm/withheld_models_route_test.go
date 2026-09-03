@@ -169,17 +169,49 @@ func TestListModels_WithheldEntryIsNotConsumableAsUsable(t *testing.T) {
 		t.Fatalf("no withheld entry to test: %s", body)
 	}
 
+	// THE PRODUCER-SIDE INVARIANT, asserted first because it is the only half of
+	// this we can guarantee.
+	//
+	// Every consumer filter we know of treats an ABSENT availability as serving
+	// — reasonably, since before withheld options reached the wire the listing
+	// itself was the affirmative act. So a withheld entry that merely OMITS the
+	// field is selected by all of them. What makes it excludable is that we mark
+	// it EXPLICITLY, and that is a property this server controls.
+	//
+	// Assert it here rather than relying on the snapshot below, because a copy
+	// of someone else's filter can go stale without anything noticing, while
+	// this cannot.
+	t.Run("the withheld entry carries an explicit availability, not an absent one", func(t *testing.T) {
+		if withheld.Availability == "" {
+			t.Fatal("the withheld entry omits availability. Every consumer filter we know of " +
+				"defaults an absent value to serving, so an omitted marker is not a weaker " +
+				"signal — it is the opposite signal, and the entry would be consumed as usable.")
+		}
+		if withheld.Availability == "serving" {
+			t.Fatalf("the withheld entry is marked availability=%q", withheld.Availability)
+		}
+	})
+
 	// CONSUMER 1 — the Claude Toolkit. Its _CMA_HELIXLLM_SERVING_JQ is the ONE
 	// definition of "this host is serving us this model right now", used both to
 	// build its provider records and to decide whether a host proved it is
-	// serving. Reproduced here VERBATIM, run by real jq against the real body:
-	// asserting on a paraphrase would prove nothing about the tool that ships.
+	// serving. Run by real jq against the real body: asserting on a paraphrase
+	// would prove nothing about the tool that ships.
 	//
-	// Note its second clause treats an ABSENT availability as serving, because
-	// on the pre-fix listing the listing itself was the affirmative act. That
-	// default is exactly why the entry we now publish must carry an EXPLICIT
-	// "withheld" — the filter honours an explicit value and excludes it.
-	const toolkitServingJQ = `select((.model_identity // "") != "")
+	// HONEST LIMIT OF THIS CHECK. The string below is a SNAPSHOT of
+	// scripts/claude-providers.sh's `_CMA_HELIXLLM_SERVING_JQ`, taken by hand.
+	// It is not read from that script, because reaching into a sibling checkout
+	// would hardcode another project's path here and would SKIP on any host
+	// without it — and a guard that disappears when its subject is absent is the
+	// same class of problem this whole change is about.
+	//
+	// So: if the toolkit changes its filter, this test keeps passing against the
+	// OLD one and cannot tell you. It proves the body we emit is excluded by the
+	// filter AS OF this copy; it does not prove the shipped toolkit excludes it
+	// today. The toolkit's own suite now derives the filter from its script at
+	// run time and carries a withheld fixture, so that side is covered where it
+	// can be. This side is a cross-check, not the guarantee.
+	const toolkitServingJQSnapshot = `select((.model_identity // "") != "")
   | select((.availability // "serving") == "serving")`
 	t.Run("claude toolkit serving filter excludes it", func(t *testing.T) {
 		jq, err := exec.LookPath("jq")
@@ -188,7 +220,7 @@ func TestListModels_WithheldEntryIsNotConsumableAsUsable(t *testing.T) {
 				"filter cannot be run against the real body here; the Go-side " +
 				"equivalence check below still runs")
 		}
-		cmd := exec.Command(jq, "-c", ".data[] | "+toolkitServingJQ)
+		cmd := exec.Command(jq, "-c", ".data[] | "+toolkitServingJQSnapshot)
 		cmd.Stdin = strings.NewReader(body)
 		out, err := cmd.Output()
 		if err != nil {
