@@ -59,8 +59,21 @@ func NewTestServer() *TestServer {
 
 	// Gateway routes (OpenAI + Anthropic).
 	gateway.RegisterRoutes(engine, gateway.RouterOptions{
-		Brain:    b,
-		Embedder: embedderGW,
+		Brain: b,
+		// ModelBrain feeds /v1/models and /v1/models/:id, and it is a SEPARATE
+		// option from Brain -- the listing handlers need the concrete
+		// *brain.Brain for Models(), while Brain is an interface that may be a
+		// fallback.Chain. Leaving it nil made this server list nothing, and the
+		// two model-listing tests here failed with "should return at least one
+		// model" for as long as anyone remembers.
+		//
+		// That was read as "these need live services". It was not: the mock
+		// provider registered above reports four models and is Available(). The
+		// endpoint was simply never connected to it, because these tests predate
+		// the split and the framework was not updated when /v1/models moved off
+		// Brain.
+		ModelBrain: b,
+		Embedder:   embedderGW,
 	})
 
 	// Knowledge pipeline with in-memory components.
