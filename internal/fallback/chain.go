@@ -2,6 +2,7 @@ package fallback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,6 +11,28 @@ import (
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
+
+// ErrProvidersExhausted marks the condition "no configured provider could
+// serve this request" — every entry was skipped, unavailable, or failed.
+//
+// It exists so a caller can DISTINGUISH that availability condition from an
+// ordinary upstream fault without matching on message text. The distinction
+// is load-bearing at the HTTP boundary: an exhausted chain is a 503 (the
+// service cannot serve right now, retry with backoff), while a provider that
+// answered with a genuine fault is a 500. Callers that cannot tell them apart
+// report both as 500, which tells clients, load balancers, and readiness
+// probes that a warming-up backend is a broken build.
+//
+// Its message text is the historical prefix verbatim, because chain_test.go
+// and Chain.Complete's own doc comment both assert on that substring.
+var ErrProvidersExhausted = errors.New("all providers exhausted")
+
+// IsProvidersExhausted reports whether err (or anything it wraps) is the
+// exhausted-chain condition. Prefer this over errors.Is at call sites so the
+// sentinel stays an implementation detail of this package.
+func IsProvidersExhausted(err error) bool {
+	return errors.Is(err, ErrProvidersExhausted)
+}
 
 // Chain is the central fallback orchestrator.  It holds an ordered list of
 // ChainEntry values and routes each request to the first available provider,
@@ -224,9 +247,9 @@ func (c *Chain) Complete(ctx context.Context, req *types.InternalChatRequest) (*
 	}
 
 	if lastErr != nil {
-		return nil, fmt.Errorf("all providers exhausted, last error: %w", lastErr)
+		return nil, fmt.Errorf("%w, last error: %w", ErrProvidersExhausted, lastErr)
 	}
-	return nil, fmt.Errorf("all providers exhausted: no entries available")
+	return nil, fmt.Errorf("%w: no entries available", ErrProvidersExhausted)
 }
 
 // CompleteStream iterates the entry list in order and calls the first
@@ -308,9 +331,9 @@ func (c *Chain) CompleteStream(ctx context.Context, req *types.InternalChatReque
 	}
 
 	if lastErr != nil {
-		return nil, fmt.Errorf("all providers exhausted, last error: %w", lastErr)
+		return nil, fmt.Errorf("%w, last error: %w", ErrProvidersExhausted, lastErr)
 	}
-	return nil, fmt.Errorf("all providers exhausted: no entries available")
+	return nil, fmt.Errorf("%w: no entries available", ErrProvidersExhausted)
 }
 
 // entryAvailable checks whether c.entries[idx] can accept a request, also

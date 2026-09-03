@@ -252,7 +252,7 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 			if req.Stream && !forceNonStream {
 				ch, err := b.CompleteStream(c.Request.Context(), internalReq)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, api.ErrorResponse{
+					c.JSON(completerErrorStatus(err), api.ErrorResponse{
 						Error: api.ErrorDetail{
 							Message: tr(c, i18n.KeyGatewayBrainStreamError,
 								map[string]string{"detail": err.Error()}),
@@ -297,7 +297,7 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 
 			resp, err := b.Complete(c.Request.Context(), internalReq)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, api.ErrorResponse{
+				c.JSON(completerErrorStatus(err), api.ErrorResponse{
 					Error: api.ErrorDetail{
 						Message: tr(c, i18n.KeyGatewayBrainError,
 							map[string]string{"detail": err.Error()}),
@@ -462,7 +462,7 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 			}
 			resp, err := b.Complete(c.Request.Context(), internalReq)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, api.ErrorResponse{
+				c.JSON(completerErrorStatus(err), api.ErrorResponse{
 					Error: api.ErrorDetail{
 						Message: tr(c, i18n.KeyGatewayBrainError,
 							map[string]string{"detail": err.Error()}),

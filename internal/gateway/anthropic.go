@@ -76,7 +76,7 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 			if req.Stream {
 				ch, err := b.CompleteStream(c.Request.Context(), internalReq)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, api.ErrorResponse{
+					c.JSON(completerErrorStatus(err), api.ErrorResponse{
 						Error: api.ErrorDetail{
 							Message: tr(c, i18n.KeyGatewayBrainStreamError,
 								map[string]string{"detail": err.Error()}),
@@ -91,7 +91,7 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 
 			resp, err := b.Complete(c.Request.Context(), internalReq)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, api.ErrorResponse{
+				c.JSON(completerErrorStatus(err), api.ErrorResponse{
 					Error: api.ErrorDetail{
 						Message: tr(c, i18n.KeyGatewayBrainError,
 							map[string]string{"detail": err.Error()}),
