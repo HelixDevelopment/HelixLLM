@@ -1,9 +1,13 @@
 # Text-generation model catalogue.
 #
-# EVERY figure in this file comes from:
+# EVERY figure in this file comes from one of two passes, and each entry says
+# which:
 #   specs/002-adaptive-local-model-serving/research/01-text-llm.md
-#   (research pass dated 2026-09-02; each figure cited there, sources listed in
-#   that file's "Sources" section)
+#   (RESEARCH pass dated 2026-09-02; each figure cited there, sources listed in
+#   that file's "Sources" section) — every entry except one.
+#   specs/002-adaptive-local-model-serving/research/06-agent-lane-footprint-measurements.md
+#   (MEASUREMENT pass dated 2026-09-03; figures produced by running the weights
+#   on a host and reading numbers off the running process) — mistral-nemo-12b.
 # Wire shape: internal/catalogue/load.go (strict — KnownFields(true); an
 #   unrecorded key refuses the WHOLE file, so `annotations` is the only place
 #   free-form material may go and `notes` is the only place provenance goes).
@@ -65,7 +69,10 @@
 #     source CANNOT BE AN ENTRY. Such models are NOT deleted — they are moved
 #     verbatim, with every figure, comment and UNVERIFIED marker intact, to the
 #     DEFERRED block at the end of this file, each with the measurement it
-#     needs. 24 of this file's 30 researched models are deferred that way.
+#     needs. 23 of this file's 30 researched models are deferred that way.
+#     It was 24 until mistral-nemo-12b was promoted to a live entry on a
+#     MEASUREMENT rather than a published figure (record 18 below): the way
+#     out of this block is to measure the thing, which is now demonstrated.
 #     Nothing from the research is lost, and nothing is asserted that was not
 #     sourced.
 #
@@ -76,7 +83,7 @@
 # figure, no licence id, or no permitted purpose. The research pass sourced
 # per-quant weight-file sizes for only part of the roster, and recorded no
 # licence at all for two families. So:
-#   * 17 models have a memory figure but NO sourced on-disk weight size. The
+#   * 16 models have a memory figure but NO sourced on-disk weight size. The
 #     research's own estimates ("scaling from the 14B point implies ~20 GB")
 #     are its extrapolations, and committing one would be inventing an
 #     admission figure. Deriving disk from the memory figure would break
@@ -95,15 +102,23 @@
 # below names its own.)
 #
 # ---------------------------------------------------------------------------
-# INTEGRITY: NO DIGEST EXISTS ANYWHERE IN THIS FILE
+# INTEGRITY: EXACTLY ONE ENTRY CARRIES A DIGEST
 # ---------------------------------------------------------------------------
 # The research gathered no weight-file digest for any model, and fabricating
-# one would defeat the check it exists to perform (SC-011). Each entry names
-# the algorithm and carries `size_bytes` only where a real file size was
-# sourced. Entries in this state LOAD and may be OFFERED; they are refused by
-# Entry.ValidateForAcquisition, which is the gate that precedes touching a
-# weight file. The `digest_key` each entry carried before is retained under
-# `annotations.digest_key` — it is a fetch-time lookup key, not a digest.
+# one would defeat the check it exists to perform (SC-011). Each researched
+# entry therefore names the algorithm and carries `size_bytes` only where a
+# real file size was sourced. Entries in that state LOAD and may be OFFERED;
+# they are refused by Entry.ValidateForAcquisition, which is the gate that
+# precedes touching a weight file. The `digest_key` each entry carried before
+# is retained under `annotations.digest_key` — a fetch-time lookup key, not a
+# digest.
+#
+# THE ONE EXCEPTION is mistral-nemo-12b, and it is an exception for the only
+# reason that can ever justify one: somebody downloaded the file and ran
+# sha256 over the bytes, then checked the result against the publisher's own
+# LFS oid. It is consequently the only entry here that
+# Entry.ValidateForAcquisition does NOT refuse. A digest arrives by
+# measurement or it does not arrive.
 #
 # ---------------------------------------------------------------------------
 # THROUGHPUT
@@ -112,6 +127,11 @@
 # nothing; it reasoned about relative processor throughput for MoE models but
 # produced no measured tokens/second figure for any model here. An absent field
 # is the honest record; a zero would read as a measurement of zero.
+# mistral-nemo-12b WAS benchmarked (1.64 and 0.87 tok/s at two contexts) and
+# still does not state the field: those numbers are CPU-only, 4 threads, on a
+# host whose swap was exhausted — a property of that measurement rig, not a
+# capability of the model. They are carried in `annotations` with their
+# conditions attached, which is where a non-generalising number belongs.
 #
 # ---------------------------------------------------------------------------
 # UNITS
@@ -417,6 +437,66 @@ entries:
       storage_sourced: '"~372 GB disk storage" — INDEPENDENT of the memory figure'
       accelerator_note: '"GPU is explicitly optional for Colibri — it accelerates but does not gate functionality"'
       digest_key: glm-5.2.colibri-int4-g64.sha256
+      catalogue_status: verified
+
+  # =========================================================================
+  # Mistral. Apache 2.0. The one agent-lane candidate of the three that this
+  # host could actually run — see
+  # specs/002-adaptive-local-model-serving/research/06-agent-lane-footprint-measurements.md
+  # =========================================================================
+
+  - model_id: mistral-nemo-12b
+    variant: q4_k_m
+    family: text
+    architecture: dense
+    descriptor:
+      parameter_count: 12000000000
+      quantisation: q4_k_m
+      specialisations: [general, instruction-following]
+    memory_required_bytes: 9956106240
+    storage_required_bytes: 7477208192
+    requires_accelerator: false
+    source: https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF
+    usage_terms:
+      license_id: apache-2.0
+      permitted: [commercial, personal, research, evaluation]
+    runtime: in-memory
+    expected_capability:
+      context_tokens: 4096
+      modalities: [text]
+    integrity:
+      algorithm: sha256
+      digest: 7c1a10d202d8788dbe5628dc962254d10654c853cae6aaeca0618f05490d4a46
+      size_bytes: 7477208192
+    notes:
+      - "MEMORY IS MEASURED-IN-USE, NOT RESEARCHED: 9956106240 B (9496 MiB) is the highest resident peak (VmHWM, polled from /proc) actually observed while this build generated text on this host, 2026-09-03. It REPLACES the research pass's 7623566950 B, which was a published *VRAM* figure and understates the measured CPU footprint by 2.3 GiB — admitting this model to a host that then cannot run it is the exact failure this catalogue exists to prevent."
+      - "MEASUREMENT IS CPU-PATH: the installed llama.cpp (Debian b8681) is a CPU-only build — `--list-devices` lists none — so no GPU-path figure was measured and none is stated. 4886 MiB of the figure is a `CPU_REPACK` buffer that is a CPU-backend artefact with no meaning on a device."
+      - "UNVERIFIED: the true requirement lies in [8037, 13043] MiB — llama.cpp's steady-state Host accounting at this context vs. its fully-accounted ceiling including CPU_REPACK. 9496 MiB is the measured evidence inside that interval, not a proof of its endpoint. Peak RSS under mmap is host-pressure dependent (a 4096-context run on a less-loaded host peaked 1584 MiB LOWER than a 512-context run), which is why the recorded figure is an observed peak and not an average."
+      - "CONTEXT IS THE MEASURED ONE, 4096 — NOT the model's 131072 architectural maximum. KV cost is measured-linear at 163840 B/token (80 MiB at n_ctx=512, 640 MiB at n_ctx=4096 — exactly 8x for 8x context, confirmed across the range). A 131072 context is therefore 20480 MiB of KV alone, ~29 GiB in total; pairing that context with this memory figure would be false."
+      - "UNVERIFIED: no generalisable throughput figure. 1.64 tok/s (n_ctx=512) and 0.87 tok/s (n_ctx=4096) were measured, but CPU-only on 4 threads with host swap exhausted — a property of the measurement rig, not of the model. Conditions are carried in annotations rather than promoted to expected_capability."
+      - "DIGEST IS VERIFIED AGAINST BYTES ON DISK: sha256 computed locally on the downloaded file equals the HuggingFace LFS oid, and the local size equals the API-declared size. This is the first entry in this catalogue whose integrity block is complete, so it is also the first that Entry.ValidateForAcquisition does not refuse."
+    annotations:
+      summary: >-
+        Dense 12B Mistral with a long architectural context, quantised to Q4_K_M.
+        Runs on a no-GPU host: measured generating real text on a CPU-only
+        llama.cpp build. The agent lane's former configured candidate, catalogued
+        here from a measurement rather than a published figure.
+      memory_sourced: "MEASURED-IN-USE on host anton 2026-09-03: peak VmHWM 9722760 kB during generation"
+      memory_provenance: "measured-in-use:llama.cpp-b8681-cpu:vmhwm-peak:2026-09-03"
+      memory_accounting_steady_state_mib: 8037
+      memory_accounting_ceiling_with_repack_mib: 13043
+      storage_sourced: "MEASURED: stat(1) on the downloaded GGUF, equal to the HF API declared size"
+      storage_provenance: "measured:local-file-and-huggingface-blob-api:2026-09-03"
+      kv_bytes_per_token: 163840
+      context_architectural_max: 131072
+      measured_throughput_note: "1.64 tok/s @ n_ctx=512, 0.87 tok/s @ n_ctx=4096; CPU-only, 4 threads, swap exhausted"
+      weights_repo: bartowski/Mistral-Nemo-Instruct-2407-GGUF
+      weights_file: Mistral-Nemo-Instruct-2407-Q4_K_M.gguf
+      hf_revision: a2dd64a0a76ea1bdb2bb6ab6fa5496b003c7c908
+      hf_gated: false
+      upstream_model: mistralai/Mistral-Nemo-Instruct-2407
+      digest_key: mistral-nemo-12b.q4_k_m.gguf.sha256
+      measurement_record: specs/002-adaptive-local-model-serving/research/06-agent-lane-footprint-measurements.md
       catalogue_status: verified
 
 # ===========================================================================
@@ -1183,44 +1263,19 @@ entries:
 #   # =========================================================================
 #
 # ---------------------------------------------------------------------------
-# 18. mistral-nemo-12b (q4_k_m)
-#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced.
+# 18. mistral-nemo-12b (q4_k_m) — PROMOTED OUT OF THIS BLOCK. It is now a LIVE
+#    ENTRY above; see `model_id: mistral-nemo-12b`.
 #
-#   - model_id: mistral-nemo-12b
-#     variant: q4_k_m
-#     description: >-
-#       Dense Mistral model with a long context window; fits an 8 GiB accelerator
-#       and a 32 GiB no-GPU host.
-#     architecture: dense
-#     descriptor:
-#       parameter_count: 12000000000
-#       active_parameters: 0
-#       quantisation: q4_k_m
-#       specialisations: [general, instruction-following]
-#     memory_required_bytes: 7623566950     # "~7.1 GB" Q4_K_M VRAM
-#     # UNVERIFIED: the cited 7.1 GB is published as a VRAM figure. No separate
-#     # weight-file size was recorded, and disk must not be read off memory.
-#     storage_required_bytes: null
-#     requires_accelerator: false
-#     usage_terms:
-#       license_id: Apache-2.0
-#       permitted: [commercial, personal, research, evaluation]
-#       restrictions: []
-#     runtime: in-memory
-#     streaming_roster:
-#       family_name: ""
-#       listed: false
-#     expected_capability:
-#       context_tokens: 131072              # "128K"
-#       throughput_tokens_per_second: null
-#       modalities: [text]
-#     integrity:
-#       algorithm: sha256
-#       digest_key: mistral-nemo-12b.q4_k_m.gguf.sha256
-#       digest: null
-#       size_bytes: null                    # UNVERIFIED
-#     weight_source: https://huggingface.co/mistralai/Mistral-Nemo-Instruct-2407
-#     catalogue_status: partial
+#    Its stated NEED was "a sourced Q4_K_M weight-file size". That was answered
+#    by MEASUREMENT rather than by finding a published figure: the weight file
+#    was downloaded, sized, digested, and RUN on a host, 2026-09-03. See
+#    specs/002-adaptive-local-model-serving/research/06-agent-lane-footprint-measurements.md
+#
+#    The researched memory figure recorded here — 7623566950 B, "~7.1 GB" — was
+#    NOT carried forward, and that is the point of the exercise. It is a
+#    published VRAM figure; the measured CPU footprint is 9956106240 B, 2.3 GiB
+#    HIGHER. A figure that is too LOW is exactly what admits a model to a host
+#    that then cannot run it, so the live entry carries the measurement.
 #
 # ---------------------------------------------------------------------------
 # 19. mistral-small-3.2-24b (q4_k_m)
