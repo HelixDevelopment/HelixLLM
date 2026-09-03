@@ -63,6 +63,14 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 			return
 		}
 
+		// Semantic validation — see the note in HandleChatCompletions.
+		// Anthropic documents max_tokens:0 as prompt-cache pre-warming, so
+		// this endpoint's floor is 0; requestvalidate.go records why.
+		if d := validateMessageRequest(&req); d != nil {
+			d.write(c)
+			return
+		}
+
 		model := req.Model
 		if model == "" {
 			model = "claude-sonnet-4-20250514"
@@ -76,13 +84,7 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 			if req.Stream {
 				ch, err := b.CompleteStream(c.Request.Context(), internalReq)
 				if err != nil {
-					c.JSON(completerErrorStatus(err), api.ErrorResponse{
-						Error: api.ErrorDetail{
-							Message: tr(c, i18n.KeyGatewayBrainStreamError,
-								map[string]string{"detail": err.Error()}),
-							Type: "server_error",
-						},
-					})
+					writeUpstreamError(c, "stream", err)
 					return
 				}
 				streamBrainMessages(c, id, model, ch)
@@ -91,13 +93,7 @@ func HandleMessages(b Completer) gin.HandlerFunc {
 
 			resp, err := b.Complete(c.Request.Context(), internalReq)
 			if err != nil {
-				c.JSON(completerErrorStatus(err), api.ErrorResponse{
-					Error: api.ErrorDetail{
-						Message: tr(c, i18n.KeyGatewayBrainError,
-							map[string]string{"detail": err.Error()}),
-						Type: "server_error",
-					},
-				})
+				writeUpstreamError(c, "complete", err)
 				return
 			}
 			c.JSON(http.StatusOK, internalToAnthropic(resp, id, model))

@@ -4,6 +4,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -58,7 +59,15 @@ func HandleWebSocket(b Completer) gin.HandlerFunc {
 			if b != nil {
 				resp, err := b.Complete(context.Background(), &req)
 				if err != nil {
-					_ = conn.WriteJSON(map[string]string{"error": err.Error()})
+					// Redact, then log. This frame used to carry
+					// err.Error() verbatim, which named the backend's
+					// address to any WebSocket client. See
+					// upstream_error.go.
+					log.Printf("[HelixLLM] upstream complete failed for WS %s: %s",
+						c.Request.URL.Path, UpstreamErrorLogDetail(err))
+					_ = conn.WriteJSON(map[string]string{
+						"error": upstreamErrorTextForLang(lang, err),
+					})
 					continue
 				}
 				_ = conn.WriteJSON(resp)

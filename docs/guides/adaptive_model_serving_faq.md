@@ -359,3 +359,35 @@ again. Re-run discovery and it comes back.
 
 Refusing to send is the safe failure here. Re-resolving the name is precisely
 the hole.
+
+---
+
+## The agent lane refuses a model it used to run
+
+The agent lane used to take its model from `AGENTGEN_MODEL_GGUF` and the amount
+of VRAM to reserve from a second variable, `AGENTGEN_NEED_BYTES`. Those two had
+to be kept in agreement by hand. If you pointed the first at a larger model and
+forgot the second, the lane reserved the smaller amount and started anyway —
+having never checked that the model fits.
+
+Measured on a 12 GiB card: naming a 19.5 GiB model while leaving the byte count
+alone gave `ADMIT-OK` and exit 0. The same binary, told that model's real size,
+refused it. The only difference was whether someone remembered the second
+variable.
+
+The lane now chooses from the measured catalogue, and the requirement comes from
+the entry it chose. There is nothing left to keep in agreement.
+
+The cost is real and worth stating: a model that is not in the catalogue can no
+longer be run here. If you were serving Mistral-Nemo-Instruct-2407,
+GLM-4.7-Flash or DeepSeek-Coder-V2-Lite this way, you will now be refused —
+those three were never in the catalogue, which is exactly why a fixed 9 GiB
+placeholder had to stand in for their footprint.
+
+To bring one back, measure it and add a catalogue entry recording where the
+figure came from, as the existing entries do. Do not estimate it: a wrong figure
+here is the defect above with extra steps.
+
+To choose deliberately among models that ARE in the catalogue, use `--pin`. It
+is validated against the catalogue and refuses with the resource you are short
+of, rather than starting something that cannot load.

@@ -50,6 +50,15 @@ func HandleChatCompletions(b Completer, toolMgr *ToolManager, ragHook func(*type
 			return
 		}
 
+		// ShouldBindJSON above accepts any body that PARSES. This is the
+		// step that checks it MEANS something, so a caller who sent a bad
+		// request is told their request was bad rather than that the server
+		// broke. See requestvalidate.go for the policy and its authorities.
+		if d := validateChatRequest(&req); d != nil {
+			d.write(c)
+			return
+		}
+
 		model := req.Model
 		if model == "" {
 			model = "llama-3.1-70b"
@@ -252,13 +261,7 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 			if req.Stream && !forceNonStream {
 				ch, err := b.CompleteStream(c.Request.Context(), internalReq)
 				if err != nil {
-					c.JSON(completerErrorStatus(err), api.ErrorResponse{
-						Error: api.ErrorDetail{
-							Message: tr(c, i18n.KeyGatewayBrainStreamError,
-								map[string]string{"detail": err.Error()}),
-							Type: "server_error",
-						},
-					})
+					writeUpstreamError(c, "stream", err)
 					return
 				}
 				id := "chatcmpl-helix-" + randomID()
@@ -297,13 +300,7 @@ NEVER say "I can't" or refuse. Be helpful and confident.`
 
 			resp, err := b.Complete(c.Request.Context(), internalReq)
 			if err != nil {
-				c.JSON(completerErrorStatus(err), api.ErrorResponse{
-					Error: api.ErrorDetail{
-						Message: tr(c, i18n.KeyGatewayBrainError,
-							map[string]string{"detail": err.Error()}),
-						Type: "server_error",
-					},
-				})
+				writeUpstreamError(c, "complete", err)
 				return
 			}
 
@@ -442,6 +439,14 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 			return
 		}
 
+		// Semantic validation — see the note in HandleChatCompletions.
+		// This endpoint's max_tokens floor is 0, not 1; requestvalidate.go
+		// records why the two differ.
+		if d := validateCompletionRequest(&req); d != nil {
+			d.write(c)
+			return
+		}
+
 		model := req.Model
 		if model == "" {
 			model = "llama-3.1-70b"
@@ -462,13 +467,7 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 			}
 			resp, err := b.Complete(c.Request.Context(), internalReq)
 			if err != nil {
-				c.JSON(completerErrorStatus(err), api.ErrorResponse{
-					Error: api.ErrorDetail{
-						Message: tr(c, i18n.KeyGatewayBrainError,
-							map[string]string{"detail": err.Error()}),
-						Type: "server_error",
-					},
-				})
+				writeUpstreamError(c, "complete", err)
 				return
 			}
 			c.JSON(http.StatusOK, api.CompletionResponse{

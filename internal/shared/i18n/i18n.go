@@ -91,6 +91,23 @@ const (
 	KeyGatewayConfigExportFailed    = "gateway_config_export_failed"
 	KeyGatewayConfigMergeFailed     = "gateway_config_merge_failed"
 	KeyGatewayConfigBodyUnreadable  = "gateway_config_body_unreadable"
+
+	// G2a — semantic request validation. A body that parses as JSON but
+	// means nothing used to reach provider dispatch; these name the field
+	// the caller must fix. See internal/gateway/requestvalidate.go for the
+	// authority behind each rule.
+	KeyGatewayMessagesEmpty      = "gateway_messages_empty"
+	KeyGatewayMessageRoleMissing = "gateway_message_role_missing"
+	KeyGatewayMaxTokensTooSmall  = "gateway_max_tokens_too_small"
+	KeyGatewayModelTooLong       = "gateway_model_too_long"
+	KeyGatewayModelInvalidChars  = "gateway_model_invalid_chars"
+	KeyGatewayModelPathTraversal = "gateway_model_path_traversal"
+
+	// G2a — upstream failures rendered without disclosing the backend
+	// address. The full detail goes to the server log instead; see
+	// internal/gateway/upstream_error.go.
+	KeyGatewayUpstreamUnavailable = "gateway_upstream_unavailable"
+	KeyGatewayUpstreamFailed      = "gateway_upstream_failed"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -157,6 +174,23 @@ var defaultEnglishMessages = map[string]string{
 	KeyGatewayConfigExportFailed:   "the configuration could not be produced: {{detail}}",
 	KeyGatewayConfigMergeFailed:    "the configuration could not be merged into your file: {{detail}}",
 	KeyGatewayConfigBodyUnreadable: "your configuration file could not be read: {{detail}}",
+
+	KeyGatewayMessagesEmpty: "messages must contain at least one message",
+	KeyGatewayMessageRoleMissing: "messages[{{index}}].role is required and " +
+		"must not be empty",
+	KeyGatewayMaxTokensTooSmall: "max_tokens must be {{min}} or greater, " +
+		"got {{value}}",
+	KeyGatewayModelTooLong: "model name is too long: at most {{max}} " +
+		"characters are allowed, got {{length}}",
+	KeyGatewayModelInvalidChars: "model name contains characters that are not " +
+		"allowed; use letters, digits, or any of {{allowed}}",
+	KeyGatewayModelPathTraversal: "model name must not contain a \".\" or " +
+		"\"..\" path segment",
+
+	KeyGatewayUpstreamUnavailable: "no model-serving backend is currently " +
+		"available to serve this request; retry shortly",
+	KeyGatewayUpstreamFailed: "the model provider failed to complete this " +
+		"request",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so
