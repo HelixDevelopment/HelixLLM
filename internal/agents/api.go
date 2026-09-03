@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
+	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 	"github.com/gin-gonic/gin"
 )
@@ -160,7 +161,13 @@ func agentChatHandler(agent *Agent, convCtx *ConversationContext, kvCache brain.
 		// Run the agent loop.
 		resp, err := agent.Run(c.Request.Context(), messages)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			// The agent loop wraps brain.Complete with %w, so this error
+			// carries the provider's own text — including the backend
+			// address when the provider was unreachable. It goes through
+			// the gateway's redaction funnel for the same reason
+			// /v1/chat/completions does: this route is served by the same
+			// engine, to the same unauthenticated caller.
+			gateway.WriteUpstreamError(c, "agent-chat", err)
 			return
 		}
 
@@ -222,7 +229,9 @@ func coordinateHandler(coord *Coordinator) gin.HandlerFunc {
 
 		result, err := coord.Execute(c.Request.Context(), req.Task)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			// Same reasoning as agentChatHandler: the coordinator plans via
+			// the brain, so this error can carry the provider's text.
+			gateway.WriteUpstreamError(c, "agent-coordinate", err)
 			return
 		}
 

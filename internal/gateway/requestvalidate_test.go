@@ -100,17 +100,28 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/gateway"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
 // internalAddressPattern matches the shapes an internal backend endpoint
-// takes in an error string: a host:port authority, a dial diagnostic, or a
-// bare loopback address. Any of them in a client-visible body is the
+// takes in an error string. Any of them in a client-visible body is the
 // disclosure this guard forbids.
+//
+// It deliberately reaches beyond the loopback address the original leak
+// happened to carry. A compose or Kubernetes deployment names its backend
+// by SERVICE hostname, so the realistic leak shape is
+// "llamacpp-backend:50052" or "backend.internal:8080" with no 127.0.0.1
+// and no "dial tcp" in sight — a partial redaction that stripped only the
+// literal loopback would otherwise sail past this guard.
 var internalAddressPattern = regexp.MustCompile(
-	`dial tcp|127\.0\.0\.1|\[::1\]|localhost:\d+|:\d{4,5}/v1`)
+	`dial tcp|connection refused|connect: |` + // transport diagnostics
+		`https?://|` + // any URL at all
+		`127\.0\.0\.1|\[::1\]|\b(?:\d{1,3}\.){3}\d{1,3}\b|` + // IP literals
+		`\b[a-zA-Z0-9][a-zA-Z0-9.-]*:\d{2,5}\b|` + // host:port authority
+		`\.internal\b|\.local\b|\.svc\b`) // cluster-internal suffixes
 
 // dialFailureCompleter is the production-shaped error source for the
 // disclosure half: a Completer that fails the way a real provider fails
@@ -237,6 +248,18 @@ func chatCases() []invalidCase {
 			param: "model",
 			cite:  "bank CH-SEC-007",
 		},
+		{
+			// One byte over the cap. Paired with
+			// "model_name_exactly_at_the_cap" in validRequests(), this pins
+			// the boundary from both sides so the ceiling cannot drift
+			// silently in either direction.
+			name: "model_name_one_over_the_cap",
+			body: `{"model":"` + strings.Repeat("m", 256) + `",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+			route: "/v1/chat/completions",
+			param: "model",
+			cite:  "modelNameMaxLen boundary",
+		},
 	}
 }
 
@@ -284,6 +307,20 @@ func messagesCases() []invalidCase {
 			param: "model",
 			cite:  "bank CH-REG-002 (same rule, sibling endpoint)",
 		},
+		{
+			// Anthropic, verbatim: "A `max_tokens: 0` request is rejected
+			// with an `invalid_request_error` if any of the following are
+			// set: `stream: true` ...". A zero token budget produces no
+			// stream, so the combination is nonsense even though each half
+			// is individually legal.
+			name:  "zero_max_tokens_with_stream",
+			route: "/v1/messages",
+			body: `{"model":"claude-sonnet-4-20250514",` +
+				`"messages":[{"role":"user","content":"Hi"}],` +
+				`"max_tokens":0,"stream":true}`,
+			param: "max_tokens",
+			cite:  "Anthropic prompt-caching: max_tokens 0 excludes stream:true",
+		},
 	}
 }
 
@@ -313,6 +350,7 @@ func assertRejected(t *testing.T, tc invalidCase, status int, body string) {
 			Message string  `json:"message"`
 			Type    string  `json:"type"`
 			Param   *string `json:"param"`
+			Code    *string `json:"code"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
@@ -330,6 +368,10 @@ func assertRejected(t *testing.T, tc invalidCase, status int, body string) {
 	}
 	if got.Error.Message == "" {
 		t.Errorf("%s %s: error.message is empty", tc.route, tc.name)
+	}
+	if got.Error.Code == nil || *got.Error.Code == "" {
+		t.Errorf("%s %s: error.code is absent; a client library switching on "+
+			"code sees nothing to switch on", tc.route, tc.name)
 	}
 	assertNoInternalAddress(t, tc.route+" "+tc.name, body)
 }
@@ -469,6 +511,60 @@ func validRequests() []struct {
 			body: `{"model":"totally-unknown-model-v9","messages":[{"role":"user","content":"Hi"}]}`,
 		},
 		{
+			// A Bedrock foundation-model ARN: colons, slashes, dots.
+			name:  "bedrock_arn_model_name",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"arn:aws:bedrock:us-east-1:123456789012:` +
+				`foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
+			name:  "vertex_publisher_path_model_name",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"publishers/google/models/gemini-1.5-pro",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
+			// A relative --model path is literally what llama.cpp and vLLM
+			// echo back; a bare "." segment must NOT be read as traversal.
+			name:  "relative_path_model_name",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"./models/Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
+			name:  "leading_slash_model_name",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"/models/mistral-7b.gguf",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
+			name:  "openai_finetune_model_name",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"ft:gpt-4o-2024-08-06:my-org:custom-suffix:AbC123",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
+			// The longest realistic identifier class: a HuggingFace triple
+			// of repo owner / repo name / GGUF filename. This one measures
+			// 145 bytes — it is the concrete case a 128-byte ceiling
+			// wrongly rejected, which is why the ceiling is 255.
+			name:  "long_hf_gguf_triple_model_name",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"mradermacher/DeepSeek-R1-Distill-Qwen-32B-Uncensored-` +
+				`abliterated-v2-i1-GGUF/DeepSeek-R1-Distill-Qwen-32B-Uncensored-` +
+				`abliterated-v2.i1-Q4_K_M.gguf",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
+			// Exactly at the cap. Its sibling at cap+1 is a rejection case
+			// in chatCases(), so the boundary is pinned from both sides.
+			name:  "model_name_exactly_at_the_cap",
+			route: "/v1/chat/completions", h: chat,
+			body: `{"model":"` + strings.Repeat("m", 255) + `",` +
+				`"messages":[{"role":"user","content":"Hi"}]}`,
+		},
+		{
 			name:  "chat_positive_max_tokens",
 			route: "/v1/chat/completions", h: chat,
 			body: `{"model":"llama-3.1-70b","messages":[{"role":"user","content":"Hi"}],` +
@@ -496,7 +592,9 @@ func validRequests() []struct {
 		},
 		{
 			// Anthropic documents max_tokens:0 as prompt-cache pre-warming.
-			// Rejecting it would break a documented Anthropic feature.
+			// Rejecting it would break a documented Anthropic feature. This
+			// is also the negative half of the zero_max_tokens_with_stream
+			// rejection: 0 alone is fine, 0 WITH stream is not.
 			name:  "messages_zero_max_tokens_is_legal",
 			route: "/v1/messages", h: msgs,
 			body: `{"model":"claude-sonnet-4-20250514",` +
@@ -579,7 +677,7 @@ func TestUpstreamError_DoesNotDiscloseInternalAddress(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, body := postRaw(t, tc.h, tc.route, tc.body)
+			status, body := postRaw(t, tc.h, tc.route, tc.body)
 			if redMode() {
 				if !internalAddressPattern.MatchString(body) {
 					t.Errorf("%s: the PRE-FIX artifact did not leak an address; "+
@@ -589,9 +687,32 @@ func TestUpstreamError_DoesNotDiscloseInternalAddress(t *testing.T) {
 				return
 			}
 			assertNoInternalAddress(t, tc.name, body)
-			if strings.TrimSpace(body) == "" {
-				t.Errorf("%s: client received an empty body; the caller must still "+
-					"be told the upstream failed, not merely told nothing", tc.name)
+			// Redaction must not become silence: the caller is still owed a
+			// truthful answer. dialFailureCompleter returns an ORDINARY
+			// provider fault (not an exhausted chain), so the honest status
+			// is 500 and the message must be the provider-failed text.
+			if status != http.StatusInternalServerError {
+				t.Errorf("%s: status = %d, want 500 — a provider that WAS reached "+
+					"and faulted is an internal error, not an availability condition",
+					tc.name, status)
+			}
+			var got struct {
+				Error struct {
+					Message string `json:"message"`
+					Type    string `json:"type"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(body), &got); err != nil {
+				t.Fatalf("%s: response is not an error envelope: %v\nbody: %s",
+					tc.name, err, body)
+			}
+			if got.Error.Type != "server_error" {
+				t.Errorf("%s: error.type = %q, want %q",
+					tc.name, got.Error.Type, "server_error")
+			}
+			if strings.TrimSpace(got.Error.Message) == "" {
+				t.Errorf("%s: error.message is empty; the caller must still be told "+
+					"the upstream failed, not merely told nothing", tc.name)
 			}
 		})
 	}
@@ -613,5 +734,73 @@ func TestUpstreamError_DetailIsPreservedForTheOperator(t *testing.T) {
 	}
 	if !strings.Contains(logged, "connection refused") {
 		t.Errorf("operator-facing detail lost the cause: %q", logged)
+	}
+}
+
+// TestUpstreamError_WebSocketDoesNotDiscloseInternalAddress guards the sixth
+// error site, which the five HTTP cases above cannot reach.
+//
+// This was historically the WORST of the six: the WebSocket frame carried
+// err.Error() verbatim with no redaction AND no translation, so a WS client
+// received the backend address in the clearest possible form. Measured
+// against the pre-fix server:
+//
+//	pre-fix -> {"error":"all providers exhausted, last error: llamacpp: send
+//	            request: Post \"http://localhost:50052/v1/chat/completions\":
+//	            dial tcp 127.0.0.1:50052: connect: connection refused"}
+//	fixed   -> {"error":"no model-serving backend is currently available to
+//	            serve this request; retry shortly"}
+//
+// Unlike the HTTP sites it drives a REAL gorilla WebSocket over a real
+// httptest server, because the redaction happens on the frame-write path
+// rather than through gin's renderer and a handler-level test would not
+// exercise it.
+func TestUpstreamError_WebSocketDoesNotDiscloseInternalAddress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/ws", gateway.HandleWebSocket(dialFailureCompleter{}))
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial(
+		"ws"+strings.TrimPrefix(srv.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	req := `{"model":"llama-3.1-70b","messages":[{"role":"user","content":"Hi"}]}`
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(req)); err != nil {
+		t.Fatalf("write frame: %v", err)
+	}
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	frame := string(raw)
+
+	if redMode() {
+		if !internalAddressPattern.MatchString(frame) {
+			t.Errorf("the PRE-FIX artifact did not leak an address on the "+
+				"WebSocket path; the reproduction is not reproducing anything\nframe: %s",
+				frame)
+		}
+		return
+	}
+
+	assertNoInternalAddress(t, "GET /ws", frame)
+
+	var got map[string]string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("frame is not a JSON object: %v\nframe: %s", err, frame)
+	}
+	// Redaction must not become silence here either: the client is still
+	// owed the truthful "the provider failed" answer, and it must be the
+	// TRANSLATED text rather than a raw Go error — the WS path had no
+	// translation at all before this change.
+	want := gateway.UpstreamErrorClientText("en", errDialFailure)
+	if got["error"] != want {
+		t.Errorf("frame error = %q, want the translated upstream message %q",
+			got["error"], want)
 	}
 }

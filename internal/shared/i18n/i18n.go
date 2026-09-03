@@ -102,6 +102,9 @@ const (
 	KeyGatewayModelTooLong       = "gateway_model_too_long"
 	KeyGatewayModelInvalidChars  = "gateway_model_invalid_chars"
 	KeyGatewayModelPathTraversal = "gateway_model_path_traversal"
+	// Anthropic rejects max_tokens:0 together with stream:true — the
+	// zero-budget prompt-cache pre-warm cannot produce a stream.
+	KeyGatewayMaxTokensZeroWithStream = "gateway_max_tokens_zero_with_stream"
 
 	// G2a — upstream failures rendered without disclosing the backend
 	// address. The full detail goes to the server log instead; see
@@ -184,8 +187,10 @@ var defaultEnglishMessages = map[string]string{
 		"characters are allowed, got {{length}}",
 	KeyGatewayModelInvalidChars: "model name contains characters that are not " +
 		"allowed; use letters, digits, or any of {{allowed}}",
-	KeyGatewayModelPathTraversal: "model name must not contain a \".\" or " +
-		"\"..\" path segment",
+	KeyGatewayModelPathTraversal: "model name must not contain a \"..\" " +
+		"path segment",
+	KeyGatewayMaxTokensZeroWithStream: "a streaming request needs a positive " +
+		"max_tokens; a zero or absent token budget produces no stream to send",
 
 	KeyGatewayUpstreamUnavailable: "no model-serving backend is currently " +
 		"available to serve this request; retry shortly",

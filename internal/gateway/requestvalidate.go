@@ -84,20 +84,36 @@ import (
 //     by middleware.APIKeyAuth. A malformed request and an unauthenticated
 //     one are different answers with different status codes, and this file
 //     never reads the Authorization header so it cannot collapse them.
+//   - The non-`stream` arms of Anthropic's `max_tokens: 0` exclusion list
+//     (extended thinking, structured outputs, `tool_choice` of type `tool`
+//     or `any`). api.MessageRequest models none of the first two, and
+//     `tool_choice` is an untyped interface{} this layer does not inspect.
+//     Enforcing them means widening the wire type first.
+//   - The WebSocket request body. It carries the INTERNAL type
+//     (types.InternalChatRequest), not an OpenAI wire type, and no bank
+//     speaks for it. Its DISCLOSURE defect is fixed (see upstream_error.go);
+//     its validation is not, so a WS frame with empty messages still
+//     receives the exhausted-chain answer.
 
 const (
-	// modelNameMaxLen bounds a model identifier. The longest identifier
-	// this project's own configuration uses is 44 characters
-	// ("meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"); bank CH-REG-010
-	// requires a 330-character name to be rejected. 128 sits well clear of
-	// every real identifier — including a fully qualified
-	// registry/org/name:tag — and well below the case that must fail.
+	// modelNameMaxLen bounds a model identifier. Bank CH-REG-010 requires a
+	// 330-character name to be rejected; everything a real client sends
+	// must fit.
+	//
+	// The ceiling is 255 rather than something tighter because path-style
+	// identifiers are longer than they look. A HuggingFace `repo_id` may
+	// itself be 96 characters, and llama.cpp / LM Studio / vLLM clients
+	// echo `owner/repo/file.gguf` triples or a resolved cache-snapshot
+	// path: measured real examples reach 113, 122, and 138 characters. A
+	// 128-byte ceiling would have rejected all three, and a length-based
+	// rejection of a legitimate identifier is exactly the over-rejection
+	// this policy refuses.
 	//
 	// Measured in BYTES. The charset below admits only ASCII, so for any
 	// name that could pass, bytes and characters are the same count; a
 	// multi-byte name is rejected either way, only with a different reason
 	// depending on which check trips first.
-	modelNameMaxLen = 128
+	modelNameMaxLen = 255
 
 	// modelNameExtraChars are the non-alphanumeric characters that appear
 	// in real model identifiers across the providers this gateway fronts:
@@ -132,10 +148,10 @@ type requestDefect struct {
 // OpenAI error codes reused verbatim so a client library that switches on
 // `error.code` sees the vocabulary it already knows.
 const (
-	codeEmptyArray          = "empty_array"
-	codeInvalidValue        = "invalid_value"
-	codeStringAboveMaxLen   = "string_above_max_length"
-	codeMissingRequiredParm = "missing_required_parameter"
+	codeEmptyArray           = "empty_array"
+	codeInvalidValue         = "invalid_value"
+	codeStringAboveMaxLen    = "string_above_max_length"
+	codeMissingRequiredParam = "missing_required_parameter"
 )
 
 // write renders the defect as an OpenAI-shaped 400.
@@ -182,11 +198,17 @@ func validateModelName(model string) *requestDefect {
 			}
 		}
 	}
-	// Path traversal. Checked per segment rather than by substring so that
-	// a legitimate org/repo identifier keeps its slashes and only a "." or
-	// ".." SEGMENT is refused.
+	// Path traversal. Checked per segment rather than by substring so a
+	// legitimate org/repo identifier keeps its slashes, and only a ".."
+	// SEGMENT is refused.
+	//
+	// A bare "." segment is deliberately ALLOWED: "./models/foo.gguf" is
+	// literally what llama.cpp and vLLM echo back when launched with a
+	// relative --model path, and CH-SEC-007 only requires ".." to be
+	// refused. Refusing "." as well would reject a real identifier for no
+	// security gain — ".." is what escapes a directory, "." does not.
 	for _, seg := range strings.Split(model, "/") {
-		if seg == "." || seg == ".." {
+		if seg == ".." {
 			return &requestDefect{
 				msgKey: i18n.KeyGatewayModelPathTraversal,
 				param:  "model",
@@ -227,7 +249,7 @@ func validateMessageRoles(roles []string) *requestDefect {
 			msgKey: i18n.KeyGatewayMessageRoleMissing,
 			args:   map[string]string{"index": strconv.Itoa(i)},
 			param:  "messages[" + strconv.Itoa(i) + "].role",
-			code:   codeMissingRequiredParm,
+			code:   codeMissingRequiredParam,
 		}
 	}
 	return nil
@@ -290,8 +312,37 @@ func validateMessageRequest(req *api.MessageRequest) *requestDefect {
 	if d := validateMessageRoles(roles); d != nil {
 		return d
 	}
+	// Anthropic rejects a zero token budget COMBINED with streaming. From
+	// the prompt-caching reference, verbatim: "A `max_tokens: 0` request is
+	// rejected with an `invalid_request_error` if any of the following are
+	// set: `stream: true`, Extended thinking …, Structured outputs …,
+	// `tool_choice` of `{"type": "tool", ...}` or `{"type": "any"}`."
+	// Each implies output a zero-token budget cannot produce.
+	//
+	// Only the `stream` arm is enforced here: it is the one this gateway's
+	// wire type models directly. Extended thinking and structured outputs
+	// have no field on api.MessageRequest at all, and `tool_choice` is an
+	// untyped interface{} whose shape this layer does not otherwise
+	// inspect — see the non-coverage note in the file header.
+	//
 	// MaxTokens is a non-pointer int on MessageRequest, so an omitted field
-	// is indistinguishable from 0 — and 0 is legal here, so only an
-	// explicitly negative value can be a defect.
+	// is indistinguishable from an explicit 0. The STATUS is right for both
+	// readings — a missing max_tokens is invalid at the vendor too, the
+	// field being required — so the MESSAGE is worded to cover both rather
+	// than accusing a caller who simply forgot the field of having set it
+	// to zero.
+	//
+	// The asymmetry this leaves is deliberate and bounded: an omitted
+	// max_tokens is still ACCEPTED on a non-streaming request, because
+	// there 0 is a legal value (prompt-cache pre-warm) and rejecting it
+	// would break a documented feature. Telling the two apart needs the
+	// field to become a *int, a wire-type change wider than this fix.
+	if req.MaxTokens == 0 && req.Stream {
+		return &requestDefect{
+			msgKey: i18n.KeyGatewayMaxTokensZeroWithStream,
+			param:  "max_tokens",
+			code:   codeInvalidValue,
+		}
+	}
 	return validateMaxTokens(&req.MaxTokens, 0)
 }

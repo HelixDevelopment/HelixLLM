@@ -76,6 +76,25 @@ func upstreamErrorTextForLang(lang string, err error) string {
 	return gatewayTranslator.T(lang, upstreamErrorMessageKey(err), nil)
 }
 
+// UpstreamErrorClientText is the exported view of the client-safe message,
+// so the WebSocket guard can assert the frame carries the TRANSLATED text
+// rather than merely "something without an address in it". Without it the
+// guard would pass on a frame that had been silenced instead of redacted.
+func UpstreamErrorClientText(lang string, err error) string {
+	return upstreamErrorTextForLang(lang, err)
+}
+
+// WriteUpstreamError is the exported funnel, for brain-backed routes that
+// live OUTSIDE this package but on the SAME server — /v1/agents/chat and
+// /v1/agents/coordinate run the agent loop over the same brain, wrap its
+// error with %w, and used to hand the result to the client verbatim. A
+// sibling route leaking the address the gateway just stopped leaking would
+// make the fix cosmetic, so they share this funnel rather than growing a
+// second, drifting copy of the same policy.
+func WriteUpstreamError(c *gin.Context, stage string, err error) {
+	writeUpstreamError(c, stage, err)
+}
+
 // writeUpstreamError answers a Completer failure: the truthful status, a
 // client-safe message, and the full detail in the server log.
 //
