@@ -74,6 +74,12 @@ const (
 	KeyGatewayNoBackendModels        = "gateway_no_backend_models"
 	KeyGatewayNoBackendModelNotFound = "gateway_no_backend_model_not_found"
 
+	// A backend IS configured here, it is simply serving nothing right now --
+	// a different situation from having no backend at all, and one the caller
+	// acts on differently: wait or start a model, rather than configure a
+	// server. Without its own reason the two collapse into one empty list.
+	KeyGatewayNoModelsServed = "gateway_no_models_served"
+
 	// FR-018 — the consumer-configuration endpoints (/v1/config/:consumer).
 	// These say WHY a configuration cannot be produced, so a user can tell
 	// "this server serves nothing" from "you have to name which host" from
@@ -137,6 +143,8 @@ var defaultEnglishMessages = map[string]string{
 
 	KeyGatewayNoBackendModels: "no model-serving backend is configured on this server, " +
 		"so no models are being served",
+	KeyGatewayNoModelsServed: "a model-serving backend is configured but is currently " +
+		"serving no models",
 	KeyGatewayNoBackendModelNotFound: "model {{model}} not found: no model-serving backend " +
 		"is configured on this server, so no models are being served",
 

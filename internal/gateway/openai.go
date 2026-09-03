@@ -534,10 +534,16 @@ func HandleCompletions(b Completer) gin.HandlerFunc {
 func HandleListModels(b *brain.Brain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if b != nil {
-			c.JSON(http.StatusOK, api.ModelList{
-				Object: "list",
-				Data:   b.Models(),
-			})
+			models := b.Models()
+			list := api.ModelList{Object: "list", Data: models}
+			if len(models) == 0 {
+				// The reason travels WITH the empty list, per the contract on
+				// api.ModelList.Reason. A configured backend serving nothing
+				// is a different answer from no backend at all, and the caller
+				// does something different about each.
+				list.Reason = tr(c, i18n.KeyGatewayNoModelsServed)
+			}
+			c.JSON(http.StatusOK, list)
 			return
 		}
 		c.JSON(http.StatusOK, api.ModelList{
@@ -712,7 +718,7 @@ func openAIToInternal(req *api.ChatCompletionRequest) *types.InternalChatRequest
 	// Sliding window: keep first message (system) + last N messages
 	input := req.Messages
 	if len(input) > maxMessages {
-		first := input[0]              // system prompt
+		first := input[0]                        // system prompt
 		tail := input[len(input)-maxMessages+1:] // last N-1 messages
 		input = append([]api.ChatMessage{first}, tail...)
 	}

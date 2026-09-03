@@ -369,7 +369,13 @@ func (b *Brain) Models() []api.Model {
 // them WITH their withheld reason, so a consumer that wants to distinguish "not
 // served right now" from "does not exist" can.
 func modelsFromOptions(opts []ModelOption) []api.Model {
-	var models []api.Model
+	// Non-nil from the start. A nil slice marshals as `null`, and a listing
+	// that says `"data": null` reads as a malformed body rather than as a
+	// listing stating that nothing is served -- the exact distinction
+	// HandleListModels documents one branch away. Every option here being
+	// unavailable is an ordinary state, not an error, and it must render as
+	// the empty list it is.
+	models := []api.Model{}
 	for _, opt := range opts {
 		if !opt.Available {
 			continue
