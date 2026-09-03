@@ -274,3 +274,88 @@ There is no default model anywhere in this path — not in configuration, not co
 A model that was not chosen from a measurement may not fit the machine it is started on. Starting
 one would replace an honest refusal you can act on with a load-time failure you cannot. So every
 failure path here refuses, names what is missing, and exits non-zero.
+
+---
+
+## The model identifier I saved has stopped working
+
+Identifiers for locally served models changed once, and only once.
+
+They used to be built from the address the gateway saw itself on, which for the
+embedded server is `127.0.0.1`. So the published identifier looked like
+`helixllm-127-0-0-1-llama3-<digest>`. That named no machine — and worse, it was
+the *same* on every machine, so two hosts published byte-identical identifiers
+and a consumer merging both catalogues silently kept one and dropped the other.
+
+The host part is now the machine's own name, so the identifier reads
+`helixllm-anton-llama3-<digest>` and says where the model actually is.
+
+Re-run discovery, or fetch the configuration again from
+`/v1/config/helixcode` or `/v1/config/opencode`, and use what comes back.
+
+This will not happen again for this reason. Both spellings of loopback now
+resolve to the same machine name, where previously flipping
+`HELIX_LLM_LOCAL_RPC_HOST` between `localhost` and `127.0.0.1` silently re-minted
+every identifier. The naming *scheme* did not change — only the host value fed
+into it.
+
+---
+
+## I asked for one model and got an error instead of a different model
+
+That is deliberate, and it is new.
+
+Naming a model is a choice, not a hint. If you name a model this server serves
+and it cannot be served right now, you get an error saying so. You do not get a
+different model answering in its place.
+
+Previously the request fell through to whichever provider scored highest, which
+meant the substitution happened *exactly* when the thing you named was gone —
+the worst possible moment to quietly answer with something else, because the
+reply looked normal and nothing told you the model had changed.
+
+This applies to any named model, not only to published identifiers. A request
+naming `gpt-4o` with an OpenAI provider registered no longer cross-falls-back to
+another provider when that one fails.
+
+If you want *any* available model, name none.
+
+---
+
+## The server will not start and says a credential is a placeholder
+
+The value in your configuration is still `${SOMETHING}` because nothing
+substituted it — the variable is unset, or misspelled, or the expansion step did
+not run.
+
+The error names both the field and the variable. Export the variable and start
+again.
+
+The server refuses rather than continuing, because continuing was worse. The
+literal text `${HELIX_AUTH_JWT_SECRET}` would otherwise have been used *as* the
+signing key: a fixed string, committed to a public repository, that anyone
+reading it already knows. Every token would have verified, every health check
+would have passed, and nothing would have looked wrong.
+
+An unset secret is now a refusal you can act on in one command, instead of a
+silent, shared password.
+
+---
+
+## An instance I discovered stopped answering after it restarted
+
+Requests go to the address that proved it holds the shared secret — not to the
+name you configured, resolved again at send time.
+
+That is what stops a relay attack. An attacker who controls a DNS answer between
+the moment we authenticate an instance and the moment we send it your prompt
+could otherwise point the second lookup at a host of their choosing, and it
+would receive your prompt, the contents of files you have open, and your
+upstream credentials.
+
+The cost is this: if an instance legitimately changes address — a DHCP lease
+expiring, a container restarting — it will not be reached until it is discovered
+again. Re-run discovery and it comes back.
+
+Refusing to send is the safe failure here. Re-resolving the name is precisely
+the hole.
