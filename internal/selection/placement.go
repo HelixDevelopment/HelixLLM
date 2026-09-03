@@ -282,6 +282,30 @@ type Commitment struct {
 	StorageBytes capability.Bytes
 	// Placements is how many standing placements make up the totals above.
 	Placements int
+	// Devices is what each accelerator owes, ordered by device identity.
+	//
+	// Device memory is accounted SEPARATELY from host memory and cannot be
+	// folded into it: a model that mandates a card consumes that card's memory,
+	// and a host with 200 GiB of RAM free has none of it to give a full 24 GiB
+	// GPU. Without this dimension a second placement is weighed against a card
+	// the first one already filled — the same over-commitment [Fleet] exists to
+	// prevent, reached one axis over.
+	//
+	// Empty for a host nothing device-bound stands on.
+	Devices []DeviceCommitment
+}
+
+// DeviceCommitment is what one accelerator owes to placements standing on it.
+//
+// The device is named by its STABLE identity, never by its position in the
+// host's enumeration: the ledger outlives reboots, driver reloads and added
+// cards, all of which reorder that enumeration, and a debit that followed a
+// position would after any of them be charged to a different physical device
+// (§11.4.111).
+type DeviceCommitment struct {
+	Device      capability.DeviceIdentity
+	MemoryBytes capability.Bytes
+	Placements  int
 }
 
 // FleetOptions configures a Fleet.
@@ -331,7 +355,12 @@ type Fleet struct {
 	hosts map[string]Host
 	order []string
 
-	committed  map[string]Commitment
+	committed map[string]Commitment
+	// devices is the per-accelerator ledger, keyed host → device identity. It
+	// is held apart from committed because a Commitment is handed OUT by value
+	// and a map inside it would be shared with the caller; this way the public
+	// value carries a freshly built, immutable slice.
+	devices    map[string]map[capability.DeviceIdentity]deviceCommit
 	placements map[PlacementID]placementRecord
 	nextID     uint64
 
@@ -340,11 +369,24 @@ type Fleet struct {
 	maxProfileAge time.Duration
 }
 
+// deviceCommit is one accelerator's line in the ledger.
+type deviceCommit struct {
+	memory     capability.Bytes
+	placements int
+}
+
 // placementRecord is what has to be known to give capacity back.
+//
+// The device is recorded alongside the amount because releasing needs to credit
+// the SAME card that was debited. Re-deriving it at release time from the
+// current measurement would credit whichever card has most memory free THEN,
+// which after any other placement is a different card.
 type placementRecord struct {
 	hostIdentity string
 	memory       capability.Bytes
 	storage      capability.Bytes
+	device       capability.DeviceIdentity
+	deviceMemory capability.Bytes
 }
 
 // NewFleet builds a ledger over hosts.
@@ -362,6 +404,7 @@ func NewFleet(opts FleetOptions) (*Fleet, error) {
 		hosts:         make(map[string]Host, len(opts.Hosts)),
 		order:         make([]string, 0, len(opts.Hosts)),
 		committed:     make(map[string]Commitment, len(opts.Hosts)),
+		devices:       make(map[string]map[capability.DeviceIdentity]deviceCommit, len(opts.Hosts)),
 		placements:    make(map[PlacementID]placementRecord),
 		reserve:       reserve,
 		healthTTL:     ttl,
@@ -397,7 +440,31 @@ func (f *Fleet) Hosts() []string {
 func (f *Fleet) Commitment(hostIdentity string) Commitment {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.committed[hostIdentity]
+
+	c := f.committed[hostIdentity]
+	c.Devices = f.deviceCommitments(hostIdentity)
+	return c
+}
+
+// deviceCommitments renders a host's per-device ledger as a stable, freshly
+// allocated slice — ordered by identity so two readings of one ledger compare
+// equal, and copied so a caller holding it cannot reach back into the fleet.
+// Callers hold f.mu.
+func (f *Fleet) deviceCommitments(hostIdentity string) []DeviceCommitment {
+	owed := f.devices[hostIdentity]
+	if len(owed) == 0 {
+		return nil
+	}
+	out := make([]DeviceCommitment, 0, len(owed))
+	for id, d := range owed {
+		out = append(out, DeviceCommitment{
+			Device:      id,
+			MemoryBytes: d.memory,
+			Placements:  d.placements,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Device < out[j].Device })
+	return out
 }
 
 // Available is what a host is offered NEXT: its measurement with everything
@@ -428,6 +495,19 @@ func (f *Fleet) effective(h Host) capability.HostCapabilityProfile {
 	c := f.committed[h.Profile.HostIdentity]
 	p.MemoryAvailable = subtract(p.MemoryAvailable, c.MemoryBytes)
 	p.StorageAvailable = subtract(p.StorageAvailable, c.StorageBytes)
+
+	// Each accelerator is drawn down by what stands on IT, matched by identity.
+	// cloneProfile has already copied the slice, so the measured reading the
+	// fleet was built from is untouched. A committed identity that is no longer
+	// among the measured devices simply matches nothing — the card is gone, and
+	// so is the capacity it was lent.
+	if owed := f.devices[h.Profile.HostIdentity]; len(owed) > 0 {
+		for i := range p.Accelerators {
+			if d, standing := owed[p.Accelerators[i].Identity]; standing {
+				p.Accelerators[i].MemoryAvailable = subtract(p.Accelerators[i].MemoryAvailable, d.memory)
+			}
+		}
+	}
 	return p
 }
 
@@ -643,10 +723,34 @@ func (f *Fleet) commit(hostIdentity string, e catalogue.Entry, option Option, no
 	c.Placements++
 	f.committed[hostIdentity] = c
 
+	// The device this placement takes, and how much of it. The identity is the
+	// one the OFFER was weighed against — read from the headroom rather than
+	// re-derived — so the card that was judged able to hold the model is the
+	// card that is charged for it. For an accelerator-required entry the
+	// catalogue's memory figure IS the device-memory requirement, which is why
+	// the same number is debited on both axes: the model occupies that much of
+	// the card AND that much of the host while it serves.
+	device := option.Headroom.AcceleratorDevice
+	var deviceMemory capability.Bytes
+	if device != "" {
+		deviceMemory = memory
+		owed := f.devices[hostIdentity]
+		if owed == nil {
+			owed = make(map[capability.DeviceIdentity]deviceCommit, 1)
+			f.devices[hostIdentity] = owed
+		}
+		d := owed[device]
+		d.memory += deviceMemory
+		d.placements++
+		owed[device] = d
+	}
+
 	f.placements[id] = placementRecord{
 		hostIdentity: hostIdentity,
 		memory:       memory,
 		storage:      storage,
+		device:       device,
+		deviceMemory: deviceMemory,
 	}
 
 	h := f.hosts[hostIdentity]
@@ -684,6 +788,27 @@ func (f *Fleet) Release(id PlacementID) bool {
 		c.Placements--
 	}
 	f.committed[record.hostIdentity] = c
+
+	// Credit the SAME card that was debited, and drop its line once nothing
+	// stands on it — a device left in the ledger owing zero would report as a
+	// commitment that is not one.
+	if record.device != "" {
+		if owed := f.devices[record.hostIdentity]; owed != nil {
+			d := owed[record.device]
+			d.memory = subtract(d.memory, record.deviceMemory)
+			if d.placements > 0 {
+				d.placements--
+			}
+			if d.placements == 0 && d.memory == 0 {
+				delete(owed, record.device)
+				if len(owed) == 0 {
+					delete(f.devices, record.hostIdentity)
+				}
+			} else {
+				owed[record.device] = d
+			}
+		}
+	}
 	return true
 }
 

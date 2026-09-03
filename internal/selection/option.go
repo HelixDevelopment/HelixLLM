@@ -3,6 +3,7 @@ package selection
 import (
 	"time"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/capability"
 	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
 )
 
@@ -113,6 +114,24 @@ type Headroom struct {
 	// MemoryRemainingFraction is MemoryRemainingBytes over the host's nameplate
 	// total — the figure SC-003's threshold is expressed against.
 	MemoryRemainingFraction float64
+
+	// AcceleratorDevice is the STABLE identity of the device this offer was
+	// weighed against, empty when the option needs no device.
+	//
+	// A model loads onto ONE device, and which one is a decision — the card
+	// with the most memory free (see servingDevice). Recording it here is what
+	// lets a later step act on the SAME device this offer was judged for
+	// rather than re-deriving the choice and possibly landing elsewhere.
+	// [Fleet] needs exactly that: to draw down the card a placement took, it
+	// has to know which card that was.
+	//
+	// It is an identity and never an enumeration position, so a commitment
+	// made against it still names the same physical device after a reboot,
+	// a driver reload, or a second card being fitted (§11.4.111).
+	AcceleratorDevice capability.DeviceIdentity
+	// AcceleratorRemainingBytes is what that device has left while this option
+	// serves — the device-axis counterpart of MemoryRemainingBytes.
+	AcceleratorRemainingBytes uint64
 }
 
 // Option is a runnable choice on one measured host.

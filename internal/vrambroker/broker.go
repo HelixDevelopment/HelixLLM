@@ -201,6 +201,29 @@ func (b *broker) Acquire(ctx context.Context, class Class, needBytes int64) (*Le
 	return lease, nil
 }
 
+// Admits reports whether a request for needBytes would be admitted against
+// free bytes of measured device memory, under this package's headroom.
+//
+// It exists so a caller that has to AGREE with the admission gate can ask the
+// gate rather than restate its arithmetic. Selection is the caller that has to:
+// it decides what to OFFER, and an offer the gate will refuse is worse for the
+// user than no offer at all. A reimplementation of "free >= need + 2 GiB"
+// somewhere else is the same decision written twice, and the second copy stops
+// tracking the first the moment either moves.
+//
+// It is the decision Acquire makes, on the same terms: every broker in
+// existence carries HeadroomBytes (no option sets another), so this answers for
+// all of them. The agreement is asserted, not assumed — see the test that
+// drives Acquire and Admits across the same boundary.
+//
+// It is only the BUDGET half of admission. Acquire additionally enforces
+// single-owner burst classes and the thermal gate, and reads the live card
+// rather than being told a figure; a true from here is not a promise that
+// Acquire will grant.
+func Admits(free, needBytes int64) bool {
+	return admit(free, needBytes, HeadroomBytes)
+}
+
 // admit is the pure admission decision and the anti-bluff core of the broker: a
 // request is admitted ONLY when the measured free VRAM covers the declared need
 // PLUS the safety headroom. Fail-closed. This is the function the §1.1 paired

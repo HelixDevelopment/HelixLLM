@@ -198,11 +198,21 @@ func fits(p capability.HostCapabilityProfile, e catalogue.Entry, r Reserve) (Hea
 	// that runs on the processor is not made infeasible by a small card, and an
 	// entry that mandates one has already been shown a device exists: supports()
 	// runs before this and refuses the no-device host for configuration.
+	//
+	// Which device answered is carried out on the headroom. The choice is made
+	// once, here, and a caller that has to act on the same card — draw its
+	// memory down, admit against it — reads the identity rather than repeating
+	// the choice and risking a different answer.
+	var servingIdentity capability.DeviceIdentity
+	var acceleratorRemaining uint64
 	if e.RequiresAccelerator {
 		if device, measured := servingDevice(p.Accelerators); measured {
-			if s, isShort := acceleratorAxis(device, e, r).short(); isShort {
+			ax := acceleratorAxis(device, e, r)
+			if s, isShort := ax.short(); isShort {
 				return Headroom{}, &s
 			}
+			servingIdentity = device.Identity
+			acceleratorRemaining = ax.remaining()
 		}
 	}
 	if s, isShort := store.short(); isShort {
@@ -211,8 +221,10 @@ func fits(p capability.HostCapabilityProfile, e catalogue.Entry, r Reserve) (Hea
 
 	memRemaining := mem.remaining()
 	headroom := Headroom{
-		MemoryRemainingBytes:  memRemaining,
-		StorageRemainingBytes: store.remaining(),
+		MemoryRemainingBytes:      memRemaining,
+		StorageRemainingBytes:     store.remaining(),
+		AcceleratorDevice:         servingIdentity,
+		AcceleratorRemainingBytes: acceleratorRemaining,
 	}
 	if p.MemoryTotal > 0 {
 		headroom.MemoryRemainingFraction = float64(memRemaining) / float64(p.MemoryTotal)

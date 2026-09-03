@@ -34,6 +34,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/capability"
 	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
+	"github.com/HelixDevelopment/HelixLLM/internal/runtime"
 	"github.com/HelixDevelopment/HelixLLM/internal/selection"
 )
 
@@ -211,6 +212,11 @@ func decide(
 		Pin:           pin,
 		Now:           time.Now().UTC(),
 		MaxProfileAge: policy.MaxAge,
+		// The device-memory margin is the ADMISSION GATE's, and this binary
+		// is where the two meet: it selects here and admits through
+		// vrambroker below. Stating the gate's margin to selection is what
+		// stops this binary offering a model it will then refuse to start.
+		Reserve: runtime.SelectionReserve(),
 	})
 	if err != nil {
 		return nil, loaded, profile, purpose, refusalError(result, err)
