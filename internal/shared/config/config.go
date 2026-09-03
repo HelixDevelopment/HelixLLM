@@ -208,6 +208,13 @@ func (c *HelixConfig) Validate() error {
 	if err := checkNoUnexpandedPlaceholders(c); err != nil {
 		return err
 	}
+	// Same reasoning one step further: a credential that was supplied but is
+	// blank opens the feature's gate while carrying nothing, which is worse
+	// than a placeholder because it looks deliberate. See requiredsecret.go
+	// for which fields this covers and why absence stays legitimate.
+	if err := checkNoBlankSecrets(c); err != nil {
+		return err
+	}
 	validModes := map[string]bool{
 		"full": true, "gateway": true, "brain": true,
 		"knowledge": true, "agents": true, "control": true,

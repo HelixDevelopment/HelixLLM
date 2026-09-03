@@ -139,6 +139,15 @@ func loadFromFile(path string) (*HelixConfig, error) {
 	if err := checkNoUnexpandedPlaceholders(cfg); err != nil {
 		return nil, fmt.Errorf("config file %s: %w", path, err)
 	}
+	// A live reload must not be able to install a blank signing key or a blank
+	// API-key list either — that would swap a working credential for one that
+	// silently locks every client out. Same scope choice as above: only the
+	// credential rules run here, not full Validate(), so the partial configs this
+	// path has always accepted keep loading. (NOTE: NewConfigWatcher currently has
+	// no production caller — only tests — so this guard is precautionary today.)
+	if err := checkNoBlankSecrets(cfg); err != nil {
+		return nil, fmt.Errorf("config file %s: %w", path, err)
+	}
 	return cfg, nil
 }
 
