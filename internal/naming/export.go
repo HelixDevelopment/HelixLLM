@@ -37,6 +37,18 @@ var (
 	// a managed value outside the managed block, where a merge could neither
 	// win nor lose predictably.
 	ErrForeignAssignment = errors.New("naming: configuration already sets this value elsewhere")
+
+	// ErrNothingServable reports an export that describes an instance offering
+	// models of which NONE can be served right now — every option withheld,
+	// each with its reason.
+	//
+	// It is distinct from an instance offering nothing at all. That one has no
+	// offers, so it has no withheld reasons either, and a configuration naming
+	// no model is a true statement about it. This one HAS offers and cannot
+	// currently describe any of them, which is an absence of information rather
+	// than information about an absence — and the two are indistinguishable
+	// once written into a consumer's file.
+	ErrNothingServable = errors.New("naming: instance is serving none of the models it offers")
 )
 
 // Withheld reasons published when an option is not exported as usable.

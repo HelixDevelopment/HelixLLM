@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -202,10 +203,43 @@ func openCodeBaseURL(raw string) string {
 // that stopped being offered must disappear, and a field-wise merge would leave
 // it behind. Re-running is a no-op (contract invariant 3).
 //
+// WHAT "WHOLESALE" COSTS, AND THE ONE CASE IT IS REFUSED IN.
+//
+// That replacement is scoped to OUR key: the operator's own providers and every
+// other top-level field survive it. But within our key it is total, and an
+// export produced while the backend was LOADING carries `models: {}` — so a
+// merge run during a restart used to answer 200 with the user's working entry
+// replaced by an empty one. Their models stopped appearing in OpenCode's picker
+// and nothing in the returned document said why.
+//
+// The replacement rule assumed withheld meant WITHDRAWN. Since withheld options
+// carry a reason, that assumption is no longer necessary: an export that can
+// name nothing servable while holding reasons for every absence is refused with
+// [ErrNothingServable] rather than written. It is not a description of the
+// instance's models — it is the export saying it cannot describe them yet.
+//
+// An instance that genuinely offers nothing still converges. It has no offers,
+// therefore no withheld reasons, therefore does not meet this condition: the
+// empty entry merges through and clears whatever was there. The refusal costs a
+// retry and only in the state where proceeding costs the user their entry.
+//
+// The narrower case — SOME options servable, others withheld — is deliberately
+// left as it was. Replacement there still drops the withheld ones, so a user
+// mid-restart can temporarily lose the options that have not come back. That is
+// a degraded entry rather than an unusable one, and separating a transient
+// withholding from a permanent one would need a reason taxonomy this package
+// does not have: [withheldReason] passes an instance's or an offer's own reason
+// string through untouched, so the set is open. Guessing which reasons are
+// temporary is the kind of invention that put the empty document here.
+//
 // It returns the merged document; it never writes to the user's file (FR-018).
 func MergeOpenCode(existing []byte, cfg OpenCodeConfig) ([]byte, error) {
 	if cfg.ProviderID == "" {
 		return nil, fmt.Errorf("%w: configuration names no provider", ErrMalformed)
+	}
+	if len(cfg.Models) == 0 && len(cfg.Withheld) > 0 {
+		return nil, fmt.Errorf("%w: %d offered, none servable (%s)",
+			ErrNothingServable, len(cfg.Withheld), WithheldReasons(cfg.Withheld))
 	}
 
 	root := map[string]json.RawMessage{}
@@ -245,4 +279,29 @@ func MergeOpenCode(existing []byte, cfg OpenCodeConfig) ([]byte, error) {
 		return nil, fmt.Errorf("naming: rendering merged configuration: %w", err)
 	}
 	return append(out, '\n'), nil
+}
+
+// WithheldReasons is the distinct reasons in a withheld set, sorted and
+// comma-joined, for a caller that has to SAY why nothing could be exported.
+//
+// Distinct rather than one-per-option because the reason is the actionable
+// part: five options withheld for one loading backend is one thing to wait for,
+// and repeating the token five times says nothing more. Sorted so the same
+// state always renders the same string.
+func WithheldReasons(withheld []WithheldOption) string {
+	seen := make(map[string]struct{}, len(withheld))
+	reasons := make([]string, 0, len(withheld))
+	for _, w := range withheld {
+		r := strings.TrimSpace(w.Reason)
+		if r == "" {
+			continue
+		}
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		reasons = append(reasons, r)
+	}
+	sort.Strings(reasons)
+	return strings.Join(reasons, ", ")
 }

@@ -9,11 +9,11 @@ import (
 
 // English error message keys.
 const (
-	KeyInvalidAPIKey       = "invalid_api_key"
-	KeyRateLimitExceeded   = "rate_limit_exceeded"
-	KeyModelNotFound       = "model_not_found"
-	KeyInvalidRequest      = "invalid_request"
-	KeyInternalError       = "internal_error"
+	KeyInvalidAPIKey     = "invalid_api_key"
+	KeyRateLimitExceeded = "rate_limit_exceeded"
+	KeyModelNotFound     = "model_not_found"
+	KeyInvalidRequest    = "invalid_request"
+	KeyInternalError     = "internal_error"
 
 	// CONST-046 round-95 — CLI user-facing strings migrated from
 	// hardcoded literals in cmd/helixllm/{challenges,main}.go.
@@ -91,6 +91,12 @@ const (
 	KeyGatewayConfigExportFailed    = "gateway_config_export_failed"
 	KeyGatewayConfigMergeFailed     = "gateway_config_merge_failed"
 	KeyGatewayConfigBodyUnreadable  = "gateway_config_body_unreadable"
+
+	// A fourth thing for the user to do, distinct from the three above: wait.
+	// The host is configured and offering models, it just cannot serve any of
+	// them yet. Answering with the empty configuration that describes the state
+	// would have the caller overwrite a working entry with nothing.
+	KeyGatewayConfigNothingServable = "gateway_config_nothing_servable"
 
 	// G2a — semantic request validation. A body that parses as JSON but
 	// means nothing used to reach provider dispatch; these name the field
@@ -182,6 +188,9 @@ var defaultEnglishMessages = map[string]string{
 	KeyGatewayConfigExportFailed:   "the configuration could not be produced: {{detail}}",
 	KeyGatewayConfigMergeFailed:    "the configuration could not be merged into your file: {{detail}}",
 	KeyGatewayConfigBodyUnreadable: "your configuration file could not be read: {{detail}}",
+	KeyGatewayConfigNothingServable: "host {{host}} is serving none of the {{count}} models " +
+		"it offers right now ({{reasons}}); a configuration naming no model would replace " +
+		"the one you already have, so none is produced — retry shortly",
 
 	KeyGatewayMessagesEmpty: "messages must contain at least one message",
 	KeyGatewayMessageRoleMissing: "messages[{{index}}].role is required and " +

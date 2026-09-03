@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -122,6 +123,9 @@ func HandleConsumerConfig(b *brain.Brain) gin.HandlerFunc {
 					map[string]string{"detail": err.Error()})
 				return
 			}
+			if refusedAsUndescribable(c, inst.Host, cfg.Models, cfg.Withheld) {
+				return
+			}
 			c.JSON(http.StatusOK, consumerConfigResponse{
 				Consumer: consumer,
 				Host:     inst.Host,
@@ -135,6 +139,9 @@ func HandleConsumerConfig(b *brain.Brain) gin.HandlerFunc {
 			if err != nil {
 				configError(c, http.StatusInternalServerError, i18n.KeyGatewayConfigExportFailed,
 					map[string]string{"detail": err.Error()})
+				return
+			}
+			if refusedAsUndescribable(c, inst.Host, cfg.Models, cfg.Withheld) {
 				return
 			}
 			c.JSON(http.StatusOK, consumerConfigResponse{
@@ -185,6 +192,9 @@ func HandleConsumerConfigMerge(b *brain.Brain) gin.HandlerFunc {
 					map[string]string{"detail": err.Error()})
 				return
 			}
+			if refusedAsUndescribable(c, inst.Host, cfg.Models, cfg.Withheld) {
+				return
+			}
 			merged, err := naming.MergeHelixCodeEnv(string(existing), cfg)
 			if err != nil {
 				// The caller's file and ours disagree in a way neither can win
@@ -199,6 +209,9 @@ func HandleConsumerConfigMerge(b *brain.Brain) gin.HandlerFunc {
 			if err != nil {
 				configError(c, http.StatusInternalServerError, i18n.KeyGatewayConfigExportFailed,
 					map[string]string{"detail": err.Error()})
+				return
+			}
+			if refusedAsUndescribable(c, inst.Host, cfg.Models, cfg.Withheld) {
 				return
 			}
 			merged, err := naming.MergeOpenCode(existing, cfg)
@@ -312,6 +325,50 @@ func requestBaseURL(c *gin.Context) string {
 		host = c.Request.Host
 	}
 	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+// refusedAsUndescribable answers the request with the reason a configuration
+// cannot be produced yet, and reports whether it did.
+//
+// THE DEFECT THIS CLOSES. A backend that is up but LOADING reports itself
+// unavailable while still listing its models, so the export withheld every one
+// of them and both endpoints answered 200 — the GET with a document whose
+// `models` was `{}`, the merge with the caller's file rewritten to hold that
+// empty entry. A user who fetched their configuration during a restart got
+// their working provider replaced by one offering nothing, and the returned
+// document said nothing about why. Whether they lost their models came down to
+// when they happened to ask.
+//
+// The reasons were already known — the response carried them in a sibling
+// `withheld` field the merge never consulted — so this is not new information,
+// only information that now reaches the decision. An empty roster with reasons
+// behind it is the export declining to describe the instance, not a description
+// of an instance with no models.
+//
+// WHY REFUSING CANNOT STRAND A GENUINELY EMPTY SERVER. An instance reaches
+// here only through instanceForRequest, which builds one solely for a host that
+// contributed at least one option; a host serving nothing at all is already
+// answered by KeyGatewayConfigNoServedHosts before any export runs. So an
+// instance with no offers cannot arrive, an instance with offers always
+// partitions into at least one exported or one withheld option, and the state
+// this refuses is exactly "has offers, can serve none" — never "has nothing".
+//
+// 503 rather than 200-with-nothing, and rather than 404: the host exists and is
+// expected back, which is what this codebase already answers 503 for when an
+// identifier belongs to a host whose list has not filled yet. No Retry-After
+// accompanies it — this process is not told how long a backend takes to load,
+// and a number invented here would be a guess presented as a schedule.
+func refusedAsUndescribable(c *gin.Context, host string, models []naming.Exported, withheld []naming.WithheldOption) bool {
+	if len(models) > 0 || len(withheld) == 0 {
+		return false
+	}
+	configError(c, http.StatusServiceUnavailable, i18n.KeyGatewayConfigNothingServable,
+		map[string]string{
+			"host":    host,
+			"count":   strconv.Itoa(len(withheld)),
+			"reasons": naming.WithheldReasons(withheld),
+		})
+	return true
 }
 
 func toExported(in []naming.Exported) []exportedModel {
