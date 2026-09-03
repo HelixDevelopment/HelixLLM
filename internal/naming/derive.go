@@ -397,9 +397,31 @@ func (r *Registry) Adopt(rs Ruleset, identifier string, id Identity) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Initialise each map on its own absence, never on a sibling's.
+	//
+	// These three were created together under a single `byIdentifier` guard,
+	// which quietly made the first Register for a consumer DESTROY every live
+	// host noted before it: NoteLiveHost populates liveHostPrefixes without
+	// registering anything, so byIdentifier is still absent when the first
+	// Register arrives, the guard fires, and the notes are replaced with an
+	// empty map.
+	//
+	// That is not hypothetical and it was not deterministic, which is why it
+	// read as a flaky test. RegisterNamesFor notes each provider's host and
+	// registers its models in one pass over a MAP, so Go's randomised
+	// iteration order decided whether a host was noted before or after the
+	// first Register wiped the set. A provider reporting a host but not yet
+	// listing a model -- a runtime still starting, exactly the case
+	// NoteLiveHost exists to cover -- had its host silently dropped, and its
+	// identifiers were then judged retired and answered 404: permanent,
+	// user-visible, and gone on the next start.
 	if _, ok := r.byIdentifier[rs.Name]; !ok {
 		r.byIdentifier[rs.Name] = make(map[string]Identity)
+	}
+	if _, ok := r.byIdentity[rs.Name]; !ok {
 		r.byIdentity[rs.Name] = make(map[string]string)
+	}
+	if _, ok := r.liveHostPrefixes[rs.Name]; !ok {
 		r.liveHostPrefixes[rs.Name] = make(map[string]struct{})
 	}
 
