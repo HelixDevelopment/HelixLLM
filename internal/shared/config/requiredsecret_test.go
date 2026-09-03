@@ -164,7 +164,7 @@ func TestValidate_AcceptsEmptyOptionalCredentials(t *testing.T) {
 		},
 		{
 			name:   "real secret with leading and trailing spaces",
-			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "  a-real-secret  " },
+			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "  a-real-secret-padded-to-32by!  " },
 		},
 		{
 			// brain.go:80-88 — a deliberately keyless OpenAI-compatible
@@ -229,8 +229,8 @@ func TestValidate_BlankSecretErrorDoesNotLeakAnyValue(t *testing.T) {
 	// The config being refused also carries real credentials in neighbouring
 	// fields; none of them may appear either.
 	for _, secret := range []string{
-		"s3cr3t-value-from-the-vault", // Auth.JWTSecret
-		"a-real-password",             // DB.Password
+		"s3cr3t-value-from-the-vault-32b!", // Auth.JWTSecret
+		"a-real-password",                  // DB.Password
 	} {
 		if strings.Contains(err.Error(), secret) {
 			t.Errorf("error leaked a neighbouring credential value: %v", err)

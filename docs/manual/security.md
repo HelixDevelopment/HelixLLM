@@ -48,44 +48,142 @@ Requests without a valid key receive HTTP 401. The middleware is in `internal/ga
 
 Leave `HELIX_AUTH_API_KEYS` empty to disable authentication (open access).
 
-### JWT Authentication — NOT IMPLEMENTED
+### JWT Authentication
 
-**This server does not do JWT authentication.** Setting
-`HELIX_AUTH_JWT_SECRET` has no effect on access control. Do not count it as a
-protection.
+`HELIX_AUTH_JWT_SECRET` is a real credential. When it is set, the server mints
+and validates HS256 JSON Web Tokens, and every route that the API-key check
+guards accepts a valid token as an alternative credential.
 
-This section previously said "when set, the system can issue and validate JWT
-tokens for session-based access", and listed the variable on the hardening
-checklist below. That was wrong, and the combination was the dangerous part: an
-operator could set the secret, tick the checklist, and believe the server was
-protected — while `HELIX_AUTH_API_KEYS` sat empty and the server was in
-open-access mode.
+```bash
+# At least 32 bytes. RFC 7518 section 3.2 requires an HS256 key at least as
+# large as the hash output (256 bits); the server REFUSES TO START on a
+# shorter one rather than signing with a key outside the algorithm's spec.
+HELIX_AUTH_JWT_SECRET=$(openssl rand -hex 32)
 
-Verified 2026-09-03 rather than assumed:
+# Optional. Lifetime of issued tokens, in minutes. Default 1440 (24h).
+HELIX_AUTH_JWT_TTL_MINUTES=1440
+```
 
-- No commit in this repository's entire history has ever added a JWT library
-  call (`git log -G 'jwt\.(Parse|NewWithClaims|SigningMethod)' --all` → 0).
-- `golang-jwt` is not a dependency; it does not appear in `go.mod`.
-- `digital.vasic.auth` appears in `go.mod` line 110 as a `replace` directive
-  ONLY, with no matching `require`, and is imported by no Go file. A `replace`
-  without a `require` does nothing.
-- `Auth.JWTSecret` is declared on the config struct and read by nothing.
+Tokens are presented exactly like API keys:
 
-The config field is kept — removing it would break existing `.env` files that
-set it, and it is where an implementation would land. It is simply inert today.
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
 
-**The only authentication this server enforces is the API-key check above**
-(`internal/gateway/middleware/auth.go`), and it is open-access when
-`HELIX_AUTH_API_KEYS` is empty.
+#### What setting the secret does to access control
+
+The two credentials are independent, and **either one alone requires callers to
+authenticate**:
+
+| `HELIX_AUTH_JWT_SECRET` | `HELIX_AUTH_API_KEYS` | Result |
+|---|---|---|
+| unset | unset | Open access. No credential required. (The shipped default.) |
+| unset | set | API key required. |
+| **set** | unset | **A credential is required.** The only one that can succeed is a JWT. |
+| set | set | Either credential is accepted. |
+
+The third row is the important one, and it is deliberate. Setting a signing
+secret is an operator saying "authenticate this server"; if that act left the
+surface open because API keys happened to be unset, the result would be exactly
+the trap this section used to describe — the secret set, the checklist ticked,
+and the server answering everyone.
+
+The server states which mode is active on every startup, so the answer is never
+inferred from silence. With neither credential configured it says so at WARN:
+
+```
+level=warning msg="AUTHENTICATION IS NOT CONFIGURED"
+  accepted_credentials="NONE — every /v1 and /internal route is open to any
+  client that can reach this port" api_keys_configured=false jwt_enabled=false
+```
+
+**An unset secret means no JWT protection.** It is the documented off-switch,
+and it is what every configuration shipped in this repository uses
+(`.env.example` ships both auth variables blank) — so a deployment that sets
+neither variable behaves exactly as it did before JWT existed.
+
+#### Obtaining a token
+
+With at least one API key configured, exchange it:
+
+```bash
+curl -sk -X POST https://localhost:8443/v1/auth/token \
+  -H "Authorization: Bearer sk-key1"
+# {"access_token":"eyJ...","token_type":"Bearer","expires_in":86400}
+```
+
+The endpoint sits inside the authenticated `/v1` group, so it authenticates the
+caller before minting. A caller holding a valid token may also use it to obtain
+a fresh one, and the token's identity is preserved across the refresh.
+
+Because it requires a credential, **it cannot hand out a first one.** A
+deployment that sets `HELIX_AUTH_JWT_SECRET` and leaves `HELIX_AUTH_API_KEYS`
+empty has no in-band way to get its first token and must mint tokens out of
+band from the signing secret — the ordinary machine-to-machine arrangement. Any
+standards-conformant HS256 token is accepted, so any JWT library will do:
+
+```python
+import jwt, time                       # pip install pyjwt
+now = int(time.time())
+print(jwt.encode({
+    "iss": "helixllm", "aud": "helixllm", "sub": "my-service",
+    "iat": now, "nbf": now, "exp": now + 3600,
+}, open(".jwt-secret").read().strip(), algorithm="HS256"))
+```
+
+If the exchange endpoint is what you want, configure at least one API key.
+
+#### What is checked on every token
+
+Verification is `internal/auth/jwt.go`, enforced by
+`internal/gateway/middleware/auth.go`. A token is accepted only if all hold:
+
+| Check | Rejects |
+|---|---|
+| HS256 signature over the shared secret | Forged or re-signed tokens |
+| Algorithm allowlist (`HS256` only) | `alg=none`, `alg=HS512`, algorithm confusion |
+| `exp` present **and** in the future | Expired tokens; tokens with no expiry at all |
+| `nbf` not in the future | Pre-dated tokens activating early |
+| `iat` not in the future | Forged or clock-broken minters |
+| `iss` == `helixllm` | Tokens minted for another service that shares the secret |
+| `aud` == `helixllm` | Tokens addressed to another service |
+| `sub` non-empty | Tokens naming no principal |
+
+Failures return HTTP 401 with the same OpenAI-format error body as an API-key
+failure, and deliberately do **not** say which check failed — telling an
+unauthenticated caller why their forged token was rejected is an oracle for
+forging a better one.
+
+Tokens never carry the API key they were exchanged for. A JWT payload is
+base64, not encrypted, so the `sub` claim holds a truncated SHA-256 digest of
+the key (`apikey:<16 hex>`) — enough to tell two callers apart in an audit log,
+and not reversible to the key.
 
 ### Authentication Scope
 
-| Endpoint Group | Auth Required |
-|---------------|---------------|
-| `/v1/*` | Yes (when API keys configured) |
-| `/internal/*` | No |
+Both credentials are enforced by the same middleware, wired at every one of
+these groups (`cmd/helixllm/main.go`), so a token or key that opens one opens
+all of them:
 
-Internal endpoints are intended for cluster-internal communication and health checks. In production, restrict access to these endpoints at the network level (firewall, reverse proxy).
+| Endpoint group | Credential required |
+|---|---|
+| `/v1/*` (OpenAI + Anthropic compatible, `/v1/hardware`, `/v1/config/*`) | Yes, when either credential is configured |
+| `/v1/agents/*`, `/v1/cache/stats` | Yes, when either credential is configured |
+| `/internal/cluster/*` | Yes, when either credential is configured |
+| `/internal/knowledge/*` | Yes, when either credential is configured |
+| `/internal/health`, `/internal/metrics`, `/metrics` | **No** — intentionally public (liveness probes and Prometheus scrapers) |
+| `/ws` | **No** — see below |
+
+`/ws` is NOT authenticated. The middleware reads the `Authorization` header,
+which browser-native `WebSocket` clients cannot set, so gating it would break
+those clients — a change to the client contract that needs an operator decision
+on the credential channel (header vs `?api_key=` query parameter vs
+subprotocol) before it can be made. It runs the Brain over a WebSocket, so
+treat it as an exposed surface and restrict it at the network level.
+
+The public endpoints and `/ws` are unaffected by `HELIX_AUTH_JWT_SECRET`.
+Restrict every `/internal/*` route at the network level (firewall, reverse
+proxy) regardless of credentials — this server binds all interfaces by default.
 
 ## Rate Limiting
 
@@ -167,7 +265,7 @@ Sensitive values in `.env`:
 |----------|-------------|
 | `HELIX_LLM_OPENAI_KEY` | High -- API key with billing access |
 | `HELIX_LLM_ANTHROPIC_KEY` | High -- API key with billing access |
-| `HELIX_AUTH_JWT_SECRET` | None today -- read by nothing; JWT auth is not implemented |
+| `HELIX_AUTH_JWT_SECRET` | High -- token signing key; anyone holding it can mint credentials |
 | `HELIX_AUTH_API_KEYS` | High -- authentication credentials |
 | `HELIX_DB_PASSWORD` | Medium -- database access |
 | `HELIX_REDIS_PASSWORD` | Medium -- cache access |
@@ -194,11 +292,13 @@ For production deployments:
 
 - [ ] Use certificates from a trusted CA (not self-signed)
 - [ ] Set strong, unique API keys in `HELIX_AUTH_API_KEYS`
-- [ ] ~~Set a strong `HELIX_AUTH_JWT_SECRET`~~ — **removed: JWT authentication
-      is not implemented.** Setting it protects nothing; see above. It is struck
-      through rather than deleted so anyone who followed the old checklist can
-      see that this item was withdrawn, and re-check that
-      `HELIX_AUTH_API_KEYS` is actually set.
+- [ ] Set a strong `HELIX_AUTH_JWT_SECRET` (`openssl rand -hex 32`) if you want
+      short-lived token credentials as well as, or instead of, API keys. This
+      item was previously struck through because JWT authentication did not
+      exist; it does now, and setting the secret genuinely requires callers to
+      authenticate. Note that with API keys empty, a JWT becomes the ONLY
+      accepted credential — see the table above before enabling it on a server
+      whose clients send API keys.
 - [ ] Set database and Redis passwords
 - [ ] Restrict `/internal/*` endpoints at the network level
 - [ ] Use Podman (rootless) for container runtime

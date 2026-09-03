@@ -127,10 +127,13 @@ When `HELIX_LLM_DEFAULT_PROVIDER=auto`, the router selects a provider based on t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HELIX_AUTH_JWT_SECRET` | (empty) | Secret key for JWT token signing. Leave empty to disable JWT auth. |
+| `HELIX_AUTH_JWT_SECRET` | (empty) | HS256 signing key for JWT auth. Minimum 32 bytes (`openssl rand -hex 32`); the server refuses to start on a shorter one. Leave empty to disable JWT auth. **When set, a credential is required even if `HELIX_AUTH_API_KEYS` is empty** — see [Security](../manual/security/). |
+| `HELIX_AUTH_JWT_TTL_MINUTES` | `1440` | Lifetime of tokens issued by `POST /v1/auth/token`, in minutes. Ignored when the secret is unset. |
 | `HELIX_AUTH_API_KEYS` | (empty) | Comma-separated list of valid API keys for Bearer token auth. Leave empty for open access. |
 
-When `HELIX_AUTH_API_KEYS` is set, all `/v1/*` endpoints require `Authorization: Bearer <key>`.
+When `HELIX_AUTH_API_KEYS` **or** `HELIX_AUTH_JWT_SECRET` is set, all `/v1/*` endpoints require
+`Authorization: Bearer <credential>` — a configured API key or a valid JWT. With both unset the
+server is in open-access mode and says so at WARN on every startup.
 
 ## Feature Flags
 

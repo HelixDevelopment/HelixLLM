@@ -85,6 +85,7 @@ Routes are attached in `main.go` in this order: base server routes (in
 | GET  | `/v1/models` | `router.go:74` | `HandleListModels` | **API-key** |
 | GET  | `/v1/models/:id` | `router.go:75` | `HandleGetModel` | **API-key** |
 | POST | `/v1/embeddings` | `router.go:76` | `HandleEmbeddings` | **API-key** |
+| POST | `/v1/auth/token` | `router.go` | `HandleIssueToken` (exchange credential for a JWT; 501 when JWT disabled) | **API-key or JWT**³ |
 | GET  | `/v1/hardware` | `router.go:79` | inline (returns `HardwareProfile`) | **API-key** |
 | POST | `/v1/messages` | `router.go:84` | `HandleMessages` (Anthropic) | **API-key** |
 | GET  | `/ws` | `router.go:87` | `HandleWebSocket` (outside `/v1` auth) | none² |
@@ -138,12 +139,23 @@ gateway `/v1` group. `/internal/health`, `/internal/metrics`, and `/metrics` rem
 
 ## 3. Authentication & headers
 
-- **Scheme:** Bearer token — `Authorization: Bearer <token>`
-  (`internal/gateway/middleware/auth.go:35-41`).
-- **Open-access mode:** when `APIKeys` (env `HELIX_AUTH_API_KEYS`, passed as
-  `cfg.Auth.APIKeys`, `main.go:371`) is the empty string, the middleware calls
-  `c.Next()` and allows every request (`auth.go:29-32`). Keys are a
-  comma-separated list; each token is trimmed and compared (`auth.go:44-50`).
+- **Scheme:** Bearer token — `Authorization: Bearer <credential>`
+  (`internal/gateway/middleware/auth.go`). The credential is EITHER a configured
+  API key OR a JWT, and both are checked by the same middleware
+  (`APIKeyOrJWTAuth`), wired identically at all five registration sites.
+- **JWT (`HELIX_AUTH_JWT_SECRET`):** HS256, minimum 32 bytes (RFC 7518 §3.2 —
+  the server refuses to start below it). Verified claims: alg allowlist,
+  `exp` (required), `nbf`, `iat`, `iss`=`helixllm`, `aud`=`helixllm`, non-empty
+  `sub`. Mint one with `POST /v1/auth/token` (below) or out of band from the
+  secret. See `docs/manual/security.md`.
+- **Enforcement:** unset+unset ⇒ open access; either one set ⇒ a credential is
+  REQUIRED; both set ⇒ either is accepted. Setting only the JWT secret closes
+  the surface even with no API keys configured.
+- **Open-access mode:** when `APIKeys` (env `HELIX_AUTH_API_KEYS`) is the empty
+  string AND no JWT secret is configured, the middleware calls `c.Next()` and
+  allows every request. Keys are a comma-separated list; each token is trimmed
+  and compared in constant time. A configured JWT secret alone is sufficient to
+  leave open-access mode.
 - **401 body** on failure is OpenAI-error JSON `{"error":{"message":...,
   "type":"invalid_request_error"}}` (`auth.go:58-64`).
 - **Request Content-Type:** `application/json` (all handlers use gin

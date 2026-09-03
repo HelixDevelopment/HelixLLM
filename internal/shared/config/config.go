@@ -142,9 +142,26 @@ type LogConfig struct {
 }
 
 // AuthConfig holds authentication settings.
+//
+// Both credentials are self-gating and INDEPENDENT: each is off when unset and
+// enforced when set, and either one alone requires callers to authenticate.
+//
+//	JWTSecret unset, APIKeys unset -> open access (the shipped default)
+//	JWTSecret unset, APIKeys set   -> API key required
+//	JWTSecret set,   APIKeys unset -> JWT required
+//	both set                       -> either credential accepted
+//
+// See internal/gateway/middleware.APIKeyOrJWTAuth for the enforcement and
+// internal/auth for the token format.
 type AuthConfig struct {
 	JWTSecret string `env:"HELIX_AUTH_JWT_SECRET"`
 	APIKeys   string `env:"HELIX_AUTH_API_KEYS"`
+	// JWTTTLMinutes is the lifetime stamped on tokens minted by
+	// POST /v1/auth/token. The 1440-minute (24h) default matches
+	// helix_code's AuthConfig.TokenExpiry so the two services in this
+	// platform do not disagree about how long a token lives. Ignored when
+	// JWTSecret is unset.
+	JWTTTLMinutes int `env:"HELIX_AUTH_JWT_TTL_MINUTES" default:"1440"`
 }
 
 // FeatureConfig holds feature-flag settings.
@@ -215,6 +232,14 @@ func (c *HelixConfig) Validate() error {
 	if err := checkNoBlankSecrets(c); err != nil {
 		return err
 	}
+	// A JWT signing secret that is present but too weak to sign with is the
+	// same class of defect as the two guards above: it looks configured, it
+	// passes every other check, and it protects far less than the operator
+	// who set it believes. Refused here, at the same gate, rather than
+	// discovered later.
+	if err := c.validateJWT(); err != nil {
+		return err
+	}
 	validModes := map[string]bool{
 		"full": true, "gateway": true, "brain": true,
 		"knowledge": true, "agents": true, "control": true,
@@ -231,6 +256,52 @@ func (c *HelixConfig) Validate() error {
 	if !validLevels[strings.ToLower(c.Log.Level)] {
 		return fmt.Errorf("invalid log level: %q", c.Log.Level)
 	}
+	return nil
+}
+
+// minJWTSecretBytes is duplicated from internal/auth.MinSecretBytes rather
+// than imported, because internal/auth imports nothing from this package today
+// and this package must not start depending on it just to read one constant.
+// The two are pinned to the same standard, not to each other: RFC 7518
+// (JSON Web Algorithms) §3.2 requires an HS256 key at least as large as the
+// hash output, i.e. 256 bits / 32 bytes. A test asserts they agree.
+const minJWTSecretBytes = 32
+
+// validateJWT refuses a JWT configuration that cannot do the job it appears to
+// be doing.
+//
+// An UNSET secret is not an error — it is the documented off-switch
+// (website/content/docs/user-guide/configuration.md), and it is what every
+// config shipped in this repo uses. Only a SUPPLIED secret is checked, which
+// is the same asymmetry requiredsecret.go applies and for the same reason:
+// requiring the secret to be present would refuse every currently-working
+// deployment.
+//
+// No value is ever included in the error. The length is, because the operator
+// needs to know how far short they are and a length is not the secret.
+func (c *HelixConfig) validateJWT() error {
+	if c.Auth.JWTSecret == "" {
+		return nil
+	}
+	if len(c.Auth.JWTSecret) < minJWTSecretBytes {
+		return fmt.Errorf(
+			"HELIX_AUTH_JWT_SECRET is %d bytes; JWT auth requires at least %d "+
+				"(RFC 7518 §3.2: an HS256 key MUST be at least as large as the "+
+				"hash output, 256 bits). Generate one with: openssl rand -hex 32. "+
+				"Refusing to start rather than signing tokens with a key that is "+
+				"outside the algorithm's specification",
+			len(c.Auth.JWTSecret), minJWTSecretBytes)
+	}
+	// JWTTTLMinutes is deliberately NOT validated here.
+	//
+	// A non-positive TTL is not an error: auth.New treats it as "use the
+	// 24h default" rather than minting already-expired tokens, so there is
+	// no unsafe value to refuse. Refusing zero would also make Validate()
+	// depend on env.Load having run first — a hand-built HelixConfig has
+	// JWTTTLMinutes == 0 because the `default:"1440"` tag is applied by the
+	// loader, not by the struct. Several existing tests construct a config
+	// directly and legitimately expect it to validate; coupling Validate to
+	// the loader would break every programmatic caller for no safety gain.
 	return nil
 }
 

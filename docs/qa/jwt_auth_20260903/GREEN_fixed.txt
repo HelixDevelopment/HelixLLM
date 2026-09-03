@@ -1,0 +1,20 @@
+== HelixLLM JWT auth reproduction ==
+binary : /tmp/helixllm_fixed
+RED_MODE=0  (asserting the defect is ABSENT)
+
+-- Case A: JWT secret configured, HELIX_AUTH_API_KEYS empty --
+  PASS  unauthenticated /v1/models rejected: HTTP 401 (expected 401)
+  PASS  valid JWT accepted: HTTP 200 (expected 200)
+
+-- Case B: JWT secret AND API keys configured --
+  PASS  configured API key still accepted: HTTP 200 (expected 200)
+  PASS  unauthenticated rejected: HTTP 401 (expected 401)
+  PASS  valid JWT accepted: HTTP 200 (expected 200)
+  -- negative security cases (all must be 401) --
+  PASS  wrong signature rejected: HTTP 401 (expected 401)
+  PASS  expired token rejected: HTTP 401 (expected 401)
+  PASS  alg=none rejected: HTTP 401 (expected 401)
+  PASS  wrong audience rejected: HTTP 401 (expected 401)
+  PASS  wrong issuer rejected: HTTP 401 (expected 401)
+
+RESULT: all assertions held

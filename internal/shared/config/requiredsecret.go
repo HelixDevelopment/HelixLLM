@@ -37,18 +37,30 @@ import (
 //     internal/brain/brain.go:80-88 goes further and supports a deliberately
 //     KEYLESS OpenAI-compatible provider (Ollama), where an empty key is the
 //     correct value.
+//
 //   - Auth.APIKeys empty is open-access mode by design —
 //     internal/gateway/middleware/auth.go:28-32, and cmd/helixllm/main.go:470
 //     documents the choice explicitly ("behaviour is unchanged for open
 //     deployments").
+//
 //   - Auth.JWTSecret empty is the documented off-switch —
-//     website/content/docs/user-guide/configuration.md:130: "Leave empty to
-//     disable JWT auth." It also has NO production consumer at all: no Go file
-//     outside tests imports a JWT package, golang-jwt is not a direct
-//     dependency in go.mod, and digital.vasic.auth (go.mod:110) is a replace
-//     directive with no require and no import.
+//     website/content/docs/user-guide/configuration.md: "Leave empty to
+//     disable JWT auth."
+//
+//     UPDATED: when this guard was written, that field had NO production
+//     consumer — no Go file outside tests imported a JWT package and
+//     golang-jwt was not a direct dependency. It now has one: internal/auth
+//     mints and verifies tokens from it, and internal/gateway/middleware
+//     enforces them. The off-switch reasoning is UNCHANGED and is now load
+//     bearing rather than vacuous — an unset secret really does disable a
+//     real capability. Note what did NOT change: this guard still only
+//     refuses a secret that is supplied-but-blank. The adjacent case of a
+//     supplied-but-too-short secret is refused by validateJWT in config.go,
+//     which is where the algorithm's key-size requirement belongs.
+//
 //   - Cache.RedisPassword is only reached when a Redis host is set
 //     (cmd/helixllm/main.go:310-314), and an auth-less Redis is ordinary.
+//
 //   - DB.Password has no consumer anywhere in the tree.
 //
 // So requiring any of these to be SUPPLIED would refuse deployments that work

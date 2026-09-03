@@ -2,119 +2,317 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10" />
+  <meta name="generator" content="pandoc 3.11" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>API_CONTRACT</title>
+  <title>HelixLLM API Contract</title>
   <style>
-
-span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: 1.5em;}
-div.column{flex: auto;}
-@media screen {
-div.columns{gap: min(4vw, 1.5em);}
-div.column{overflow-x: auto;}
-}
-div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-
-ul.task-list[class]{list-style: none;}
-ul.task-list li input[type="checkbox"] {
-font-size: inherit;
-width: 0.8em;
-margin: 0 0.8em 0.2em -1.6em;
-vertical-align: middle;
-}
-.display.math{display: block; text-align: center; margin: 0.5rem auto;}
-
-html { -webkit-text-size-adjust: 100%; }
-pre > code.sourceCode { white-space: pre; position: relative; }
-pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
-pre > code.sourceCode > span:empty { height: 1.2em; }
-.sourceCode { overflow: visible; }
-code.sourceCode > span { color: inherit; text-decoration: inherit; }
-div.sourceCode { margin: 1em 0; }
-pre.sourceCode { margin: 0; }
-@media screen {
-div.sourceCode { overflow: auto; }
-}
-@media print {
-pre > code.sourceCode { white-space: pre-wrap; }
-pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
-}
-pre.numberSource code
-{ counter-reset: source-line 0; }
-pre.numberSource code > span
-{ position: relative; left: -4em; counter-increment: source-line; }
-pre.numberSource code > span > a:first-child::before
-{ content: counter(source-line);
-position: relative; left: -1em; text-align: right; vertical-align: baseline;
-border: none; display: inline-block;
--webkit-touch-callout: none; -webkit-user-select: none;
--khtml-user-select: none; -moz-user-select: none;
--ms-user-select: none; user-select: none;
-padding: 0 4px; width: 4em;
-color: #aaaaaa;
-}
-pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
-div.sourceCode
-{ }
-@media screen {
-pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
-}
-code span.al { color: #ff0000; font-weight: bold; } 
-code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
-code span.at { color: #7d9029; } 
-code span.bn { color: #40a070; } 
-code span.bu { color: #008000; } 
-code span.cf { color: #007020; font-weight: bold; } 
-code span.ch { color: #4070a0; } 
-code span.cn { color: #880000; } 
-code span.co { color: #60a0b0; font-style: italic; } 
-code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
-code span.do { color: #ba2121; font-style: italic; } 
-code span.dt { color: #902000; } 
-code span.dv { color: #40a070; } 
-code span.er { color: #ff0000; font-weight: bold; } 
-code span.ex { } 
-code span.fl { color: #40a070; } 
-code span.fu { color: #06287e; } 
-code span.im { color: #008000; font-weight: bold; } 
-code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
-code span.kw { color: #007020; font-weight: bold; } 
-code span.op { color: #666666; } 
-code span.ot { color: #007020; } 
-code span.pp { color: #bc7a00; } 
-code span.sc { color: #4070a0; } 
-code span.ss { color: #bb6688; } 
-code span.st { color: #4070a0; } 
-code span.va { color: #19177c; } 
-code span.vs { color: #4070a0; } 
-code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
-</style>
-  <style type="text/css">
-table {
-border-collapse: collapse;
-}
-table td,
-table th {
-border: 1px solid #cccccc;
-padding: 4px 8px;
-vertical-align: top;
-}
-
-tr.cell-status-obsolete > td {
-background-color: #E0E0E0;
-}
-
-tr.cell-status-obsolete > td:nth-child(2),
-tr.cell-status-obsolete > td:last-child {
-text-decoration: line-through;
-}
-</style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
 </head>
 <body>
 <header id="title-block-header">
-<h1 class="title">API_CONTRACT</h1>
+<h1 class="title">HelixLLM API Contract</h1>
 </header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#helixllm-http-api-contract"
+id="toc-helixllm-http-api-contract">HelixLLM HTTP API Contract</a>
+<ul>
+<li><a href="#listen-address-port-tls-transports"
+id="toc-listen-address-port-tls-transports">1. Listen address, port,
+TLS, transports</a>
+<ul>
+<li><a
+href="#usellamacpp-toggle-unconfirmed-as-named-the-real-toggle-is-llamaserverembed"
+id="toc-usellamacpp-toggle-unconfirmed-as-named-the-real-toggle-is-llamaserverembed"><code>UseLlamaCpp</code>
+toggle — UNCONFIRMED as named; the real toggle is
+<code>LlamaServerEmbed</code></a></li>
+</ul></li>
+<li><a
+href="#complete-registered-route-inventory-verbatim-registrations"
+id="toc-complete-registered-route-inventory-verbatim-registrations">2.
+Complete registered-route inventory (verbatim registrations)</a></li>
+<li><a href="#authentication-headers" id="toc-authentication-headers">3.
+Authentication &amp; headers</a></li>
+<li><a href="#openai-compatible-endpoints"
+id="toc-openai-compatible-endpoints">4. OpenAI-compatible endpoints</a>
+<ul>
+<li><a href="#post-v1chatcompletions"
+id="toc-post-v1chatcompletions">4.1
+<code>POST /v1/chat/completions</code></a></li>
+<li><a href="#post-v1completions" id="toc-post-v1completions">4.2
+<code>POST /v1/completions</code></a></li>
+<li><a href="#get-v1models-and-get-v1modelsid"
+id="toc-get-v1models-and-get-v1modelsid">4.3 <code>GET /v1/models</code>
+and <code>GET /v1/models/:id</code></a></li>
+<li><a href="#post-v1embeddings" id="toc-post-v1embeddings">4.4
+<code>POST /v1/embeddings</code></a></li>
+</ul></li>
+<li><a href="#anthropic-compatible-endpoint-post-v1messages"
+id="toc-anthropic-compatible-endpoint-post-v1messages">5.
+Anthropic-compatible endpoint — <code>POST /v1/messages</code></a></li>
+<li><a href="#health-metrics" id="toc-health-metrics">6. Health &amp;
+metrics</a>
+<ul>
+<li><a href="#get-internalhealth-server.go167179-188"
+id="toc-get-internalhealth-server.go167179-188"><code>GET /internal/health</code>
+(<code>server.go:167,179-188</code>)</a></li>
+<li><a href="#get-internalmetrics-and-get-metrics"
+id="toc-get-internalmetrics-and-get-metrics"><code>GET /internal/metrics</code>
+and <code>GET /metrics</code></a></li>
+</ul></li>
+<li><a href="#websocket-get-ws" id="toc-websocket-get-ws">7. WebSocket —
+<code>GET /ws</code></a></li>
+<li><a href="#auxiliary-internal-endpoints-requestresponse-shapes"
+id="toc-auxiliary-internal-endpoints-requestresponse-shapes">8.
+Auxiliary internal endpoints (request/response shapes)</a>
+<ul>
+<li><a href="#agents-internalagentsapi.go"
+id="toc-agents-internalagentsapi.go">Agents
+(<code>internal/agents/api.go</code>)</a></li>
+<li><a href="#knowledge-internalknowledgeapi.go"
+id="toc-knowledge-internalknowledgeapi.go">Knowledge
+(<code>internal/knowledge/api.go</code>)</a></li>
+<li><a href="#control-cluster-internalcontrolapi.go"
+id="toc-control-cluster-internalcontrolapi.go">Control / cluster
+(<code>internal/control/api.go</code>)</a></li>
+</ul></li>
+<li><a href="#unconfirmed-gaps" id="toc-unconfirmed-gaps">9. UNCONFIRMED
+/ gaps</a></li>
+<li><a href="#sources-verified" id="toc-sources-verified">Sources
+verified</a></li>
+</ul></li>
+</ul>
+</nav>
 <h1 id="helixllm-http-api-contract">HelixLLM HTTP API Contract</h1>
 <p><strong>Source-verified from code 2026-07-06.</strong> Every claim
 below cites a real <code>file:line</code> in
@@ -188,20 +386,21 @@ UDP)</strong> (<code>server.go:105-110</code>) <strong>and HTTP/2 (TLS
 over TCP)</strong> (<code>server.go:113-117</code>) on the same
 <code>host:port</code>. ALPN = <code>h3, h2, http/1.1</code>
 (<code>server.go:101</code>); an
-<code>Alt-Svc: h3=&quot;:&lt;port&gt;&quot;</code> header is added to every
+<code>Alt-Svc: h3=":&lt;port&gt;"</code> header is added to every
 response (<code>server.go:196-198</code>).</p>
 <p><strong>CONFIRMED:</strong> default base URL is
 <code>https://0.0.0.0:8443</code>. The challenge runner’s default
 <code>-base-url</code> flag is <code>https://localhost:8443</code>
 (<code>cmd/helixllm/main.go:40</code>) — matches the inventory note.</p>
-<h3 id="usellamacpp-toggle-unconfirmed-as-named-the-real-toggle-is-llamaserverembed"><code>UseLlamaCpp</code>
+<h3
+id="usellamacpp-toggle-unconfirmed-as-named-the-real-toggle-is-llamaserverembed"><code>UseLlamaCpp</code>
 toggle — UNCONFIRMED as named; the real toggle is
 <code>LlamaServerEmbed</code></h3>
-<p><code>grep -rn &quot;UseLlamaCpp&quot;</code> over the whole repo returns
+<p><code>grep -rn "UseLlamaCpp"</code> over the whole repo returns
 <strong>nothing</strong> — there is no field/env named
 <code>UseLlamaCpp</code>. The actual embedded-llama.cpp toggle is:</p>
 <ul>
-<li><code>LlamaServerEmbed bool env:&quot;HELIX_LLAMA_SERVER_EMBEDDED&quot; default:&quot;true&quot;</code>
+<li><code>LlamaServerEmbed bool env:"HELIX_LLAMA_SERVER_EMBEDDED" default:"true"</code>
 (<code>config.go:76</code>)</li>
 <li>When <code>true</code>, <code>main.go:208-247</code> starts an
 embedded <code>brain.LlamaServer</code> on <code>LlamaServerPort</code>
@@ -301,6 +500,14 @@ server routes (in <code>server.New</code>), then
 <td><code>router.go:76</code></td>
 <td><code>HandleEmbeddings</code></td>
 <td><strong>API-key</strong></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/v1/auth/token</code></td>
+<td><code>router.go</code></td>
+<td><code>HandleIssueToken</code> (exchange credential for a JWT; 501
+when JWT disabled)</td>
+<td><strong>API-key or JWT</strong>³</td>
 </tr>
 <tr>
 <td>GET</td>
@@ -440,9 +647,9 @@ server routes (in <code>server.New</code>), then
 <p><strong>¹ Auth finding (RESOLVED — DZ-05, 2026-07-07):</strong> The
 gateway API-key middleware was originally applied only to the gateway’s
 own <code>/v1</code> group (<code>router.go:63-64</code>:
-<code>v1 := r.Group(&quot;/v1&quot;); v1.Use(gwmw.APIKeyAuth(...))</code>). The
-agent routes (<code>r.Group(&quot;/v1/agents&quot;)</code>), the sibling
-cache-stats route (<code>r.Group(&quot;/v1&quot;)</code>), and the
+<code>v1 := r.Group("/v1"); v1.Use(gwmw.APIKeyAuth(...))</code>). The
+agent routes (<code>r.Group("/v1/agents")</code>), the sibling
+cache-stats route (<code>r.Group("/v1")</code>), and the
 <code>/internal/cluster/*</code> + <code>/internal/knowledge/*</code>
 groups are registered on <strong>separate</strong>
 <code>RouterGroup</code> instances that do NOT inherit the gateway
@@ -483,16 +690,31 @@ intent) and are NOT gated.</p>
 <h2 id="authentication-headers">3. Authentication &amp; headers</h2>
 <ul>
 <li><strong>Scheme:</strong> Bearer token —
-<code>Authorization: Bearer &lt;token&gt;</code>
-(<code>internal/gateway/middleware/auth.go:35-41</code>).</li>
+<code>Authorization: Bearer &lt;credential&gt;</code>
+(<code>internal/gateway/middleware/auth.go</code>). The credential is
+EITHER a configured API key OR a JWT, and both are checked by the same
+middleware (<code>APIKeyOrJWTAuth</code>), wired identically at all five
+registration sites.</li>
+<li><strong>JWT (<code>HELIX_AUTH_JWT_SECRET</code>):</strong> HS256,
+minimum 32 bytes (RFC 7518 §3.2 — the server refuses to start below it).
+Verified claims: alg allowlist, <code>exp</code> (required),
+<code>nbf</code>, <code>iat</code>,
+<code>iss</code>=<code>helixllm</code>,
+<code>aud</code>=<code>helixllm</code>, non-empty <code>sub</code>. Mint
+one with <code>POST /v1/auth/token</code> (below) or out of band from
+the secret. See <code>docs/manual/security.md</code>.</li>
+<li><strong>Enforcement:</strong> unset+unset ⇒ open access; either one
+set ⇒ a credential is REQUIRED; both set ⇒ either is accepted. Setting
+only the JWT secret closes the surface even with no API keys
+configured.</li>
 <li><strong>Open-access mode:</strong> when <code>APIKeys</code> (env
-<code>HELIX_AUTH_API_KEYS</code>, passed as
-<code>cfg.Auth.APIKeys</code>, <code>main.go:371</code>) is the empty
-string, the middleware calls <code>c.Next()</code> and allows every
-request (<code>auth.go:29-32</code>). Keys are a comma-separated list;
-each token is trimmed and compared (<code>auth.go:44-50</code>).</li>
+<code>HELIX_AUTH_API_KEYS</code>) is the empty string AND no JWT secret
+is configured, the middleware calls <code>c.Next()</code> and allows
+every request. Keys are a comma-separated list; each token is trimmed
+and compared in constant time. A configured JWT secret alone is
+sufficient to leave open-access mode.</li>
 <li><strong>401 body</strong> on failure is OpenAI-error JSON
-<code>{&quot;error&quot;:{&quot;message&quot;:..., &quot;type&quot;:&quot;invalid_request_error&quot;}}</code>
+<code>{"error":{"message":..., "type":"invalid_request_error"}}</code>
 (<code>auth.go:58-64</code>).</li>
 <li><strong>Request Content-Type:</strong> <code>application/json</code>
 (all handlers use gin <code>ShouldBindJSON</code>,
@@ -525,7 +747,7 @@ actual types the gateway handlers bind/emit
 (<code>openai.go:60-63</code>).</li>
 <li>Response struct: <code>api.ChatCompletionResponse</code>
 (<code>pkg/api/openai.go:62-69</code>) — <code>id</code>,
-<code>object:&quot;chat.completion&quot;</code>, <code>created</code>,
+<code>object:"chat.completion"</code>, <code>created</code>,
 <code>model</code>,
 <code>choices[]{index, message, finish_reason}</code>,
 <code>usage{prompt_tokens, completion_tokens, total_tokens}</code>.
@@ -533,7 +755,7 @@ Built by <code>internalToOpenAI</code> (<code>openai.go:931-968</code>),
 returned at <code>openai.go:365</code>.</li>
 <li><strong>Streaming (SSE):</strong> when <code>stream:true</code> and
 no tools, chunks stream as <code>api.ChatCompletionChunk</code>
-(<code>object:&quot;chat.completion.chunk&quot;</code>,
+(<code>object:"chat.completion.chunk"</code>,
 <code>pkg/api/openai.go:78-96</code>) via the OpenAI SSE writer
 (<code>openai.go:259-303</code>). Content-Type
 <code>text/event-stream</code>, <code>Cache-Control: no-cache</code>,
@@ -560,13 +782,15 @@ OpenAI-compatible.</li>
 </ul>
 <p><strong>Example request</strong> (derived from
 <code>ChatCompletionRequest</code>):</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="er">POST</span> <span class="er">/v1/chat/completions</span></span>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="er">POST</span> <span class="er">/v1/chat/completions</span></span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="er">Authorization:</span> <span class="er">Bearer</span> <span class="er">&lt;key&gt;</span></span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="er">Content-Type:</span> <span class="er">application/json</span></span>
 <span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;model&quot;</span><span class="fu">:</span><span class="st">&quot;llama-3.1-70b&quot;</span><span class="fu">,</span><span class="dt">&quot;messages&quot;</span><span class="fu">:</span><span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;role&quot;</span><span class="fu">:</span><span class="st">&quot;user&quot;</span><span class="fu">,</span><span class="dt">&quot;content&quot;</span><span class="fu">:</span><span class="st">&quot;What is 2+2?&quot;</span><span class="fu">}</span><span class="ot">]</span><span class="fu">,</span><span class="dt">&quot;stream&quot;</span><span class="fu">:</span><span class="kw">false</span><span class="fu">}</span></span></code></pre></div>
 <p><strong>Example response</strong> (derived from
 <code>ChatCompletionResponse</code>):</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;chatcmpl-helix-1a2b3c4d&quot;</span><span class="fu">,</span><span class="dt">&quot;object&quot;</span><span class="fu">:</span><span class="st">&quot;chat.completion&quot;</span><span class="fu">,</span><span class="dt">&quot;created&quot;</span><span class="fu">:</span><span class="dv">1751760000</span><span class="fu">,</span></span>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;chatcmpl-helix-1a2b3c4d&quot;</span><span class="fu">,</span><span class="dt">&quot;object&quot;</span><span class="fu">:</span><span class="st">&quot;chat.completion&quot;</span><span class="fu">,</span><span class="dt">&quot;created&quot;</span><span class="fu">:</span><span class="dv">1751760000</span><span class="fu">,</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;model&quot;</span><span class="fu">:</span><span class="st">&quot;llama-3.1-70b&quot;</span><span class="fu">,</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;choices&quot;</span><span class="fu">:</span><span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;index&quot;</span><span class="fu">:</span><span class="dv">0</span><span class="fu">,</span><span class="dt">&quot;message&quot;</span><span class="fu">:{</span><span class="dt">&quot;role&quot;</span><span class="fu">:</span><span class="st">&quot;assistant&quot;</span><span class="fu">,</span><span class="dt">&quot;content&quot;</span><span class="fu">:</span><span class="st">&quot;4&quot;</span><span class="fu">},</span><span class="dt">&quot;finish_reason&quot;</span><span class="fu">:</span><span class="st">&quot;stop&quot;</span><span class="fu">}</span><span class="ot">]</span><span class="fu">,</span></span>
 <span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;usage&quot;</span><span class="fu">:{</span><span class="dt">&quot;prompt_tokens&quot;</span><span class="fu">:</span><span class="dv">10</span><span class="fu">,</span><span class="dt">&quot;completion_tokens&quot;</span><span class="fu">:</span><span class="dv">6</span><span class="fu">,</span><span class="dt">&quot;total_tokens&quot;</span><span class="fu">:</span><span class="dv">16</span><span class="fu">}}</span></span></code></pre></div>
@@ -585,23 +809,23 @@ data: [DONE]</code></pre>
 message (<code>openai.go:458-463</code>).</li>
 <li>Response: <code>api.CompletionResponse</code>
 (<code>pkg/api/openai.go:126-133</code>) —
-<code>object:&quot;text_completion&quot;</code>,
+<code>object:"text_completion"</code>,
 <code>choices[]{text, index, finish_reason}</code>, <code>usage</code>.
 Returned at <code>openai.go:481-498</code>. <strong>No SSE path
 implemented</strong> — the <code>stream</code> flag is accepted but the
 handler always returns a single JSON body.</li>
 </ul>
 <p><strong>Example:</strong>
-<code>{&quot;model&quot;:&quot;llama-3.1-70b&quot;,&quot;prompt&quot;:&quot;Hello&quot;,&quot;max_tokens&quot;:16}</code>
+<code>{"model":"llama-3.1-70b","prompt":"Hello","max_tokens":16}</code>
 →
-<code>{&quot;id&quot;:&quot;cmpl-helix-...&quot;,&quot;object&quot;:&quot;text_completion&quot;,&quot;model&quot;:&quot;...&quot;,&quot;choices&quot;:[{&quot;text&quot;:&quot;...&quot;,&quot;index&quot;:0,&quot;finish_reason&quot;:&quot;stop&quot;}],&quot;usage&quot;:{...}}</code></p>
+<code>{"id":"cmpl-helix-...","object":"text_completion","model":"...","choices":[{"text":"...","index":0,"finish_reason":"stop"}],"usage":{...}}</code></p>
 <h3 id="get-v1models-and-get-v1modelsid">4.3 <code>GET /v1/models</code>
 and <code>GET /v1/models/:id</code></h3>
 <ul>
 <li>Response: <code>api.ModelList</code>
-<code>{object:&quot;list&quot;, data:[]api.Model]}</code>
+<code>{object:"list", data:[]api.Model]}</code>
 (<code>pkg/api/openai.go:104-115</code>).
-<code>Model = {id, object:&quot;model&quot;, created, owned_by}</code>.</li>
+<code>Model = {id, object:"model", created, owned_by}</code>.</li>
 <li>With a Brain wired, <code>/v1/models</code> returns
 <code>b.Models()</code> (<code>openai.go:526-540</code>);
 <code>/v1/models/:id</code> searches Brain models and 404s with an
@@ -615,7 +839,7 @@ CONST-036/037 (models come from the provider layer, not hardcoded when a
 Brain is present).</li>
 </ul>
 <p><strong>Example:</strong> <code>GET /v1/models</code> →
-<code>{&quot;object&quot;:&quot;list&quot;,&quot;data&quot;:[{&quot;id&quot;:&quot;...&quot;,&quot;object&quot;:&quot;model&quot;,&quot;created&quot;:1700000000,&quot;owned_by&quot;:&quot;helix&quot;}]}</code></p>
+<code>{"object":"list","data":[{"id":"...","object":"model","created":1700000000,"owned_by":"helix"}]}</code></p>
 <h3 id="post-v1embeddings">4.4 <code>POST /v1/embeddings</code></h3>
 <ul>
 <li>Request: <code>api.EmbeddingRequest</code>
@@ -625,7 +849,7 @@ Brain is present).</li>
 <code>text-embedding-ada-002</code>
 (<code>openai.go:598-601</code>).</li>
 <li>Response: <code>api.EmbeddingResponse</code>
-<code>{object:&quot;list&quot;, data:[{object:&quot;embedding&quot;, embedding:[]float64, index}], model, usage}</code>
+<code>{object:"list", data:[{object:"embedding", embedding:[]float64, index}], model, usage}</code>
 (<code>pkg/api/openai.go:147-158</code>).</li>
 <li>Delegates to the knowledge-layer <code>Embedder</code> when present
 (<code>openai.go:604-637</code>); otherwise returns a zero vector of dim
@@ -652,7 +876,7 @@ Anthropic-compatible endpoint — <code>POST /v1/messages</code></h2>
 (<code>anthropic.go:286-291</code>).</li>
 <li>Response: <code>api.MessageResponse</code>
 (<code>pkg/api/anthropic.go:39-48</code>) — <code>id</code>,
-<code>type:&quot;message&quot;</code>, <code>role:&quot;assistant&quot;</code>,
+<code>type:"message"</code>, <code>role:"assistant"</code>,
 <code>content:[]ContentBlock</code>, <code>model</code>,
 <code>stop_reason</code> (end_turn|max_tokens|stop_sequence|tool_use),
 <code>stop_sequence</code>,
@@ -673,17 +897,20 @@ event is <code>event: &lt;type&gt;\ndata: &lt;json&gt;\n\n</code>
 sentinel</strong> (distinct from the OpenAI SSE path).</li>
 </ul>
 <p><strong>Example request:</strong></p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="er">POST</span> <span class="er">/v1/messages</span></span>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="er">POST</span> <span class="er">/v1/messages</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;model&quot;</span><span class="fu">:</span><span class="st">&quot;claude-sonnet-4-20250514&quot;</span><span class="fu">,</span><span class="dt">&quot;max_tokens&quot;</span><span class="fu">:</span><span class="dv">128</span><span class="fu">,</span></span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;messages&quot;</span><span class="fu">:</span><span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;role&quot;</span><span class="fu">:</span><span class="st">&quot;user&quot;</span><span class="fu">,</span><span class="dt">&quot;content&quot;</span><span class="fu">:</span><span class="st">&quot;Hi&quot;</span><span class="fu">}</span><span class="ot">]</span><span class="fu">,</span><span class="dt">&quot;stream&quot;</span><span class="fu">:</span><span class="kw">false</span><span class="fu">}</span></span></code></pre></div>
 <p><strong>Example response:</strong></p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;msg-helix-...&quot;</span><span class="fu">,</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span><span class="st">&quot;message&quot;</span><span class="fu">,</span><span class="dt">&quot;role&quot;</span><span class="fu">:</span><span class="st">&quot;assistant&quot;</span><span class="fu">,</span></span>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;msg-helix-...&quot;</span><span class="fu">,</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span><span class="st">&quot;message&quot;</span><span class="fu">,</span><span class="dt">&quot;role&quot;</span><span class="fu">:</span><span class="st">&quot;assistant&quot;</span><span class="fu">,</span></span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;content&quot;</span><span class="fu">:</span><span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span><span class="st">&quot;text&quot;</span><span class="fu">,</span><span class="dt">&quot;text&quot;</span><span class="fu">:</span><span class="st">&quot;Hello!&quot;</span><span class="fu">}</span><span class="ot">]</span><span class="fu">,</span><span class="dt">&quot;model&quot;</span><span class="fu">:</span><span class="st">&quot;claude-sonnet-4-20250514&quot;</span><span class="fu">,</span></span>
 <span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;stop_reason&quot;</span><span class="fu">:</span><span class="st">&quot;end_turn&quot;</span><span class="fu">,</span><span class="dt">&quot;stop_sequence&quot;</span><span class="fu">:</span><span class="kw">null</span><span class="fu">,</span></span>
 <span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;usage&quot;</span><span class="fu">:{</span><span class="dt">&quot;input_tokens&quot;</span><span class="fu">:</span><span class="dv">10</span><span class="fu">,</span><span class="dt">&quot;output_tokens&quot;</span><span class="fu">:</span><span class="dv">6</span><span class="fu">}}</span></span></code></pre></div>
 <hr />
 <h2 id="health-metrics">6. Health &amp; metrics</h2>
-<h3 id="get-internalhealth-server.go167179-188"><code>GET /internal/health</code>
+<h3
+id="get-internalhealth-server.go167179-188"><code>GET /internal/health</code>
 (<code>server.go:167,179-188</code>)</h3>
 <ul>
 <li>Returns the <code>health.Report</code>
@@ -694,7 +921,8 @@ sentinel</strong> (distinct from the OpenAI SSE path).</li>
 <code>Status == StatusHealthy</code>, else <code>503</code>
 (<code>server.go:182-186</code>).</li>
 </ul>
-<h3 id="get-internalmetrics-and-get-metrics"><code>GET /internal/metrics</code>
+<h3
+id="get-internalmetrics-and-get-metrics"><code>GET /internal/metrics</code>
 and <code>GET /metrics</code></h3>
 <ul>
 <li>Prometheus exposition text (<code>server.go:173/175</code>,
@@ -710,7 +938,7 @@ origins (<code>internal/gateway/websocket.go:18-20,30</code>).</li>
 <li><strong>Speaks the internal type, NOT the OpenAI shape:</strong> the
 client sends JSON-encoded <code>types.InternalChatRequest</code> frames
 and receives <code>types.InternalChatResponse</code> (or
-<code>{&quot;error&quot;:...}</code> / <code>{&quot;message&quot;:&quot;ok (no brain)&quot;}</code>)
+<code>{"error":...}</code> / <code>{"message":"ok (no brain)"}</code>)
 frames (<code>websocket.go:49-68</code>).</li>
 <li><code>types.InternalChatRequest</code>
 (<code>pkg/types/types.go:48-57</code>): <code>model</code>,
@@ -777,7 +1005,7 @@ Auxiliary internal endpoints (request/response shapes)</h2>
 <li><code>GET  /internal/knowledge/stats</code> — <code>Stats</code>
 (<code>api.go:90-99</code>).</li>
 <li>Error body:
-<code>{&quot;error&quot;:{&quot;message&quot;:..., &quot;type&quot;:&quot;knowledge_error&quot;}}</code>
+<code>{"error":{"message":..., "type":"knowledge_error"}}</code>
 (<code>api.go:105-112</code>).</li>
 </ul>
 <h3 id="control-cluster-internalcontrolapi.go">Control / cluster

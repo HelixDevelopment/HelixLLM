@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/auth"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	gwmw "github.com/HelixDevelopment/HelixLLM/internal/gateway/middleware"
 	"github.com/HelixDevelopment/HelixLLM/internal/knowledge"
@@ -61,6 +62,15 @@ type RouterOptions struct {
 	// /v1/hardware endpoint. Typed as interface{} to avoid coupling the
 	// gateway package to the hardware package.
 	HardwareProfile interface{} // *hardware.HardwareProfile
+	// JWT verifies and mints the JWT credential (HELIX_AUTH_JWT_SECRET).
+	//
+	// nil — the zero value, and what an unset secret produces — means JWT
+	// auth is off: /v1 authenticates exactly as it did before JWT existed,
+	// and POST /v1/auth/token answers 501. When non-nil, /v1 accepts EITHER a
+	// configured API key or a valid token, and requires one of them even if
+	// APIKeys is empty. See middleware.APIKeyOrJWTAuth for why enabling JWT
+	// closes an otherwise-open surface.
+	JWT *auth.Verifier
 }
 
 // RegisterRoutes attaches all gateway endpoint handlers and middleware to r
@@ -74,7 +84,7 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	r.Use(metrics.GinMiddleware())
 
 	v1 := r.Group("/v1")
-	v1.Use(gwmw.APIKeyAuth(opts.APIKeys))
+	v1.Use(gwmw.APIKeyOrJWTAuth(opts.APIKeys, opts.JWT))
 	v1.Use(gwmw.RateLimit(opts.RateLimit))
 	v1.Use(gwmw.SecurityHeaders())
 	// SEC-02 hardening: reject malformed-JSON request bodies with 400
@@ -99,6 +109,10 @@ func RegisterRoutes(r *gin.Engine, opts RouterOptions) {
 	// FRAGMENT, so they get one here rather than having no path at all.
 	v1.GET("/config/:consumer", HandleConsumerConfig(opts.ModelBrain))
 	v1.POST("/config/:consumer/merge", HandleConsumerConfigMerge(opts.ModelBrain))
+
+	// Token exchange: swap the credential you already hold for a short-lived
+	// JWT. Inside the authenticated group by design — see HandleIssueToken.
+	v1.POST("/auth/token", HandleIssueToken(opts.JWT))
 
 	// Hardware profile endpoint
 	v1.GET("/hardware", func(c *gin.Context) {

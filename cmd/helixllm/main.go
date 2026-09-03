@@ -14,6 +14,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/agents"
 	"github.com/HelixDevelopment/HelixLLM/internal/agents/tools"
+	"github.com/HelixDevelopment/HelixLLM/internal/auth"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/brain/models"
 	"github.com/HelixDevelopment/HelixLLM/internal/control"
@@ -453,9 +454,24 @@ func main() {
 	// relevant code pre-loaded instead of exploring via repeated tool calls.
 	// The FallbackChain is the primary Completer; brainSvc is kept as
 	// ModelBrain so /v1/models can enumerate available models.
+	// Build the JWT credential (HELIX_AUTH_JWT_SECRET). An unset secret yields
+	// a nil verifier — the documented off-switch — and every auth site then
+	// behaves exactly as it did before JWT existed. cfg.Validate() has already
+	// refused an unexpanded placeholder, a whitespace-only secret, and a
+	// secret shorter than RFC 7518's HS256 minimum, so an error here would be
+	// a bug in that ordering rather than an operator mistake; fail loudly
+	// rather than boot with authentication in an unknown state.
+	jwtVerifier, err := auth.New(cfg.Auth.JWTSecret, time.Duration(cfg.Auth.JWTTTLMinutes)*time.Minute)
+	if err != nil {
+		log.WithError(err).Error("refusing to start: HELIX_AUTH_JWT_SECRET is unusable")
+		os.Exit(1)
+	}
+	logAuthPosture(log, cfg.Auth.APIKeys, jwtVerifier)
+
 	toolMgr := gateway.DefaultToolManager()
 	gateway.RegisterRoutes(srv.Router(), gateway.RouterOptions{
 		APIKeys:         cfg.Auth.APIKeys,
+		JWT:             jwtVerifier,
 		RateLimit:       cfg.Server.RatePerMinute,
 		Brain:           fallbackChain,
 		ModelBrain:      brainSvc,
@@ -466,11 +482,16 @@ func main() {
 		HardwareProfile: hwProfile,
 	})
 	// DZ-05: gate the sensitive control/data/agent route groups with the SAME
-	// API-key middleware the gateway /v1 routes use (gwmw.APIKeyAuth). When
-	// cfg.Auth.APIKeys is empty the middleware runs in open-access mode —
-	// identical semantics to the gateway /v1 group — so behaviour is unchanged
-	// for open deployments and enforced the moment keys are configured.
-	dzAuth := gwmw.APIKeyAuth(cfg.Auth.APIKeys)
+	// middleware the gateway /v1 routes use. When neither credential is
+	// configured the middleware runs in open-access mode — identical semantics
+	// to the gateway /v1 group — so behaviour is unchanged for open
+	// deployments and enforced the moment keys or a JWT secret are configured.
+	//
+	// Passing the SAME verifier instance the /v1 group got is the point: a
+	// token minted by POST /v1/auth/token opens /internal/cluster/* and
+	// /internal/knowledge/* too, and there is exactly one place where the
+	// accepted-credential set is decided.
+	dzAuth := gwmw.APIKeyOrJWTAuth(cfg.Auth.APIKeys, jwtVerifier)
 	knowledge.RegisterKnowledgeRoutes(srv.Router(), pipeline, dzAuth)
 
 	// Auto-ingest codebase if configured.

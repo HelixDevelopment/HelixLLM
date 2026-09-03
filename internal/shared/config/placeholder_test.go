@@ -25,7 +25,7 @@ func validConfig() *HelixConfig {
 			OTELEndpoint: "http://localhost:4317",
 		},
 		Auth: AuthConfig{
-			JWTSecret: "s3cr3t-value-from-the-vault",
+			JWTSecret: "s3cr3t-value-from-the-vault-32b!",
 		},
 		DB: DatabaseConfig{
 			Host:     "localhost",
@@ -125,15 +125,15 @@ func TestValidate_AcceptsExpandedValues(t *testing.T) {
 	}{
 		{
 			name:   "ordinary substituted secret",
-			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "kJ8s0Zq2-real-secret" },
+			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "kJ8s0Zq2-real-secret-padded-32by" },
 		},
 		{
 			name:   "secret containing a bare dollar",
-			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "pa$$word-with-dollars" },
+			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "pa$$word-with-dollars-padded-32b" },
 		},
 		{
 			name:   "secret containing braces but no substitution token",
-			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "{json-ish}-secret" },
+			mutate: func(c *HelixConfig) { c.Auth.JWTSecret = "{json-ish}-secret-padded-to-32by" },
 		},
 		{
 			name:   "shell-style $VAR without braces is not the compose token shape",
@@ -211,7 +211,7 @@ func TestLoad_EnvPath_RefusesUnexpandedPlaceholder(t *testing.T) {
 }
 
 func TestLoad_EnvPath_AcceptsExpandedValue(t *testing.T) {
-	t.Setenv("HELIX_AUTH_JWT_SECRET", "an-actually-substituted-secret")
+	t.Setenv("HELIX_AUTH_JWT_SECRET", "an-actually-substituted-secret32")
 
 	cfg, err := Load()
 	if err != nil {
@@ -220,7 +220,7 @@ func TestLoad_EnvPath_AcceptsExpandedValue(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() = %v, want nil for a substituted secret", err)
 	}
-	if cfg.Auth.JWTSecret != "an-actually-substituted-secret" {
+	if cfg.Auth.JWTSecret != "an-actually-substituted-secret32" {
 		t.Errorf("Auth.JWTSecret = %q, want the substituted value", cfg.Auth.JWTSecret)
 	}
 }
@@ -271,14 +271,14 @@ func TestLoadFromFile_RefusesUnexpandedPlaceholder(t *testing.T) {
 // watcher's long-standing tolerance for partial configs is preserved.
 func TestLoadFromFile_AcceptsExpandedValues(t *testing.T) {
 	cfg := validConfig()
-	cfg.Auth.JWTSecret = "a-real-file-provided-secret"
+	cfg.Auth.JWTSecret = "a-real-file-provided-secret-32by"
 	path := writeJSON(t, cfg)
 
 	got, err := loadFromFile(path)
 	if err != nil {
 		t.Fatalf("loadFromFile() error = %v, want nil", err)
 	}
-	if got.Auth.JWTSecret != "a-real-file-provided-secret" {
+	if got.Auth.JWTSecret != "a-real-file-provided-secret-32by" {
 		t.Errorf("Auth.JWTSecret = %q, want the substituted value", got.Auth.JWTSecret)
 	}
 	if got.Mode != "full" {
