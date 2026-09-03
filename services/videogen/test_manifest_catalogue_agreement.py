@@ -227,6 +227,25 @@ def check_backends_resolve_or_are_unsupported(
                 "if a source that serves the recorded build has been established, lift the marker in "
                 "the same change; if it has not, the source must not be recorded"
             )
+        if has_source and refused_precision:
+            # CRITICAL-4. The symmetric half of the branch above, and the one that
+            # was MISSING: the check bit on `backend` and never on `precision`, so
+            # an entry recording a source for a quantisation this loader cannot
+            # read passed silently. That is not a lesser case of the same defect —
+            # it is the SAME defect with the worse blast radius, because the
+            # refused precision is `gguf-q4` and the only sources that exist for
+            # those entries are UNQUANTISED repositories. Recording one asserts
+            # "these are the weights for the build above" about weights that are
+            # a different build entirely, at a different memory and disk cost.
+            problems.append(
+                f"{model_id} records a source but its recorded quantisation {quant!r} is one this "
+                "loader does not implement: the source therefore cannot be the weights for the build "
+                "this entry describes — it is a source for a DIFFERENT build, recorded in the field "
+                "the acquisition gate validates and the runtime fetches from. Either establish a "
+                "source that genuinely serves the recorded quantisation (and lift the marker in the "
+                "same change), or withdraw the source so `repositoryFor` refuses the entry at boot "
+                "as it does for the ltx entry"
+            )
         if refused:
             why = unsupported_backends.get(backend) or unimplemented_precisions.get(quant) or ""
             if "establish support" not in why.lower():
@@ -256,6 +275,66 @@ def check_server_and_manifest_markers_agree(manifest: dict, unsupported_backends
     return problems
 
 
+def check_sources_serve_the_recorded_build(manifest: dict, entries: dict) -> list[str]:
+    """CRITICAL-4: the manifest and the catalogue must agree about what a repo IS.
+
+    The manifest already grades every repository it names with
+    `serves_recorded_build`. Where that grade is `false` the manifest states, in
+    its own words, that the repository is retained "as the PROVENANCE of the
+    measured encoder size ... NOT as a weight source to fetch".
+
+    `source:` is the one field the runtime DOES fetch from (`repositoryFor` reads
+    it and nothing else) and the one field the FR-012/SC-011 allowlist validates.
+    So a repo the manifest grades `serves_recorded_build: false` appearing as its
+    entry's `source:` is not a nuance — it is the two documents flatly
+    contradicting each other about the same URL, with the runtime believing the
+    one that is wrong.
+
+    Returns a list of contradictions; empty means the two documents agree.
+    """
+    problems: list[str] = []
+    graded = 0
+    for source in manifest.get("sources") or []:
+        name = source.get("name", "<unnamed>")
+        if "serves_recorded_build" not in source:
+            problems.append(
+                f"manifest source {name} states no `serves_recorded_build`: whether a repository "
+                "serves the build its entry records is the fact this check exists to compare, and "
+                "an ungraded repository is one nothing can compare"
+            )
+            continue
+        graded += 1
+        if source["serves_recorded_build"]:
+            continue
+
+        entry_id = source.get("catalogue_entry")
+        entry = entries.get(entry_id)
+        if entry is None:
+            problems.append(
+                f"manifest source {name} names catalogue_entry {entry_id!r}, which is not in the "
+                "catalogue — the grade cannot be checked against anything"
+            )
+            continue
+
+        recorded = str(entry.get("source") or "").strip()
+        if not recorded:
+            continue
+        repo = source.get("repo", "")
+        if repo and repo in recorded:
+            problems.append(
+                f"{entry_id} records source {recorded!r}, but the manifest grades that same "
+                f"repository (source {name}) `serves_recorded_build: false` — the two documents "
+                "contradict each other about the same URL. `source:` is what the runtime fetches "
+                "from and what the acquisition gate validates, so recording it here asserts the "
+                "opposite of what the manifest measured. Withdraw the source (keeping the URL in "
+                "`annotations` as provenance, as the ltx entry does) or re-grade the manifest with "
+                "the measurement that justifies it"
+            )
+    if graded == 0:
+        problems.append("no manifest source carried a `serves_recorded_build` grade — refusing to pass vacuously")
+    return problems
+
+
 # --------------------------------------------------------------------------
 # the PRE-FIX inputs, replayed through the same checkers under RED_MODE=1
 # --------------------------------------------------------------------------
@@ -274,6 +353,30 @@ PRE_FIX_MANIFEST = {
 # the pre-fix loader: an `ltx` backend with no refusal marker at all
 PRE_FIX_UNSUPPORTED_BACKENDS: dict[str, str] = {}
 PRE_FIX_UNIMPLEMENTED_PRECISIONS: dict[str, str] = {}
+
+# CRITICAL-4's pre-fix catalogue: the `wan2.2-t2v-a14b` entry as it shipped —
+# quantisation `gguf-q4` (which this loader cannot read at all) recorded
+# alongside a `source:` pointing at the UNQUANTISED Diffusers repository. Both
+# documents already MEASURED that repo as containing zero .gguf files; only the
+# field the runtime actually fetches from still said otherwise.
+PRE_FIX_SOURCED_GGUF_ENTRIES = {
+    "wan2.2-t2v-a14b": {
+        "model_id": "wan2.2-t2v-a14b",
+        "descriptor": {"quantisation": "gguf-q4"},
+        "source": "https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+    },
+}
+
+PRE_FIX_GRADED_MANIFEST = {
+    "sources": [
+        {
+            "name": "wan22_14b_gguf",
+            "repo": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+            "catalogue_entry": "wan2.2-t2v-a14b",
+            "serves_recorded_build": False,
+        },
+    ],
+}
 
 
 class DiskFiguresAgree(unittest.TestCase):
@@ -388,6 +491,143 @@ class BackendsResolveWhatIsRecorded(unittest.TestCase):
                 "gguf-q4 refusal must be lifted and the affected entries re-measured in the "
                 "same change, or this guard is asserting a gap that no longer exists",
             )
+
+
+class SourcesServeTheRecordedBuild(unittest.TestCase):
+    """CRITICAL-4 — the root cause of all three ltx-class defects.
+
+    All three came from ONE fact about this service: it has NO GGUF load path.
+    It builds pipelines through `from_pretrained` alone, which resolves a
+    diffusers-format repository via `model_index.json` and cannot read a
+    single-file `.gguf` checkpoint. Everything else followed from three records
+    written as though it could:
+
+      EX-2         the `ltx` backend, pointed at a repo with no .gguf
+      EX-12        the ltx entry, correctly left with no source
+      CRITICAL-4   `wan2.2-t2v-a14b`, recording `gguf-q4` AND a source — the
+                   one that was still LIVE, because nothing compared the
+                   quantisation against the recorded source
+
+    The refusals now cover the SERVING path twice (the loader refuses `gguf-q4`
+    at configuration time; the boot's `servingPrecisions` no longer lists it, so
+    selection refuses first with exit 24). This class covers the DATA, which is
+    the layer those refusals do not reach: both of them are conditions a future
+    change is explicitly invited to lift — the loader's own remedy text and
+    `modelchoice.go` both say "add the precision back HERE in the same change".
+    Lifting them with the wrong source still recorded re-arms the defect
+    immediately, so the source must be wrong in NO document, not merely
+    unreachable through two of them.
+    """
+
+    def test_no_entry_records_a_source_for_a_precision_the_loader_cannot_read(self):
+        entries = load_catalogue_entries()
+        backend_of = runtime_backend_map()
+        if red_mode():
+            # The pre-fix catalogue, through the SAME checker, with today's real
+            # refusal tables — which is the honest pre-fix pairing: the loader
+            # refused gguf-q4 and the entry recorded a source for it anyway.
+            unimplemented, unsupported = server_markers()
+            problems = check_backends_resolve_or_are_unsupported(
+                PRE_FIX_SOURCED_GGUF_ENTRIES,
+                {"wan2.2-t2v-a14b": "wan"},
+                unsupported,
+                unimplemented,
+            )
+            self.assertTrue(
+                problems,
+                "RED_MODE=1: the pre-fix entry recorded a source for a quantisation the loader "
+                "cannot read, so the checker MUST report it. Silence here means the guard cannot "
+                "catch the defect it exists for.",
+            )
+            self.assertTrue(
+                any("wan2.2-t2v-a14b" in p and "quantisation" in p for p in problems),
+                f"RED_MODE=1: expected the sourced gguf-q4 entry to be named; got {problems}",
+            )
+            return
+        unimplemented, unsupported = server_markers()
+        self.assertEqual(
+            check_backends_resolve_or_are_unsupported(entries, backend_of, unsupported, unimplemented), []
+        )
+
+    def test_manifest_and_catalogue_agree_on_what_each_repo_serves(self):
+        if red_mode():
+            problems = check_sources_serve_the_recorded_build(
+                PRE_FIX_GRADED_MANIFEST, PRE_FIX_SOURCED_GGUF_ENTRIES
+            )
+            self.assertTrue(
+                problems,
+                "RED_MODE=1: the manifest graded that repo `serves_recorded_build: false` while the "
+                "entry recorded it as `source:`. The checker MUST report the contradiction.",
+            )
+            self.assertTrue(
+                any("contradict" in p for p in problems),
+                f"RED_MODE=1: expected the contradiction to be named; got {problems}",
+            )
+            return
+        self.assertEqual(
+            check_sources_serve_the_recorded_build(load_manifest(), load_catalogue_entries()), []
+        )
+
+    def test_the_gguf_entries_are_unacquirable_at_boot(self):
+        """The remedy, asserted where a caller meets it.
+
+        `repositoryFor` reads `Entry.Source` and nothing else, so an entry with
+        no source cannot reach a download regardless of what any precision table
+        later says. That is the property that survives someone adding a GGUF
+        load path: this is a DATA refusal, not a runtime one.
+        """
+        if red_mode():
+            self.skipTest(
+                "SKIP-OK: no pre-fix counterpart — the pre-fix a14b entry recorded a source, which "
+                "is the defect this asserts the absence of"
+            )
+        entries = load_catalogue_entries()
+        unimplemented, _ = server_markers()
+        checked = 0
+        for model_id, entry in sorted(entries.items()):
+            quant = str((entry.get("descriptor") or {}).get("quantisation") or "").strip().lower()
+            if quant not in unimplemented:
+                continue
+            checked += 1
+            self.assertEqual(
+                str(entry.get("source") or ""), "",
+                f"{model_id} records quantisation {quant!r}, which this loader cannot read, yet it "
+                "records a weight source: boot would resolve a repository for a build that cannot "
+                "be served from it",
+            )
+        self.assertGreater(
+            checked, 0,
+            "no entry carried an unimplemented quantisation; this guard asserted nothing. Either the "
+            "loader's refusal table was emptied (in which case a GGUF load path must now exist and "
+            "these entries need re-measured sources) or the entries were removed",
+        )
+
+    def test_video_generation_still_has_an_acquirable_option(self):
+        """Withdrawing a source must not withdraw the capability (§11.4.122).
+
+        The a14b source was withdrawn because it was wrong for that entry, not
+        because video generation should stop being offered. The default fp8 path
+        keeps a recorded, servable source; if this ever fails, the lane has no
+        bootable option left and that is a capability loss, not a data fix.
+        """
+        if red_mode():
+            self.skipTest("SKIP-OK: no pre-fix counterpart — the capability was never absent")
+        entries = load_catalogue_entries()
+        unimplemented, unsupported = server_markers()
+        backend_of = runtime_backend_map()
+        servable = [
+            model_id
+            for model_id, entry in entries.items()
+            if str(entry.get("source") or "").strip()
+            and str((entry.get("descriptor") or {}).get("quantisation") or "").strip().lower()
+            not in unimplemented
+            and backend_of.get(model_id) not in unsupported
+        ]
+        self.assertTrue(
+            servable,
+            "no video entry is both sourced AND servable by this loader: the lane can measure the "
+            "host and then boot nothing. Video generation would be silently unavailable",
+        )
 
 
 if __name__ == "__main__":
