@@ -119,6 +119,13 @@ type ChallengeStep struct {
 	Action   string `yaml:"action"`
 	Expected string `yaml:"expected"`
 
+	// Requires names the deployment properties this step needs in order for
+	// its assertions to mean anything (see precondition.go). Each is PROBED
+	// against the live target at run time; an unsatisfied one skips the step
+	// with a reason naming what is missing and how to supply it. The set is
+	// closed and an unknown name is a load error.
+	Requires []string `yaml:"requires"`
+
 	// kind is resolved at load time by validateStep.
 	kind string `yaml:"-"`
 	// http is the normalised request, populated for kind == kindHTTP.
@@ -258,6 +265,10 @@ type Runner struct {
 	filesSeen int
 	baseURL   string
 	client    *http.Client
+
+	// probes memoises the outcome of each declared precondition so a run
+	// costs one probe request per precondition, not one per step.
+	probes preconditionProbes
 }
 
 // NewRunner creates a Runner that targets baseURL for HTTP challenges.
@@ -435,6 +446,13 @@ var httpMethods = map[string]bool{
 // cannot account for. A step that declares no executable action is an
 // ERROR at load time — it is never silently dropped into a skip.
 func validateStep(s *ChallengeStep) error {
+	// Preconditions are shape-independent, so they are validated before the
+	// shape switch and rejected at LOAD time. A typo'd precondition must
+	// never silently disable a challenge.
+	if err := validatePreconditions(s.Requires); err != nil {
+		return err
+	}
+
 	switch {
 	case s.Action != "":
 		return validateCompactStep(s)
@@ -784,6 +802,22 @@ func (r *Runner) runChallenge(ctx context.Context, ch Challenge) ChallengeResult
 
 // runStep executes a single step according to the kind resolved at load time.
 func (r *Runner) runStep(ctx context.Context, step ChallengeStep) StepResult {
+	// Declared preconditions are probed against the live target before the
+	// step runs. An unsatisfied one SKIPS with a reason naming what is
+	// missing; a probe that could not be performed FAILS, because an
+	// unreachable target is a broken run, not an unmet precondition.
+	if len(step.Requires) > 0 {
+		name, got, ok := r.checkPreconditions(ctx, step.Requires)
+		switch {
+		case got.err != nil:
+			return StepResult{Name: step.Name, Status: StatusFailed,
+				Detail: got.err.Error()}
+		case !ok:
+			return StepResult{Name: step.Name, Status: StatusSkipped,
+				Detail: skipDetail(name, got)}
+		}
+	}
+
 	switch step.kind {
 	case kindHTTP:
 		return r.runHTTPStep(ctx, step)

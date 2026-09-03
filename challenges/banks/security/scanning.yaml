@@ -31,9 +31,17 @@ challenges:
             name: Strict-Transport-Security
 
   - name: invalid_auth_rejected
-    description: Invalid API key should return 401 when auth is enabled
+    description: Invalid API key must return 401 on a deployment with auth enabled
     steps:
-      - method: POST
+      # The "when auth is enabled" in this challenge's own description was the
+      # whole precondition, stated in prose and enforced nowhere. It was
+      # carried instead by accepting 200 as well as 401 — which meant the
+      # challenge passed on an open-access deployment without testing auth at
+      # all, and would keep passing once a provider existed. Declaring the
+      # precondition lets the assertion be the strict one it always meant:
+      # on a keyed deployment an unknown key is 401, full stop.
+      - requires: [keyed_auth]
+        method: POST
         path: /v1/chat/completions
         headers:
           Authorization: "Bearer invalid-key-12345"
@@ -43,5 +51,5 @@ challenges:
             - role: user
               content: "test"
         assertions:
-          - type: status_one_of
-            values: [401, 200]
+          - type: status
+            value: 401

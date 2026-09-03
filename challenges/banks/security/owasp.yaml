@@ -130,6 +130,12 @@ steps:
 
   # CH-SEC-005: Authentication bypass with malformed bearer token
   - name: auth-bypass-malformed-bearer
+    # Rejecting a malformed Bearer token with 401 is a property of the auth
+    # layer, and the auth layer only rejects when keys are configured. On an
+    # open-access deployment there is no rejection to bypass, so the challenge
+    # declares the deployment it needs; the harness probes for it and skips
+    # with a reason when it is absent.
+    requires: [keyed_auth]
     type: http_request
     params:
       method: POST

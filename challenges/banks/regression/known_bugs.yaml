@@ -113,6 +113,15 @@ steps:
 
   # CH-REG-005: Auth with empty bearer token (was: nil dereference in auth middleware)
   - name: auth-empty-bearer-token
+    # An empty Bearer token can only be answered 401 by a deployment that has
+    # API keys configured; with none configured the auth middleware admits
+    # every request BY DESIGN (internal/gateway/middleware/auth.go) and this
+    # regression is unobservable. Declaring the precondition makes the harness
+    # probe the target and, on an open-access deployment, skip with a reason
+    # naming what is missing — rather than assert a behaviour the target was
+    # never asked to have. Verified on this host, same binary, two servers:
+    # open-access -> 503, keyed (HELIX_AUTH_API_KEYS set) -> 401.
+    requires: [keyed_auth]
     type: http_request
     params:
       method: POST
