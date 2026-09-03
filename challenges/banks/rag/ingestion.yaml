@@ -36,7 +36,12 @@ steps:
       - type: http_status_ok
       - type: not_empty
         field: body.document_id
-      - type: min_count
+      # min_value, not min_count: IngestResult reports Chunks as an int, so
+      # the response is {"chunks": 3}, not {"chunks": [...]}. min_count asks
+      # for a length and an integer has none, which is why this step failed
+      # with "field body.chunks is not countable" -- a shape mismatch between
+      # the assertion and a perfectly reasonable API, not a defect in either.
+      - type: min_value
         field: body.chunks
         expected: 1
       - type: contains

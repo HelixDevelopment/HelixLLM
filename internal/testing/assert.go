@@ -39,6 +39,7 @@ var httpAssertions = map[string]bool{
 	"max_latency":          true,
 	"response_time_p99_ms": true,
 	"min_count":            true,
+	"min_value":            true,
 	"not_all_zero":         true,
 	"all_match":            true,
 	"none_match":           true,
@@ -329,6 +330,35 @@ func evalAssertion(a Assertion, samples []httpSample) error {
 			if float64(n) < want {
 				return fmt.Errorf("field %s has %d element(s), want >= %d",
 					a.Field, n, int(want))
+			}
+			return nil
+
+		case "min_value":
+			// min_count answers "how many elements", min_value answers "how
+			// large is this number". They are different questions and the
+			// distinction matters: a field reporting a COUNT as an integer --
+			// `{"chunks": 3}` rather than `{"chunks": [...]}` -- is not
+			// countable, so min_count rejects it with "is not countable" and
+			// there was previously no way to state the assertion at all.
+			//
+			// That is not hypothetical. challenges/banks/rag/ingestion.yaml
+			// wanted "at least one chunk was produced" against an IngestResult
+			// whose Chunks field is an int, and the vocabulary could not
+			// express it.
+			if !present {
+				return fmt.Errorf("field %s is absent", a.Field)
+			}
+			want, ok := numericOf(a.Expected, a.Value)
+			if !ok {
+				return fmt.Errorf("no minimum given")
+			}
+			have, ok := toFloat(got)
+			if !ok {
+				return fmt.Errorf("field %s = %v is not a number; use min_count for a collection",
+					a.Field, got)
+			}
+			if have < want {
+				return fmt.Errorf("field %s = %v, want >= %v", a.Field, have, want)
 			}
 			return nil
 
