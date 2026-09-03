@@ -11,12 +11,32 @@
 # WHY THIS FILE IS DIFFERENT FROM ITS SIBLINGS
 # ---------------------------------------------------------------------------
 # Unlike most families in this catalogue, video generation ALREADY SHIPS a real
-# serving path in this repository. Every entry below describes a model that
-# `services/videogen/videogen_server.py` can actually load and serve — nothing
-# aspirational is listed. The service is real infrastructure, not a test double:
-# its own header records that every clip comes from an actual `pipe(...)`
-# diffusion call over real weights, and that a load failure returns HTTP 503
-# with the exact reason rather than a fabricated clip.
+# serving path in this repository. The service is real infrastructure, not a test
+# double: its own header records that every clip comes from an actual `pipe(...)`
+# diffusion call over real weights, and that a load failure returns HTTP 503 with
+# the exact reason rather than a fabricated clip.
+#
+# WHAT THE SHIPPED LOADER CAN SERVE — CORRECTED 2026-09-03 (§11.4.6). An earlier
+# revision of this header claimed "every entry below describes a model that
+# videogen_server.py can actually load and serve". That was NOT true, and the way
+# it was untrue mattered: the service builds pipelines through `from_pretrained`
+# alone, which resolves a diffusers-format repository via `model_index.json` and
+# CANNOT read single-file `.gguf` weights. There is no GGUF load path in it at
+# all — no `from_single_file`, no `GGUFQuantizationConfig`. So of the three
+# entries here, exactly ONE is servable today:
+#
+#   wan2.2-ti2v-5b   fp8-480p    SERVABLE — the shipped default, source recorded
+#   wan2.2-t2v-a14b  gguf-q4     NOT servable: precision has no loader path
+#   ltx-video-13b    gguf-q4     NOT servable: precision has no loader path, and
+#                                no source serves the recorded 13B build
+#
+# The two unservable entries are refused BEFORE any weight is fetched, at three
+# independent layers (selection / configuration / acquisition), and each refusal
+# states what would establish support. They are catalogued rather than deleted
+# because they are real, researched, measured options this runtime does not yet
+# implement — the honest record is "recorded and refused with a way out", not a
+# silent omission. `services/videogen/test_manifest_catalogue_agreement.py`
+# fails if this table and the loader's refusal markers ever disagree.
 #
 # All three researched models are entries. Nothing in this file is deferred:
 # every one carries both a memory figure and a storage figure, a licence id and
@@ -121,14 +141,20 @@
 #   none is inferable from `architecture: diffusion` — eligibility is roster
 #   membership and nothing else (D1). Stating no family is the accurate record;
 #   this file therefore declares no `streaming_roster` either.
-# * `source` is stated on NO entry here, and that is a deliberate abstention
-#   rather than an oversight: this research pass recorded no per-entry weight
-#   source key. The HF repository each entry's MEASURED figures were read from
-#   is carried in `annotations.weights_repo` — for the WAN 5B entry that repo is
-#   also the shipped default the service loads, so promoting it to `source` is a
-#   one-line change. It is not made here because `source` is the value the
-#   acquisition allowlist is checked against (FR-012/SC-011), and what that gate
-#   sees is a data decision, not a reshape.
+# * `source` is stated on EXACTLY ONE entry — `wan2.2-ti2v-5b`, the shipped
+#   default — and its absence on the other two is a deliberate, evidence-backed
+#   abstention rather than an oversight. (CORRECTED 2026-09-03: this note
+#   previously read "stated on NO entry here", which was written before the WAN
+#   5B source was promoted and was left stale afterwards.) `source` is the value
+#   the acquisition allowlist is checked against (FR-012/SC-011) and the ONLY
+#   field `cmd/videogen-boot`'s `repositoryFor` reads, so it must name a
+#   repository that genuinely serves the build its entry describes. For both
+#   `gguf-q4` entries no such repository is established — the obvious candidates
+#   were MEASURED to contain zero `.gguf` files — so neither records one, and
+#   each carries the URL its measured figures came from in `annotations` instead.
+#   `annotations` are deliberately NOT consulted by the runtime: they are carried
+#   and shown, never read to make a decision, and they are not validated, so
+#   falling back to one would hand the runtime a location the gate never saw.
 #
 # ---------------------------------------------------------------------------
 # DELIBERATELY ABSENT: the MUST-PAUSE configurations
@@ -222,7 +248,39 @@ entries:
     memory_required_bytes: 8589934592
     storage_required_bytes: 27917287424
     requires_accelerator: true
-    source: https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B-Diffusers
+    # NO source: WITHDRAWN 2026-09-03, and the reason is a correction rather than a
+    # preference. This entry describes a GGUF-Q4 build. The URL that used to sit here —
+    # huggingface.co/Wan-AI/Wan2.2-T2V-A14B-Diffusers — was MEASURED on 2026-09-02 to
+    # contain ZERO .gguf files, so it is not where this build's weights live; the
+    # weight manifest already graded it `serves_recorded_build: false` and described it
+    # in its own words as retained "as the PROVENANCE of the measured encoder size ...
+    # NOT as a weight source to fetch". `source:` is the ONE field the runtime fetches
+    # from (`repositoryFor` reads it and nothing else) and the ONE field the
+    # FR-012/SC-011 allowlist validates — so keeping it here made the two documents
+    # contradict each other about the same URL, with the runtime believing the wrong one.
+    #
+    # WHY WITHDRAWING IT WAS NECESSARY AND NOT MERELY TIDY. The serving path already
+    # refuses this configuration twice: videogen_server.py marks precision `gguf-q4`
+    # unimplemented, and cmd/videogen-boot's `servingPrecisions` no longer lists it, so
+    # selection refuses first (exit 24) before any container starts. But BOTH of those
+    # are conditions a future change is explicitly INVITED to lift — the loader's own
+    # remedy text and modelchoice.go both say to add the precision back in the same
+    # change that adds a GGUF load path. Lifting them with this source still recorded
+    # would have re-armed the original defect on the spot: `from_pretrained` would have
+    # served the FULL UNQUANTISED model under this entry's identity, at a memory cost
+    # its 8 GiB figure was never measured for, after fetching 117.53 GiB against a
+    # 26 GiB storage figure. With no source, `repositoryFor` refuses the entry at boot
+    # regardless of what any precision table later says — a DATA refusal that survives
+    # the runtime ones being lifted.
+    #
+    # The URL is NOT lost: it stays in `annotations.weights_repo_unquantised` as the
+    # provenance of the measured encoder size and the unquantised contrast figure,
+    # exactly as ltx-video-13b keeps its own. Restoring a `source:` here means recording
+    # a repository that genuinely serves a WAN 2.2 T2V-A14B GGUF-Q4 asset, with its
+    # MEASURED size, in the same change that adds the GGUF load path — see the
+    # WHAT WOULD ESTABLISH SUPPORT note on the ltx entry for the two routes, which apply
+    # unchanged here. `test_manifest_catalogue_agreement.py` now fails if a source is
+    # recorded for a quantisation the loader cannot read, so this cannot silently return.
     usage_terms:
       license_id: Apache-2.0
       permitted: [commercial, personal, research, evaluation]
@@ -242,8 +300,9 @@ entries:
       - "UNVERIFIED: the memory figure was never measured on this card; the band is research-cited, PENDING the same first-run calibration as the default path."
       - "UNVERIFIED: the storage figure is a COMPOSED ESTIMATE, not a measurement. The GGUF-Q4 quant asset is env-injected (the server hardcodes no weight id) and is NOT present in the Diffusers repo, so its true size could not be measured. Estimate = 27B total weights at Q4_K (~0.55 B/param) ~= 14.8 GiB, plus the UMT5-XXL text encoder, which is downloaded in full and only then processor-offloaded (MEASURED at 10.58 GiB of shards in the sibling 5B repo, same encoder family), plus VAE ~0.5 GiB."
       - "MEASURED for contrast, if this entry is ever pointed at the unquantised repo instead: Wan-AI/Wan2.2-T2V-A14B-Diffusers totals 126_200_628_126 B (117.53 GiB) — an order of magnitude more disk, and a different entry."
-      - "SOURCE/BUILD MISMATCH, recorded 2026-09-02 rather than papered over (§11.4.6). The `source:` above IS that unquantised repo — the contrast figure in the note above is the source this entry actually records. VERIFIED against the HF blob API: it contains ZERO `.gguf` files, so it does not serve the `gguf-q4` build this entry describes. It passes the FR-012/SC-011 allowlist (it is a well-formed model-repository reference), so `videogen-boot` CAN emit it; loading it through the service's `from_pretrained` path would then yield the FULL unquantised model at a memory cost this entry's 8 GiB figure was never measured for, and 117.53 GiB of disk against a 26 GiB storage figure."
-      - "CONTAINED, not yet resolved: the service refuses this configuration at CONFIGURATION time — `videogen_server.py` marks precision `gguf-q4` unimplemented (it builds only through `from_pretrained`, which cannot read single-file `.gguf` weights) and returns 503 from /health and /v1/videos/generations BEFORE any weight is fetched. So the wrong build is never served and the 117.53 GiB is never downloaded. The residual is that boot still offers this entry and the failure surfaces at the container rather than at selection; resolving that means either recording a source that genuinely serves a GGUF-Q4 build, or withdrawing the source so `repositoryFor` refuses it at boot as it does for ltx-video-13b. Either is a data decision, made deliberately and not here."
+      - "SOURCE/BUILD MISMATCH, recorded 2026-09-02 rather than papered over (§11.4.6), and RESOLVED 2026-09-03. The entry USED TO record that unquantised repo as `source:` — the contrast figure in the note above is what it pointed at. VERIFIED against the HF blob API: it contains ZERO `.gguf` files, so it does not serve the `gguf-q4` build this entry describes. It passed the FR-012/SC-011 allowlist (it is a well-formed model-repository reference), so `videogen-boot` COULD emit it; loading it through the service's `from_pretrained` path would then have yielded the FULL unquantised model at a memory cost this entry's 8 GiB figure was never measured for, and 117.53 GiB of disk against a 26 GiB storage figure. The source is now WITHDRAWN — see the comment above `usage_terms` for why withdrawal was the correction and not merely a tidy-up."
+      - "RESOLVED 2026-09-03 at the DATA layer, which is the layer the runtime refusals could not reach. Three independent refusals now cover this configuration: (1) SELECTION — `cmd/videogen-boot`'s `servingPrecisions` does not list `gguf-q4`, so `precisionFor` refuses before any container starts (exit 24); (2) CONFIGURATION — `videogen_server.py` marks the precision unimplemented and answers 503 from /health and /v1/videos/generations before any weight is fetched; (3) ACQUISITION — this entry now records NO `source:`, so `repositoryFor` refuses it at boot with 'records no weight source'. (1) and (2) are conditions a future change is explicitly invited to lift in the same commit that adds a GGUF load path; (3) is not, which is why it is the one that makes the containment durable. The former residual — 'boot still offers this entry and the failure surfaces at the container rather than at selection' — is closed by (1) and (3) together. The remaining open question is a genuine ENGINEERING decision, not a data one: whether to implement the GGUF load path at all. Until it is implemented, no `source:` can be correct for this entry."
+      - "GUARDED: `services/videogen/test_manifest_catalogue_agreement.py` (class `SourcesServeTheRecordedBuild`) now FAILS if any entry records a `source:` for a quantisation the loader's `_UNIMPLEMENTED_PRECISIONS` table names, and separately if a manifest source graded `serves_recorded_build: false` reappears as its entry's `source:`. The guard was authored against the pre-fix state and observed FAILING on it (§11.4.115), so it is falsifiable rather than decorative. It also asserts the video lane still has at least one sourced-and-servable entry, so a future withdrawal cannot quietly cost the capability (§11.4.122)."
       - "UNVERIFIED: no `integrity.size_bytes` is stated — the env-injected GGUF asset's size is not measurable in-repo. A zero would read as a measured zero-length file."
       - "The HF card supports 480P and 720P at 24 fps, 5-second clips. 720P on this model is a MUST-PAUSE path (~14-16 GB) and is not offered; `expected_capability` states the served 480p configuration."
       - "PENDING-ACQUISITION: no weight digest recorded."
