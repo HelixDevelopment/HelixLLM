@@ -8,6 +8,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/naming"
+	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 )
 
 // Contract: specs/002-adaptive-local-model-serving/contracts/model-listing.md
@@ -236,8 +237,24 @@ func TestModelOptions_ConflictingIdentifierIsWithheldNotSilentlyRebound(t *testi
 		t.Errorf("identifier %q now resolves to (%q, %v); the conflicting registration "+
 			"overwrote the incumbent binding", identifier, back.String(), ok)
 	}
-	if len(b.Models()) != 0 {
-		t.Errorf("a conflicted option was published as a usable model: %+v", b.Models())
+	// The conflicted option is LISTED — a consumer that cannot see it cannot
+	// report what it lost — but it is never offered as usable, and it says why.
+	published := b.Models()
+	if len(published) != 1 {
+		t.Fatalf("Models() published %d entries, want the 1 conflicted option "+
+			"reported as withheld: %+v", len(published), published)
+	}
+	if published[0].Availability != api.AvailabilityWithheld {
+		t.Errorf("a conflicted option was published as %q; a consumer routes to exactly "+
+			"%q, and this model is answered by a DIFFERENT one",
+			published[0].Availability, api.AvailabilityServing)
+	}
+	if published[0].WithheldReason != api.WithheldIdentifierConflict {
+		t.Errorf("withheld_reason = %q, want %q — the collision is the part the "+
+			"operator can act on", published[0].WithheldReason, api.WithheldIdentifierConflict)
+	}
+	if published[0].ID == identifier {
+		t.Errorf("the contested identifier %q reached the listing anyway", identifier)
 	}
 }
 

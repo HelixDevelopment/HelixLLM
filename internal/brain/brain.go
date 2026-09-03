@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/sync/semaphore"
 
@@ -353,21 +354,55 @@ func (b *Brain) Providers() map[string]Provider {
 // configuration still routes untouched. That pairing is the migration path the
 // listing contract requires for a non-additive change to `id`.
 //
-// Unavailable options are OMITTED here rather than flagged, because the caller
-// of this listing is the OpenAI-compatible surface, where every entry is an
-// offer the client may act on immediately: a stopped model presented as usable
-// costs the user a failed request, so it is the more harmful of the two errors.
-// A consuming tool that needs to SEE the unavailable options and why they are
-// withheld calls [Brain.ModelOptions], which lists them with their reasons.
+// Unavailable options are LISTED here, flagged [api.AvailabilityWithheld] and
+// carrying the reason. They were once omitted, on the ground that every entry
+// of an OpenAI-compatible listing is an offer the client may act on — but that
+// conflated "do not offer it" with "do not mention it". The offer is carried by
+// the availability field, not by presence in the list, and dropping the entry
+// made a loading backend indistinguishable from a withdrawn model for every
+// consumer. See [modelsFromOptions] for what keeps a withheld entry from being
+// consumed as a usable one.
+//
+// [Brain.ModelOptions] remains the in-process view, with this package's own
+// reason tokens rather than the wire's.
 func (b *Brain) Models() []api.Model {
 	return modelsFromOptions(b.ModelOptions())
 }
 
-// modelsFromOptions renders the listed options onto the wire type. Unavailable
-// options are omitted rather than listed: a model shown as usable that is not
-// being served costs the caller a failed request. ModelOptions() still reports
-// them WITH their withheld reason, so a consumer that wants to distinguish "not
-// served right now" from "does not exist" can.
+// modelsFromOptions renders the listed options onto the wire type — every
+// option, served or not, each labelled with what it actually is.
+//
+// # Why unavailable options are now listed
+//
+// They used to be dropped here, for a reason that still holds: a model shown as
+// USABLE that is not being served costs the caller a failed request. Nothing
+// below relaxes that. The mistake was treating "do not offer it" and "do not
+// mention it" as the same instruction.
+//
+// Dropping them makes a host whose backend is LOADING publish exactly what a
+// host that has WITHDRAWN a model publishes: an absence. A consuming tool
+// sweeping for models it can no longer find then cannot tell "it is coming
+// back" from "it is gone", and the tool that deletes the user's configuration
+// for a restarting host is behaving correctly on the only information it was
+// given. api.Model.WithheldReason exists precisely to carry that distinction,
+// and until this change nothing ever wrote it — the consumer's validation of a
+// field the producer never sent could not fire.
+//
+// # What keeps a withheld entry from being taken as usable
+//
+// The offer is carried by Availability, not by presence in the list. A served
+// option reports [api.AvailabilityServing]; a withheld one reports
+// [api.AvailabilityWithheld] and never the former, so:
+//
+//   - helix_agent admits only the two recorded states and binds its entry's
+//     Enabled to "serving" alone;
+//   - the Claude Toolkit's serving filter reads `(.availability // "serving")
+//     == "serving"` — its default covers older builds that had no field at all,
+//     and an EXPLICIT "withheld" is honoured and excluded;
+//   - a request naming a withheld model still fails at the pin, because being
+//     listed is not being served.
+//
+// The withheld entry is a STATEMENT ABOUT a model, not an offer of one.
 func modelsFromOptions(opts []ModelOption) []api.Model {
 	// Non-nil from the start. A nil slice marshals as `null`, and a listing
 	// that says `"data": null` reads as a malformed body rather than as a
@@ -377,18 +412,87 @@ func modelsFromOptions(opts []ModelOption) []api.Model {
 	// the empty list it is.
 	models := []api.Model{}
 	for _, opt := range opts {
-		if !opt.Available {
+		if !safeToPublish(opt.Identifier) {
+			// The ONE class that is still dropped rather than published. An
+			// option whose name could not form a valid identity keeps its raw
+			// name as its identifier, and that name is exactly the one the
+			// identity rules rejected — a control character in it corrupts any
+			// line-oriented configuration the listing is written into. There is
+			// no id such an option could honestly be published under, so it has
+			// no wire reason either: the withheld vocabulary carries no key for
+			// it, deliberately, because nothing could write one.
+			//
+			// The option is still reported in-process by ModelOptions() with
+			// ReasonUnnameable, which is where the operator can see it. That
+			// this class is invisible to a remote consumer is a real gap, and
+			// the honest one: the alternative is publishing the corrupt name.
 			continue
 		}
-		models = append(models, api.Model{
+		m := api.Model{
 			ID:            opt.Identifier,
 			Object:        "model",
 			Created:       1700000000,
 			OwnedBy:       opt.OwnedBy,
 			ModelIdentity: opt.Identity,
 			Host:          opt.Host,
-			Availability:  "serving",
-		})
+			Availability:  api.AvailabilityServing,
+		}
+		if !opt.Available {
+			m.Availability = api.AvailabilityWithheld
+			m.WithheldReason = withheldReasonForWire(opt.Reason)
+		}
+		models = append(models, m)
 	}
 	return models
+}
+
+// withheldReasonForWire translates one of this package's withheld reasons onto
+// the wire vocabulary.
+//
+// The two vocabularies are genuinely different and must not be conflated. This
+// package's tokens ([ReasonProviderUnavailable] and friends) are hyphenated and
+// name the serving layer's own state; they are also what
+// [ModelOption.Reason] carries to in-process callers and what the export
+// artefacts write into their comment lines. The wire's keys are underscored and
+// are validated by the consumer against a closed set — a hyphenated value
+// arriving there is discarded as unrecognised, and would look entirely
+// deliberate while silently losing the reason. Translating here, at the one
+// boundary the two meet, is what keeps that from being a matter of remembering.
+//
+// An unrecognised reason maps to [api.WithheldProviderUnavailable]. That is not
+// a fallback of convenience: the only way an unrecognised token reaches this
+// function is [UnavailableReasoner] refining the reason of a provider that has
+// ALREADY reported itself unavailable, so "the provider is not serving" is true
+// of it by construction — only the refinement is lost, and no consumer has a
+// remedy for a refinement outside the closed set anyway.
+func withheldReasonForWire(reason string) string {
+	if reason == ReasonIdentifierConflict {
+		return api.WithheldIdentifierConflict
+	}
+	return api.WithheldProviderUnavailable
+}
+
+// safeToPublish reports whether an identifier can be written into the listing
+// without corrupting what reads it.
+//
+// The hazard is concrete rather than stylistic: a consuming tool writes the id
+// into a line-oriented configuration file and re-parses it, so a control
+// character — a newline above all — does not merely look wrong, it splits one
+// entry into two. The check is on the identifier itself rather than on the
+// withheld reason that produced it, so a future class of unsafe name is caught
+// by the same guard without anyone remembering to extend a list.
+//
+// A DERIVED identifier can never fail this (the ruleset's charset excludes
+// control characters); only an option that fell back to a raw model name can,
+// which is the un-nameable case.
+func safeToPublish(identifier string) bool {
+	if identifier == "" {
+		return false
+	}
+	for _, r := range identifier {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }

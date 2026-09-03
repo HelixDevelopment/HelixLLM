@@ -8,6 +8,7 @@ import (
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
 	"github.com/HelixDevelopment/HelixLLM/internal/naming"
+	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
@@ -246,13 +247,49 @@ func TestModelOptions_UnavailableCarriesReasonAndIsNotListedAsAvailable(t *testi
 		t.Errorf("available option carries a withheld reason %q", serving.Reason)
 	}
 
-	// The OpenAI-shaped listing must contain only what is actually served.
+	// The OpenAI-shaped listing carries all three, each saying what it is. It
+	// used to carry only the served one, which made a host whose backend is
+	// LOADING publish the same thing as one that had WITHDRAWN the model — an
+	// absence — and left a consuming tool no way to tell "wait" from "gone".
 	models := b.Models()
-	if len(models) != 1 {
-		t.Fatalf("Models() returned %d entries, want only the 1 actually being served: %+v", len(models), models)
+	if len(models) != 3 {
+		t.Fatalf("Models() returned %d entries, want all 3 with their states: %+v", len(models), models)
 	}
-	if models[0].ID != serving.Identifier {
-		t.Errorf("Models()[0].ID = %q, want the served option's identifier %q", models[0].ID, serving.Identifier)
+	byID := map[string]api.Model{}
+	for _, m := range models {
+		byID[m.ID] = m
+	}
+
+	got, ok := byID[serving.Identifier]
+	if !ok {
+		t.Fatalf("the served option %q is missing from the listing: %+v", serving.Identifier, models)
+	}
+	if got.Availability != api.AvailabilityServing {
+		t.Errorf("the served option reports availability %q, want %q", got.Availability, api.AvailabilityServing)
+	}
+	if got.WithheldReason != "" {
+		t.Errorf("the served option carries withheld_reason %q", got.WithheldReason)
+	}
+
+	// Both withheld options say so explicitly, so no consumer's default can read
+	// them as served — and both carry a reason. The stopped provider's own
+	// reason ("vram-reclaimed") is outside the wire's closed set, so it renders
+	// as provider_unavailable: the specificity is lost, the truth is not, and a
+	// value the consumer would discard as unrecognised never reaches it.
+	for _, id := range []string{stopped.Identifier, silent.Identifier} {
+		got, ok := byID[id]
+		if !ok {
+			t.Errorf("the withheld option %q is missing from the listing", id)
+			continue
+		}
+		if got.Availability != api.AvailabilityWithheld {
+			t.Errorf("withheld option %q reports availability %q, want %q",
+				id, got.Availability, api.AvailabilityWithheld)
+		}
+		if got.WithheldReason != api.WithheldProviderUnavailable {
+			t.Errorf("withheld option %q reports reason %q, want %q",
+				id, got.WithheldReason, api.WithheldProviderUnavailable)
+		}
 	}
 }
 

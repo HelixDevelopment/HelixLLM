@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/brain"
+	"github.com/HelixDevelopment/HelixLLM/pkg/api"
 	"github.com/HelixDevelopment/HelixLLM/pkg/types"
 )
 
@@ -219,11 +220,15 @@ func TestBrain_Models_AggregatesFromAllAvailableProviders(t *testing.T) {
 	}, "openai")
 
 	models := b.Models()
-	// Expect 3 models from 2 available providers; llamacpp excluded.
-	if len(models) != 3 {
-		t.Errorf("Models() returned %d models, want 3", len(models))
+	// Every model is listed — 3 from the two serving providers plus llamacpp's
+	// one — because the listing now STATES what each model is rather than
+	// omitting the ones that are not served. The unavailable provider's model is
+	// present and marked withheld; that it is not offered is carried by the
+	// availability field, not by its absence.
+	if len(models) != 4 {
+		t.Errorf("Models() returned %d models, want 4 (3 served + 1 withheld)", len(models))
 	}
-	// Verify all returned models have non-empty IDs.
+	serving, withheld := 0, 0
 	for _, m := range models {
 		if m.ID == "" {
 			t.Errorf("model with empty ID in result")
@@ -231,6 +236,29 @@ func TestBrain_Models_AggregatesFromAllAvailableProviders(t *testing.T) {
 		if m.Object != "model" {
 			t.Errorf("model.Object = %q, want %q", m.Object, "model")
 		}
+		switch m.Availability {
+		case api.AvailabilityServing:
+			serving++
+			if m.WithheldReason != "" {
+				t.Errorf("a serving model carries withheld_reason %q", m.WithheldReason)
+			}
+		case api.AvailabilityWithheld:
+			withheld++
+			if m.WithheldReason == "" {
+				t.Errorf("withheld model %q carries no reason", m.ID)
+			}
+		default:
+			t.Errorf("model %q reports availability %q, which is neither recorded state; "+
+				"a consumer degrades anything else to 'not reported'", m.ID, m.Availability)
+		}
+	}
+	if serving != 3 {
+		t.Errorf("%d models report %q, want 3 (the two available providers')",
+			serving, api.AvailabilityServing)
+	}
+	if withheld != 1 {
+		t.Errorf("%d models report %q, want 1 (the unavailable provider's)",
+			withheld, api.AvailabilityWithheld)
 	}
 }
 
