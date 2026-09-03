@@ -177,8 +177,26 @@ If a derived identifier ever collided with a different identity, that option is 
 **Migration — identifiers minted before the loopback change.** The move from the loopback literal to
 the machine name re-minted every locally-served identifier once. A configuration still holding an old
 `helixllm-127-0-0-1-…` (or `helixllm-localhost-…`) id names a model this gateway no longer publishes:
-such a request now **fails with 503** rather than being answered by a different model. Re-run
+such a request **fails** rather than being answered by a different model. Re-run
 discovery — `GET /v1/models` — and replace the ids in your configuration with the ones it returns.
+
+The status is **404**, and the body names the migration:
+
+```
+HTTP=404 {"error":{"message":"this model identifier is no longer published: the identifiers
+for locally served models changed when the serving host was renamed; re-fetch the current
+ones from /v1/models and update your configuration", ...}}
+```
+
+404 rather than 503 because these two host renderings are an *exactly known* set — this gateway
+published them and has permanently stopped — so the name is gone for good, not absent for a
+while. 503 means "retry with backoff", and a correct client obeying it against a name that can
+never resolve retries forever.
+
+Every OTHER unresolvable identifier still answers **503**, and that is deliberate: an id carries a
+digest, so for any host segment outside the retired set the gateway genuinely cannot tell a
+re-minted name from a machine that is rebooting — and telling a client to stop retrying a
+restarting host would be the worse error.
 
 ---
 

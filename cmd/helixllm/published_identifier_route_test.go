@@ -604,6 +604,17 @@ func TestChatCompletions_RawNameServedByTwoProvidersReachesTheAvailableOne(t *te
 // backoff. The pinned path reaches the identical situation — nothing can serve
 // this request now — so answering 500 there tells all three that the build is
 // broken and that retrying is pointless.
+//
+// SCOPE, narrowed once (§11.4.120). This case originally also covered
+// `helixllm-127-0-0-1-…`, an identifier carrying a RETIRED loopback host
+// segment. That one is no longer an availability condition: the retired
+// renderings are an exactly-known set this deployment has permanently stopped
+// publishing, so it now answers 404 with a re-fetch instruction — see
+// retired_identifier_route_test.go, which owns that case and asserts the same
+// no-substitution guarantee. The case is replaced here rather than dropped, by
+// an identifier carrying a host segment that is NOT retired: that is the
+// unresolvable name the gateway genuinely cannot classify, and it is the reason
+// 503 must remain the answer for everything outside the bounded set.
 func TestChatCompletions_PinnedButUnservableIsServiceUnavailable(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -616,8 +627,8 @@ func TestChatCompletions_PinnedButUnservableIsServiceUnavailable(t *testing.T) {
 			down:  true,
 		},
 		{
-			name:  "identifier this deployment no longer publishes",
-			model: func(*servingStack) string { return "helixllm-127-0-0-1-qwen2-5-7b-ba85a3230a59" },
+			name:  "identifier for a machine-named host this deployment cannot see",
+			model: func(*servingStack) string { return "helixllm-gpu-07-qwen2-5-7b-ba85a3230a59" },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

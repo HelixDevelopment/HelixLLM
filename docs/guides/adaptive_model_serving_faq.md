@@ -290,6 +290,12 @@ and a consumer merging both catalogues silently kept one and dropped the other.
 The host part is now the machine's own name, so the identifier reads
 `helixllm-anton-llama3-<digest>` and says where the model actually is.
 
+A request naming one of the old ids answers **404**, and the body tells you exactly
+this: re-fetch from `/v1/models`. It is a 404 and not a 503 because the gateway
+*knows* it used to publish `127-0-0-1` and `localhost` as the host segment and knows
+it no longer does — the name is gone permanently, so telling you to retry with
+backoff would have you retrying something that can never come back.
+
 Re-run discovery, or fetch the configuration again from
 `/v1/config/helixcode` or `/v1/config/opencode`, and use what comes back.
 

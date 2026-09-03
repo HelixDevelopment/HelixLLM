@@ -51,10 +51,40 @@ func IsProvidersExhausted(err error) bool {
 // [IsUnservable] answers the question the HTTP boundary actually asks.
 var ErrPinnedModelUnavailable = errors.New("pinned model unavailable")
 
+// ErrRetiredIdentifier marks the condition "this request named an identifier
+// this deployment has permanently stopped publishing".
+//
+// It is deliberately NOT wrapped in ErrPinnedModelUnavailable, because it is
+// the opposite kind of answer. ErrPinnedModelUnavailable says "not right now,
+// retry with backoff"; this says "never again, and here is what to do instead".
+// A client obeying a retry-with-backoff instruction against a name that will
+// never resolve retries forever, which is the same defect this project accepted
+// for malformed requests: a retry that cannot succeed is a correct client
+// looping indefinitely because the server told it to.
+//
+// The distinction is only available for a BOUNDED set. A published identifier
+// carries a digest, so the host generally cannot be recovered from it and a
+// re-minted name is indistinguishable from a host that is down — which is why
+// every other unresolvable identifier stays ErrPinnedModelUnavailable. The
+// retired loopback renderings are the exception: their host segment is readable
+// and this project knows it stopped emitting them. See
+// naming.Ruleset.HasRetiredHostSegment.
+var ErrRetiredIdentifier = errors.New("identifier retired by a serving-host rename")
+
+// IsRetiredIdentifier reports whether err (or anything it wraps) is the
+// retired-identifier condition. The HTTP boundary asks this BEFORE
+// [IsUnservable], because the two answers are mutually exclusive and only one
+// of them tells the client to retry.
+func IsRetiredIdentifier(err error) bool {
+	return errors.Is(err, ErrRetiredIdentifier)
+}
+
 // IsUnservable reports whether err is an availability condition — the request
 // cannot be served RIGHT NOW — rather than a fault in a provider that answered.
 // It is the single question the HTTP boundary asks, so both sentinels are
 // checked in one place instead of at each call site.
+//
+// A retired identifier is NOT unservable: nothing about it is temporary.
 func IsUnservable(err error) bool {
 	return IsProvidersExhausted(err) || errors.Is(err, ErrPinnedModelUnavailable)
 }
@@ -146,6 +176,15 @@ func (c *Chain) pin(requested string) (provider, model string, ok bool) {
 // see. That is the deliberate trade: an explicit failure over a silent swap.
 func (c *Chain) pinnedProvider(providerName, model, requested string) (brain.Provider, error) {
 	if providerName == "" {
+		if brain.IsRetiredIdentifier(requested) {
+			// The name is one this deployment used to publish and never will
+			// again, so "retry shortly" would be a lie with a deadline that
+			// never arrives. The remedy is a re-fetch, not a retry, and the
+			// message says so — the caller cannot derive the new identifier,
+			// only the listing can hand it over.
+			return nil, fmt.Errorf("%w: %q was published before the serving host was renamed and is no longer offered; re-fetch the current identifiers from /v1/models",
+				ErrRetiredIdentifier, requested)
+		}
 		return nil, fmt.Errorf("%w: model %q (requested as %q) is not served by any registered provider",
 			ErrPinnedModelUnavailable, model, requested)
 	}

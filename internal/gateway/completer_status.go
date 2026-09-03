@@ -18,11 +18,26 @@ import (
 // 500 as "this build is broken"; reporting a warming-up or unreachable
 // backend as 500 tells every one of them the wrong thing.
 //
+// A RETIRED identifier is checked first, and is the one case that is not an
+// availability condition at all: the request named an identifier this
+// deployment published before its serving host was renamed and will never
+// publish again. 503 tells a client to retry with backoff, and a correct client
+// obeying that against a name that can never resolve retries forever. It gets
+// 404 — the status this gateway already uses for every other "the name you gave
+// identifies nothing here" answer (an unknown consumer, an unknown host, a
+// model id absent from the listing), so a client's handling of the condition
+// does not depend on which endpoint reported it. 410 would also be defensible
+// on its own terms, but it would be a SECOND spelling of an answer this server
+// already has one for.
+//
 // Anything else — a provider that WAS reached and returned a fault — stays
 // 500, because that genuinely is an internal failure rather than an
 // availability condition. Collapsing the two is what this function exists to
 // prevent.
 func completerErrorStatus(err error) int {
+	if fallback.IsRetiredIdentifier(err) {
+		return http.StatusNotFound
+	}
 	if fallback.IsUnservable(err) {
 		return http.StatusServiceUnavailable
 	}

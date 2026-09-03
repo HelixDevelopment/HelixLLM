@@ -261,6 +261,23 @@ func (b *Brain) resolveIdentity(name string) (naming.Identity, bool) {
 	return b.names.IdentityFor(naming.ClaudeToolkit, name)
 }
 
+// IsRetiredIdentifier reports whether name is one of the identifiers this
+// project has permanently STOPPED publishing — an identifier whose host segment
+// is one of the retired loopback renderings (naming.RetiredHosts).
+//
+// It exists so the layer that turns an unresolvable name into an error can tell
+// the two unresolvable cases apart without re-deciding which consumer ruleset
+// is the default. That decision is made here, once, exactly where
+// [Brain.resolveIdentity] makes it — a second copy in the fallback chain is how
+// the two would come to disagree about what an identifier even looks like.
+//
+// It is a package function rather than a method because it needs no registry:
+// the answer is a property of the NAME, which is precisely why it is available
+// for a name the registry cannot resolve.
+func IsRetiredIdentifier(name string) bool {
+	return naming.ClaudeToolkit.HasRetiredHostSegment(strings.TrimSpace(name))
+}
+
 // PinModel reports whether a request named a SPECIFIC served model and, if so,
 // which provider answers to it under which name.
 //

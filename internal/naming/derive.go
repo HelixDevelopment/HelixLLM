@@ -110,6 +110,78 @@ func (rs Ruleset) HasIdentifierPrefix(name string) bool {
 	return strings.HasPrefix(name, rs.IdentifierPrefix())
 }
 
+// RetiredHosts are the identity host VALUES this project published before the
+// serving host became the machine's own name, and will never publish again.
+//
+// They are listed rather than computed because they are a closed historical
+// fact, not a rule: the serving host resolver rejects anything that names no
+// machine (loopback in any spelling, the wildcard binds, *.localhost), so no
+// future identity can carry any of them. The two here are the ones the
+// DOCUMENTED setup actually produced — "localhost" was the default and
+// cmd/helixllm rewrote it to "127.0.0.1" for the embedded llama-server — which
+// is exactly the population whose configurations hold a retired identifier.
+//
+// Deliberately NOT a predicate over "anything that names no machine". A
+// predicate would classify identifiers this project never emitted, on a guess
+// about what some other deployment might have configured, and the whole reason
+// a retired identifier can be reported as PERMANENT is that this set is KNOWN
+// rather than inferred. Widening it is a decision to be made with the evidence
+// in hand, by adding an entry here.
+var RetiredHosts = []string{"localhost", "127.0.0.1"}
+
+// RetiredHostIdentifierPrefixes returns the literal prefix an identifier of
+// this ruleset carries when its host segment is one of the [RetiredHosts] — the
+// provenance prefix, the retired host rendered through this ruleset's own
+// charset, and the separator that closes the segment.
+//
+// It is DERIVED from the ruleset for the same reason [Ruleset.IdentifierPrefix]
+// is, and by the same route: prefix, separator and character set are all
+// ruleset fields, and the host segment is produced by the same [sanitise] the
+// derivation itself uses. Writing "helixllm-127-0-0-1-" out as a constant would
+// re-implement the rendering in a second place, where it could silently stop
+// matching what Derive emits.
+//
+// The trailing separator is load-bearing: it is what makes the match a whole
+// segment rather than a substring, so a machine genuinely called "localhosting"
+// keeps its live identifiers.
+//
+// A retired host that renders empty under a ruleset is skipped — that ruleset
+// cannot have produced an identifier carrying it.
+func (rs Ruleset) RetiredHostIdentifierPrefixes() []string {
+	sep := string(rs.Separator)
+	prefixes := make([]string, 0, len(RetiredHosts))
+	for _, host := range RetiredHosts {
+		segment := sanitise(host, rs)
+		if segment == "" {
+			continue
+		}
+		prefixes = append(prefixes, rs.IdentifierPrefix()+segment+sep)
+	}
+	return prefixes
+}
+
+// HasRetiredHostSegment reports whether name is one of this ruleset's
+// identifiers whose HOST SEGMENT is a retired rendering — that is, whether it
+// is an identifier this deployment once published and has permanently stopped
+// publishing.
+//
+// This is the one case where "we cannot resolve it" and "it is gone for good"
+// are the same statement. [HasIdentifierPrefix] can only say a name is one of
+// ours; it cannot say whether the identity behind it is absent or retired,
+// because the identifier carries a DIGEST and the host cannot be recovered from
+// it. The readable segment is the exception: it is not hashed, this project
+// knows which host renderings it used to emit, and it knows it emits none of
+// them now. Everything outside this bounded set stays "cannot serve it right
+// now", which is the honest answer for a host that may simply be rebooting.
+func (rs Ruleset) HasRetiredHostSegment(name string) bool {
+	for _, prefix := range rs.RetiredHostIdentifierPrefixes() {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate reports whether the ruleset can actually produce a conforming
 // identifier. A ruleset whose own prefix or separator fails its own rules would
 // emit identifiers the consumer rejects at the far end, so it fails here

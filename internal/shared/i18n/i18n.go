@@ -111,6 +111,11 @@ const (
 	// internal/gateway/upstream_error.go.
 	KeyGatewayUpstreamUnavailable = "gateway_upstream_unavailable"
 	KeyGatewayUpstreamFailed      = "gateway_upstream_failed"
+
+	// A model identifier this deployment published before its serving host was
+	// renamed, and will never publish again. Unlike the two above it names a
+	// remedy, because one exists and the caller cannot work it out alone.
+	KeyGatewayIdentifierRetired = "gateway_identifier_retired"
 )
 
 // defaultEnglishMessages is pre-loaded into every new Translator.
@@ -196,6 +201,10 @@ var defaultEnglishMessages = map[string]string{
 		"available to serve this request; retry shortly",
 	KeyGatewayUpstreamFailed: "the model provider failed to complete this " +
 		"request",
+	KeyGatewayIdentifierRetired: "this model identifier is no longer published: " +
+		"the identifiers for locally served models changed when the serving host " +
+		"was renamed; re-fetch the current ones from /v1/models and update your " +
+		"configuration",
 }
 
 // TranslatorAPI is the minimal contract that call sites depend on so

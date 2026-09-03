@@ -59,7 +59,20 @@ func UpstreamErrorLogDetail(err error) string {
 
 // upstreamErrorMessageKey picks the client-safe message for an upstream
 // failure, mirroring the split completerErrorStatus makes on status.
+//
+// The retired-identifier message is the only one of the three that tells the
+// caller what to DO. The other two describe a condition the caller can only
+// wait out; this one names a remedy the caller can act on immediately, and has
+// to, because the identifier carries a digest and no client can derive its
+// replacement — only the listing can hand it over. A status alone would leave
+// the holder of a retired identifier knowing that it failed and nothing else.
+//
+// It names the endpoint but no host, port or upstream path, so it keeps the
+// redaction this file exists to enforce.
 func upstreamErrorMessageKey(err error) string {
+	if fallback.IsRetiredIdentifier(err) {
+		return i18n.KeyGatewayIdentifierRetired
+	}
 	if fallback.IsUnservable(err) {
 		return i18n.KeyGatewayUpstreamUnavailable
 	}
