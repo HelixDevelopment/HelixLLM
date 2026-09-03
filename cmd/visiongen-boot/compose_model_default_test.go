@@ -10,7 +10,7 @@ import (
 //
 // cmd/visiongen-boot was migrated onto measured selection: it measures the host,
 // asks the catalogue what fits, and REFUSES — starting nothing — when the answer
-// is "nothing" (exitNoOptionOffered, exitHostNotMeasured). measured_selection_test.go
+// is "nothing" (laneboot.ExitNoOptionOffered, laneboot.ExitHostNotMeasured). measured_selection_test.go
 // guards that.
 //
 // None of it helps if the compose file one layer down supplies its own answer.

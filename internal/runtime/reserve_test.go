@@ -205,16 +205,34 @@ func TestBootRootsSelectUnderTheGatesMargin(t *testing.T) {
 // So this walks the boot roots as they exist on disk and requires each one that
 // SELECTS to also state the gate's margin.
 //
-// Honest boundary (§11.4.6): this is a source-level check, per file rather than
-// per call site. A file with two Select calls where only one carries the reserve
-// would pass here — the arithmetic agreement itself is what
-// TestSelectionOffersExactlyWhatTheBrokerAdmits proves, and this only keeps the
-// statement from being dropped as new roots appear.
+// RECONCILED when the decision was extracted to internal/laneboot (§11.4.120).
+// The four copies of decide() became one, which moved the only selection.Select
+// call out of cmd/ entirely. The original form of this guard keyed on "a cmd
+// file that calls selection.Select" and would now match nothing — its floor of
+// four correctly refused to pass vacuously rather than going quiet, which is
+// what sent this here. Keying on the shared entry point instead restores the
+// property AND strengthens it, because a single call site can be checked in
+// ways four copies could not:
+//
+//   - Every lane still has to be counted (the floor survives, so a lane that
+//     stops routing through laneboot is still caught).
+//   - No lane may call selection.Select DIRECTLY any more. Previously
+//     unstatable: when every lane had its own call, "has a Select call" was
+//     the normal case. Now it is the bypass — the one way a lane could
+//     reintroduce a reserve-less decision — and it is banned outright.
+//   - The shared decision must hold EXACTLY ONE Select call, and that call must
+//     state the margin. The old honest boundary (a file with two Select calls
+//     where only one carried the reserve would pass) is closed by counting.
+//
+// Honest boundary (§11.4.6): this remains a source-level check. It proves every
+// lane routes through the one decision and that decision states the margin; the
+// arithmetic agreement itself is what
+// TestSelectionOffersExactlyWhatTheBrokerAdmits proves.
 func TestEveryBootRootSelectsUnderTheGatesMargin(t *testing.T) {
 	sources, err := filepath.Glob(filepath.Join("..", "..", "cmd", "*", "*.go"))
 	require.NoError(t, err)
 
-	var selecting, missing []string
+	var routing, bypassing []string
 	for _, path := range sources {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -222,27 +240,88 @@ func TestEveryBootRootSelectsUnderTheGatesMargin(t *testing.T) {
 		b, readErr := os.ReadFile(path)
 		require.NoError(t, readErr)
 		src := string(b)
-		if !strings.Contains(src, "selection.Select(") {
-			continue
+		if strings.Contains(src, "selection.Select(") {
+			bypassing = append(bypassing, path)
 		}
-		selecting = append(selecting, path)
-		if !strings.Contains(src, "Reserve:       runtime.SelectionReserve(),") &&
-			!strings.Contains(src, "runtime.SelectionReserve()") {
-			missing = append(missing, path)
+		if strings.Contains(src, "laneboot.Decide(") {
+			routing = append(routing, path)
 		}
 	}
 
 	// A glob that found nothing would pass vacuously and prove the opposite of
-	// what it claims. Four roots select today; a fifth is welcome, a drop to
+	// what it claims. Four roots decide today; a fifth is welcome, a drop to
 	// three is a deliberate decision someone should have to record here.
-	require.GreaterOrEqual(t, len(selecting), 4,
-		"expected at least the four selecting boot roots, found %v — if a lane was removed, "+
-			"update this floor deliberately rather than letting the guard go quiet", selecting)
+	require.GreaterOrEqual(t, len(routing), 4,
+		"expected at least the four boot roots that decide via laneboot, found %v — if a lane "+
+			"was removed or stopped routing through the shared decision, update this floor "+
+			"deliberately rather than letting the guard go quiet", routing)
 
-	require.Empty(t, missing,
-		"these boot roots ask selection what fits without telling it the admission gate's margin, "+
-			"so each can offer a model the broker will then refuse to start (the band "+
-			"TestSelectionOffersExactlyWhatTheBrokerAdmits measures): %v", missing)
+	require.Empty(t, bypassing,
+		"these boot roots call selection.Select directly instead of going through "+
+			"laneboot.Decide, so each can ask what fits without telling selection the admission "+
+			"gate's margin — the band TestSelectionOffersExactlyWhatTheBrokerAdmits measures: %v",
+		bypassing)
 
-	t.Logf("all %d selecting boot roots state the gate's margin: %v", len(selecting), selecting)
+	// The one shared decision is where the margin is now stated, so it is worth
+	// checking there is exactly one place to state it.
+	//
+	// Read the whole PACKAGE, not just laneboot.go: a second Select added in a
+	// sibling file is exactly the case this is meant to catch, and reading one
+	// file by name would miss it while the failure message still claimed the
+	// package was covered.
+	shared, err := filepath.Glob(filepath.Join("..", "laneboot", "*.go"))
+	require.NoError(t, err)
+	var src string
+	for _, path := range shared {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		b, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		src += stripLineComments(string(b))
+	}
+	require.NotEmpty(t, src, "the shared decision every boot root routes through must exist")
+
+	require.Equal(t, 1, strings.Count(src, "selection.Select("),
+		"internal/laneboot must hold exactly one call to selection.Select — the single place "+
+			"every lane's offer is decided; a second call is a second chance to omit the margin")
+
+	// Matched as the Reserve FIELD rather than a bare mention, and tolerant of
+	// gofmt's alignment. Two false-negatives are deliberately closed here:
+	//
+	//   - The predecessor looked for the padded literal
+	//     "Reserve:       runtime.SelectionReserve()," first and fell back to a
+	//     bare "runtime.SelectionReserve()". gofmt writes a single space, so the
+	//     precise pattern matched nothing and only the loose fallback worked —
+	//     and a mention anywhere in the file satisfied it even with the field
+	//     dropped from the request.
+	//   - Comments are stripped before matching, so commenting the field OUT
+	//     fails this. Left in, the line would still read as a match while the
+	//     request no longer carried the margin.
+	require.Regexp(t, `Reserve:\s*runtime\.SelectionReserve\(\),`, src,
+		"the shared decision asks selection what fits without telling it the admission gate's "+
+			"margin, so every lane at once can offer a model the broker will then refuse to start")
+
+	t.Logf("all %d boot roots decide via the single shared laneboot.Decide, which states the gate's margin: %v",
+		len(routing), routing)
+}
+
+// stripLineComments removes whole-line and trailing // comments so a source
+// check cannot be satisfied by commented-out code.
+//
+// Deliberately naive: it does not understand /* */ blocks, and a "//" inside a
+// string literal would be treated as a comment. Both are acceptable here —
+// the cost of the first is a missed detection in code this guard also requires
+// to be one call long, and the cost of the second is a FALSE ALARM, which is
+// the safe direction for a guard to fail in.
+func stripLineComments(src string) string {
+	lines := strings.Split(src, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

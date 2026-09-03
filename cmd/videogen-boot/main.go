@@ -74,6 +74,7 @@ import (
 	"digital.vasic.containers/pkg/health"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
+	"github.com/HelixDevelopment/HelixLLM/internal/laneboot"
 	"github.com/HelixDevelopment/HelixLLM/internal/vrambroker"
 )
 
@@ -110,12 +111,12 @@ const (
 // runtime can serve the chosen build at all. Every failure path refuses; none
 // substitutes a default model.
 func chooseModel(ctx context.Context) (choice, error) {
-	pin, err := parsePin(os.Args[1:])
+	pin, err := laneboot.ParsePin(os.Args[1:])
 	if err != nil {
-		return choice{}, exitErr(exitNoOptionOffered, "CANNOT-CHOOSE: %v", err)
+		return choice{}, laneboot.ExitErr(laneboot.ExitNoOptionOffered, "CANNOT-CHOOSE: %v", err)
 	}
 
-	offered, loaded, profile, purpose, err := decide(ctx, family, "", pin, forbidKey)
+	offered, loaded, profile, purpose, err := laneboot.Decide(ctx, family, "", pin, forbidKey)
 	if err != nil {
 		return choice{}, err
 	}
@@ -141,7 +142,7 @@ func chooseModel(ctx context.Context) (choice, error) {
 			unservable = append(unservable, fmt.Sprintf("%s (%v)", option.Identity, serr))
 			continue
 		}
-		entry, ok := entryFor(loaded, option)
+		entry, ok := laneboot.EntryFor(loaded, option)
 		if !ok {
 			unservable = append(unservable, fmt.Sprintf("%s (no catalogue entry to take a weight source from)", option.Identity))
 			continue
@@ -163,7 +164,7 @@ func chooseModel(ctx context.Context) (choice, error) {
 		}, nil
 	}
 
-	return choice{}, exitErr(exitNotServable,
+	return choice{}, laneboot.ExitErr(exitNotServable,
 		"CANNOT-CHOOSE: this host was measured and can serve %d %s model(s), but none of them is servable "+
 			"by this runtime:\n  %s\n"+
 			"  No model is started: falling back to whatever default the runtime carries would be a model "+
@@ -233,7 +234,7 @@ func cmdPlan() {
 	c, err := chooseModel(ctx)
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(exitCodeFor(err))
+		os.Exit(laneboot.ExitCodeFor(err))
 	}
 	reportChoice(c)
 	fmt.Printf("PLAN-OK: this host would serve %s (nothing was booted).\n", c.Option.Identity)
@@ -323,7 +324,7 @@ func cmdAdmitCheck() {
 	c, cerr := chooseModel(ctx)
 	if cerr != nil {
 		fmt.Println(cerr)
-		os.Exit(exitCodeFor(cerr))
+		os.Exit(laneboot.ExitCodeFor(cerr))
 	}
 	reportChoice(c)
 
@@ -357,7 +358,7 @@ func cmdBoot() {
 	c, cerr := chooseModel(ctx)
 	if cerr != nil {
 		fmt.Println(cerr)
-		os.Exit(exitCodeFor(cerr))
+		os.Exit(laneboot.ExitCodeFor(cerr))
 	}
 	reportChoice(c)
 	applyChoice(c)

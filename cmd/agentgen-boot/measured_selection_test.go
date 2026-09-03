@@ -51,6 +51,7 @@ import (
 	"time"
 
 	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
+	"github.com/HelixDevelopment/HelixLLM/internal/laneboot"
 	"github.com/HelixDevelopment/HelixLLM/internal/selection"
 )
 
@@ -352,7 +353,7 @@ func TestStaticallyNamedFileIsNeverBooted(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a model named only by the environment was booted: %q (%s)", c.Option.Identity, c.WeightsFile)
 	}
-	if code := exitCodeFor(err); code != exitWeightsNotPresent {
+	if code := laneboot.ExitCodeFor(err); code != exitWeightsNotPresent {
 		t.Fatalf("expected a weights-not-present refusal (%d), got %d: %v", exitWeightsNotPresent, code, err)
 	}
 	t.Logf("refused as required: %v", err)
@@ -373,7 +374,7 @@ func TestProjectorIsNeverMistakenForWeights(t *testing.T) {
 		t.Fatalf("a multimodal projector was chosen as this lane's weights: %q (%s)",
 			c.Option.Identity, c.WeightsFile)
 	}
-	if code := exitCodeFor(err); code != exitWeightsNotPresent {
+	if code := laneboot.ExitCodeFor(err); code != exitWeightsNotPresent {
 		t.Fatalf("expected a weights-not-present refusal (%d), got %d: %v", exitWeightsNotPresent, code, err)
 	}
 	t.Logf("projector refused as weights: %v", err)
@@ -395,8 +396,8 @@ func TestNoFixedDefaultWhenTheHostCannotBeChosenFor(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a model was started with no candidates to choose from: %q", c.Option.Identity)
 	}
-	if code := exitCodeFor(err); code != exitCatalogueMissing {
-		t.Fatalf("expected a catalogue refusal (%d), got %d: %v", exitCatalogueMissing, code, err)
+	if code := laneboot.ExitCodeFor(err); code != laneboot.ExitCatalogueMissing {
+		t.Fatalf("expected a catalogue refusal (%d), got %d: %v", laneboot.ExitCatalogueMissing, code, err)
 	}
 	if !strings.Contains(err.Error(), "CANNOT-CHOOSE") {
 		t.Fatalf("the refusal does not say it cannot choose: %v", err)
@@ -422,8 +423,8 @@ func TestPinIsAConstraintNotABypass(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a pin naming a model the catalogue does not record was started: %q", c.Option.Identity)
 	}
-	if code := exitCodeFor(err); code != exitNoOptionOffered {
-		t.Fatalf("expected an offer refusal (%d), got %d: %v", exitNoOptionOffered, code, err)
+	if code := laneboot.ExitCodeFor(err); code != laneboot.ExitNoOptionOffered {
+		t.Fatalf("expected an offer refusal (%d), got %d: %v", laneboot.ExitNoOptionOffered, code, err)
 	}
 	if !strings.Contains(err.Error(), string(selection.RequirementCatalogueEntry)) {
 		t.Fatalf("the refusal does not name the missing catalogue entry: %v", err)
@@ -460,7 +461,7 @@ func TestWithheldReasonsStayDistinct(t *testing.T) {
 			},
 		},
 	} {
-		seen[string(w.Reason)] = describeWithheld(w)
+		seen[string(w.Reason)] = laneboot.DescribeWithheld(w)
 	}
 	if len(seen) != 3 {
 		t.Fatalf("expected three distinct reasons, described %d: %v", len(seen), seen)
@@ -500,16 +501,16 @@ func TestMeasurementFailureIsReportedAndRefused(t *testing.T) {
 			Cause:        "measurement-incomplete",
 		},
 	}
-	err := refusalError(notMeasured, fmt.Errorf("%w: storage", selection.ErrHostNotMeasured))
-	if code := exitCodeFor(err); code != exitHostNotMeasured {
-		t.Fatalf("expected exit %d for an unmeasured host, got %d", exitHostNotMeasured, code)
+	err := laneboot.RefusalError(notMeasured, fmt.Errorf("%w: storage", selection.ErrHostNotMeasured))
+	if code := laneboot.ExitCodeFor(err); code != laneboot.ExitHostNotMeasured {
+		t.Fatalf("expected exit %d for an unmeasured host, got %d", laneboot.ExitHostNotMeasured, code)
 	}
 	for _, want := range []string{"CANNOT-CHOOSE", "was not measured", "measurement-incomplete", "No model is started"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal does not state %q: %v", want, err)
 		}
 	}
-	t.Logf("unmeasured host refused with exit %d: %v", exitCodeFor(err), err)
+	t.Logf("unmeasured host refused with exit %d: %v", laneboot.ExitCodeFor(err), err)
 
 	stale := selection.Result{
 		Refusal: &selection.HostRefusal{
@@ -518,12 +519,12 @@ func TestMeasurementFailureIsReportedAndRefused(t *testing.T) {
 			MaxAgeSeconds: 5,
 		},
 	}
-	serr := refusalError(stale, fmt.Errorf("%w: too old", selection.ErrMeasurementStale))
-	if code := exitCodeFor(serr); code != exitMeasurementStale {
-		t.Fatalf("expected exit %d for a stale reading, got %d", exitMeasurementStale, code)
+	serr := laneboot.RefusalError(stale, fmt.Errorf("%w: too old", selection.ErrMeasurementStale))
+	if code := laneboot.ExitCodeFor(serr); code != laneboot.ExitMeasurementStale {
+		t.Fatalf("expected exit %d for a stale reading, got %d", laneboot.ExitMeasurementStale, code)
 	}
 	if !strings.Contains(serr.Error(), "re-measure") {
 		t.Fatalf("the stale refusal does not state its remedy: %v", serr)
 	}
-	t.Logf("stale reading refused with exit %d: %v", exitCodeFor(serr), serr)
+	t.Logf("stale reading refused with exit %d: %v", laneboot.ExitCodeFor(serr), serr)
 }
