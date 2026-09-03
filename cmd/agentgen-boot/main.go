@@ -1,19 +1,48 @@
 // Command agentgen-boot is the on-demand boot + health harness for HelixLLM's
-// Lane B — a SECOND llama.cpp coder/agent instance (Serving-plan Task 2.1
-// benchmark spike, docs/research/07.2026/01_local_models_serving/
-// IMPLEMENTATION_PLAN_v2.md §1(c)/Task 2.1, master plan §6.1/§6.2), co-resident
-// WITH the live resident coder (:18434, never touched). Like the VLM lane,
-// Lane B is a WARM tier (vrambroker.ClassAgent): once booted it STAYS UP —
-// boot does NOT tear the service down. Teardown is the separate `down`
-// subcommand (single-owner cleanup §11.4.119).
+// Lane B — a SECOND llama.cpp coder/agent instance, co-resident WITH the live
+// resident coder (:18434, never touched). Like the VLM lane, Lane B is a WARM
+// tier (vrambroker.ClassAgent): once booted it STAYS UP — boot does NOT tear
+// the service down. Teardown is the separate `down` subcommand (single-owner
+// cleanup §11.4.119).
 //
-// The load-bearing discipline (mirrors cmd/visiongen-boot exactly, ClassAgent
-// instead of ClassVLM per broker.go's §D5 note — a distinct class ON PURPOSE):
+// WHICH MODEL RUNS IS MEASURED, NOT CONFIGURED (FR-056)
 //
-//  1. BEFORE booting the container, the Lane-B VRAM footprint MUST be admitted
-//     by the vrambroker (ClassAgent, WARM/co-resident) — NEVER a raw VRAM
-//     grab. Admission is gated on the MEASURED free VRAM from nvidia-smi + a
-//     2 GiB headroom (broker.admit, fail-closed §11.4.6).
+// This harness has no default model and cannot be told which model to run.
+// Every boot measures this host, joins the measurement against the recorded
+// catalogue under the declared usage, and serves an option the host was proven
+// able to run. See modelchoice.go for the decision and the three distinct
+// reasons a candidate can be withheld (FR-055).
+//
+//   - AGENTGEN_MODEL_GGUF is an OUTPUT of that decision, written here for
+//     compose to interpolate. It is no longer an input: a value found in the
+//     environment named a model no measurement chose, so it is reported and
+//     overwritten.
+//   - AGENTGEN_MODEL_DIR remains an INPUT. It says WHERE model files live on
+//     this host, never which of them runs.
+//   - The VRAM figure admitted by the broker comes from the CHOSEN option's
+//     recorded requirement. AGENTGEN_NEED_BYTES is no longer honoured.
+//
+// WHY THAT LAST ONE MATTERED. AGENTGEN_NEED_BYTES was a STATIC 9 GiB standing
+// in for a per-model figure, and it had to be kept in agreement BY HAND with
+// AGENTGEN_MODEL_GGUF — this file's own doc comment said so ("the two env vars
+// MUST be changed together"). A coupling a human must remember is a coupling
+// that is eventually forgotten, and forgetting it is silent: on a 12288 MiB
+// card with 11781 MiB free, naming a 19.5 GiB model while leaving the figure at
+// its default admitted 9216 MiB and reported ADMIT-OK. The lane agreed to run a
+// model it had never checked it could hold. Told the same model's real figure
+// the same binary refused it (need=19968MiB, ErrBudgetExceeded). One fact — how
+// much memory this model needs — was recorded in two places, and only one of
+// them was true. It is now recorded once, in the catalogue entry, and read from
+// the entry the decision actually chose.
+//
+// The rest of the discipline is unchanged:
+//
+//  1. BEFORE booting the container, the CHOSEN model's footprint MUST be
+//     admitted by the vrambroker (ClassAgent, WARM/co-resident) — NEVER a raw
+//     VRAM grab. Admission is gated on the MEASURED free VRAM from nvidia-smi
+//     + a 2 GiB headroom (broker.admit, fail-closed §11.4.6). Selection is told
+//     that same margin (runtime.SelectionReserve), so this lane cannot offer a
+//     model it will then refuse to start.
 //     * granted  -> co-resident (coder stays live) -> boot, service stays UP.
 //     * ErrBudgetExceeded -> Lane B does not fit alongside the live coder
 //     RIGHT NOW; the coder-pause path is operator-gated (§11.4.122/§11.4.101).
@@ -28,21 +57,11 @@
 //  4. `down` is the explicit single-owner teardown (compose down) + it never
 //     touches the coder (:18434) or any sibling lane (:18436-18443).
 //
-// The needBytes passed to Acquire is a CONFIG-INJECTED placeholder. The
-// default (9 GiB) is sized for the plan's #1 Lane-B candidate — Mistral-
-// Nemo-Instruct-2407 Q4_K_M (~6.96 GiB weights measured from the bartowski
-// GGUF's Content-Length) + a modest unified KV budget (16384 ctx, 4 parallel
-// slots, q8_0 KV) + activation headroom. Selecting a different Lane-B
-// candidate (GLM-4.7-Flash smallest quant ~9.78 GiB, DeepSeek-Coder-V2-Lite
-// Q4_K_M ~9.65 GiB — both single-slot-only per the plan's headroom math)
-// REQUIRES a matching AGENTGEN_NEED_BYTES override alongside
-// AGENTGEN_MODEL_GGUF — the two env vars MUST be changed together, per
-// §11.4.6/§11.4.108 (never assume a bigger model fits the smaller default).
-//
 // Subcommands:
 //
-//	admit-check                     broker-only VRAM admission verdict (no boot)
-//	boot   <compose-file> <project> admit -> compose up -> health poll (STAYS UP)
+//	plan   [--pin id[:variant]]     measure + decide + report; boots nothing
+//	admit-check                     measure -> choose -> broker verdict (no boot)
+//	boot   <compose-file> <project> measure -> choose -> admit -> up -> health
 //	down   <compose-file> <project> single-owner teardown (compose down)
 //	status <compose-file> <project> compose service status
 package main
@@ -53,43 +72,46 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"digital.vasic.containers/pkg/compose"
 	"digital.vasic.containers/pkg/health"
 
+	"github.com/HelixDevelopment/HelixLLM/internal/catalogue"
 	"github.com/HelixDevelopment/HelixLLM/internal/vrambroker"
 )
 
 const (
 	service    = "agentgen"
 	healthPort = "18435" // OWN port — coder :18434 + VLM :18439 + siblings untouched
+
+	// family is the capability this lane serves. It selects WITHIN the
+	// catalogue; it never names a model.
+	family = catalogue.FamilyText
+
+	// forbidKey is the operator's forbid-list. Forbidding can only remove an
+	// option the measurement offered, never add one it did not.
+	forbidKey = "AGENTGEN_FORBID_MODELS"
+
+	// modelDirKey says WHERE model files live on this host.
+	modelDirKey = "AGENTGEN_MODEL_DIR"
+
+	// weightsKey is a compose interpolation OUTPUT, written from the measured
+	// decision.
+	weightsKey = "AGENTGEN_MODEL_GGUF"
+
+	// legacyNeedKey named a VRAM figure, and a figure implies a model. It is
+	// reported and ignored rather than silently dropped, because an operator who
+	// set it is entitled to know it stopped being honoured.
+	legacyNeedKey = "AGENTGEN_NEED_BYTES"
 )
-
-// GiB is one gibibyte in bytes.
-const GiB int64 = 1024 * 1024 * 1024
-
-// defaultNeedBytes is the Lane-B co-resident PEAK placeholder for the DEFAULT
-// provisioned model (Mistral-Nemo-Instruct-2407 Q4_K_M, ~6.96 GiB weights +
-// modest 16384-ctx/4-parallel q8_0 KV + activation headroom = 9 GiB). A
-// different Lane-B candidate requires overriding this alongside
-// AGENTGEN_MODEL_GGUF (§11.4.6) — override with AGENTGEN_NEED_BYTES.
-func needBytes() int64 {
-	if v := os.Getenv("AGENTGEN_NEED_BYTES"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			return n
-		}
-	}
-	return 9 * GiB
-}
 
 // defaultModelDir is the host model cache directory (~/models — the SAME
 // directory the resident coder's GGUF lives in), used to seed
-// AGENTGEN_MODEL_DIR when the operator has not already set it. Never
-// hardcoded into compose.agent.yml itself (§CONST-045 / §11.4.28) — injected
-// here, at boot invocation, into the process environment that the containers-
-// submodule orchestrator passes through to compose variable interpolation.
+// AGENTGEN_MODEL_DIR when the operator has not set it. It is a LOCATION and
+// nothing more — which model runs is decided from the measurement, and this
+// only says where that model's file is looked for. Never hardcoded into
+// compose.agent.yml itself (§CONST-045 / §11.4.28).
 func defaultModelDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -98,32 +120,37 @@ func defaultModelDir() string {
 	return filepath.Join(home, "models")
 }
 
-// setDefaultEnv sets key=val in the process environment ONLY if key is
-// currently unset/empty, so an operator-supplied override always wins.
-func setDefaultEnv(key, val string) {
-	if val == "" {
-		return
+// modelDir resolves where this host keeps Lane-B weights.
+func modelDir() string {
+	if dir := os.Getenv(modelDirKey); dir != "" {
+		return dir
 	}
-	if os.Getenv(key) == "" {
-		os.Setenv(key, val)
+	dir := defaultModelDir()
+	if dir != "" {
+		os.Setenv(modelDirKey, dir)
 	}
+	return dir
 }
 
-// applyDefaultAgentEnv seeds the model-selection env var compose.agent.yml
-// interpolates (AGENTGEN_MODEL_DIR/AGENTGEN_MODEL_GGUF) with the DEFAULT
-// provisioned Mistral-Nemo-12B model, so `boot` works out-of-the-box once the
-// GGUF artefact is present (§11.4.77) while remaining fully env-overridable
-// for a different Lane-B candidate.
-func applyDefaultAgentEnv() {
-	setDefaultEnv("AGENTGEN_MODEL_DIR", defaultModelDir())
-	setDefaultEnv("AGENTGEN_MODEL_GGUF", "Mistral-Nemo-Instruct-2407-Q4_K_M.gguf")
+// requireModelDir resolves the model directory or exits with an actionable
+// message. An empty AGENTGEN_MODEL_DIR would make compose interpolate the bind
+// mount as `:/models:ro` — a malformed host path and a cryptic podman error.
+func requireModelDir() string {
+	dir := modelDir()
+	if dir == "" {
+		fatal("%s is unset and no default could be derived (home directory unavailable) — "+
+			"set %s to the model cache path", modelDirKey, modelDirKey)
+	}
+	return dir
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: agentgen-boot <admit-check|boot|down|status> [compose-file] [project]")
+		fatal("usage: agentgen-boot <plan|admit-check|boot|down|status> [compose-file] [project] [--pin id[:variant]]")
 	}
 	switch os.Args[1] {
+	case "plan":
+		cmdPlan()
 	case "admit-check":
 		cmdAdmitCheck()
 	case "boot":
@@ -137,13 +164,117 @@ func main() {
 	}
 }
 
+// chooseModel measures the host, decides which model this host can serve, and
+// locates that model's weights.
+//
+// The order is the whole point: measure, then choose, then look for the chosen
+// model's file. Nothing here can start a model the measurement did not offer,
+// and when no offered model's weights are present on this host it refuses
+// rather than falling back to whatever happens to be in the directory.
+func chooseModel(ctx context.Context, dir string) (choice, error) {
+	pin, err := parsePin(os.Args[1:])
+	if err != nil {
+		return choice{}, exitErr(exitNoOptionOffered, "CANNOT-CHOOSE: %v", err)
+	}
+
+	offered, loaded, profile, purpose, err := decide(ctx, family, dir, pin, forbidKey)
+	if err != nil {
+		return choice{}, err
+	}
+
+	var missing []string
+	// offered arrives ordered cheapest-admissible-first from selection, and is
+	// taken in that order: the first option this runtime can actually serve wins.
+	// The order is not re-decided here — one rule, in one place, so the lanes
+	// cannot drift apart from each other or from the Python gate.
+	for _, option := range offered {
+		weights, locErr := locateWeights(dir, option)
+		if locErr != nil {
+			missing = append(missing, fmt.Sprintf("%s (%v)", option.Identity, locErr))
+			continue
+		}
+		entry, _ := entryFor(loaded, option)
+		return choice{
+			Option:      option,
+			Entry:       entry,
+			Profile:     profile,
+			Usage:       purpose,
+			WeightsFile: weights,
+		}, nil
+	}
+
+	return choice{}, exitErr(exitWeightsNotPresent,
+		"CANNOT-CHOOSE: this host was measured and can serve %d %s model(s), but none of their weights "+
+			"are present in %s:\n  %s\n"+
+			"  No model is started: booting some other file that happens to be in that directory would be a "+
+			"model nobody chose, and its footprint would be one nobody measured.\n  Remedy: obtain the weights "+
+			"for one of the options above, or point %s at the directory that holds them.",
+		len(offered), family, dir, joinLines(missing), modelDirKey)
+}
+
+// reportChoice prints the decision and the measurement it rests on.
+func reportChoice(c choice) {
+	fmt.Printf("CHOSEN %s — decided from the measured host %q, not from configuration.\n",
+		c.Option.Identity, c.Option.HostIdentity)
+	fmt.Printf("  requires: memory=%dMiB storage=%dMiB accelerator=%t\n",
+		c.Option.Cost.MemoryRequiredBytes/(1024*1024),
+		c.Option.Cost.StorageRequiredBytes/(1024*1024),
+		c.Option.Cost.RequiresAccelerator)
+	fmt.Printf("  leaves:   memory=%dMiB (%.1f%% of total) storage=%dMiB\n",
+		c.Option.Headroom.MemoryRemainingBytes/(1024*1024),
+		c.Option.Headroom.MemoryRemainingFraction*100,
+		c.Option.Headroom.StorageRemainingBytes/(1024*1024))
+	fmt.Printf("  licence:  %s permits the declared usage %q\n", c.Option.Terms.LicenseID, c.Usage)
+	fmt.Printf("  weights:  %s\n", c.WeightsFile)
+}
+
+// applyChoice writes the decision into the environment compose interpolates.
+//
+// AGENTGEN_MODEL_GGUF is an OUTPUT. A value already present in the environment
+// named a model that no measurement chose, so it is reported and overwritten
+// rather than honoured.
+func applyChoice(c choice) {
+	if existing := os.Getenv(weightsKey); existing != "" && existing != c.WeightsFile {
+		fmt.Printf("IGNORED-CONFIG: %s=%q named a model that no measurement chose; "+
+			"overwritten with the measured choice %q (FR-056).\n", weightsKey, existing, c.WeightsFile)
+	}
+	os.Setenv(weightsKey, c.WeightsFile)
+
+	if legacy := os.Getenv(legacyNeedKey); legacy != "" {
+		fmt.Printf("IGNORED-CONFIG: %s=%q is no longer honoured — a static VRAM figure implied a model, and "+
+			"had to be kept in agreement with %s by hand. The admitted figure now comes from the chosen "+
+			"option's recorded requirement (FR-056).\n", legacyNeedKey, legacy, weightsKey)
+	}
+}
+
+// needBytesFor is the VRAM footprint to admit for the chosen option: its
+// recorded memory requirement. The broker adds its own headroom on top.
+func needBytesFor(c choice) int64 {
+	return int64(c.Option.Cost.MemoryRequiredBytes)
+}
+
+// cmdPlan measures, decides and reports — and boots nothing. It is the honest
+// way to see which model this host would serve, and why the others were not
+// offered, without touching the card.
+func cmdPlan() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	c, err := chooseModel(ctx, requireModelDir())
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exitCodeFor(err))
+	}
+	reportChoice(c)
+	fmt.Printf("PLAN-OK: this host would serve %s (nothing was booted).\n", c.Option.Identity)
+}
+
 // admit acquires a WARM (ClassAgent) lease for the Lane-B footprint, returning
 // the lease or a classified reason. It NEVER pauses the coder — an
 // ErrBudgetExceeded is surfaced as a BLOCKED verdict (coder-pause is operator
 // gated, §11.4.122).
-func admit(ctx context.Context) (*vrambroker.Lease, error) {
+func admit(ctx context.Context, need int64) (*vrambroker.Lease, error) {
 	broker := vrambroker.New() // real nvidia-smi-backed admission (§11.4.6 fail-closed)
-	need := needBytes()
 	total, used, free := broker.Budget()
 	fmt.Printf("VRAM budget (nvidia-smi): total=%dMiB used=%dMiB free=%dMiB need=%dMiB headroom=%dMiB\n",
 		total/(1024*1024), used/(1024*1024), free/(1024*1024),
@@ -179,11 +310,22 @@ func classifyAdmit(err error) int {
 	}
 }
 
+// cmdAdmitCheck tests the admission gate for the model this host would actually
+// serve. It measures first, because the footprint to admit is the chosen
+// model's — there is no fixed figure to test against.
 func cmdAdmitCheck() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	lease, err := admit(ctx)
-	code := classifyAdmit(err)
+
+	c, err := chooseModel(ctx, requireModelDir())
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(exitCodeFor(err))
+	}
+	reportChoice(c)
+
+	lease, aerr := admit(ctx, needBytesFor(c))
+	code := classifyAdmit(aerr)
 	if lease != nil {
 		// admit-check only tests the gate — release immediately (§11.4.119).
 		lease.Release()
@@ -207,23 +349,21 @@ func cmdBoot() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// (0) seed default model-selection env vars (§CONST-045/§11.4.28 — never a
-	// hardcoded path inside compose.agent.yml itself) so `boot` works
-	// out-of-the-box on the provisioned Mistral-Nemo-12B model.
-	applyDefaultAgentEnv()
-
-	// Fail loud (§11.4.6) if the model dir could not be resolved: an empty
-	// AGENTGEN_MODEL_DIR makes compose interpolate the bind mount as
-	// `:/models:ro` (malformed host path -> cryptic podman error). Surface an
-	// actionable message instead — happens only if os.UserHomeDir() errored
-	// AND the operator did not set AGENTGEN_MODEL_DIR.
-	if os.Getenv("AGENTGEN_MODEL_DIR") == "" {
-		fatal("AGENTGEN_MODEL_DIR is unset and no default could be derived " +
-			"(home directory unavailable) — set AGENTGEN_MODEL_DIR to the model cache path")
+	// (0) measure this host and DECIDE which model it can serve, before
+	// anything is admitted or started. The decision writes the compose
+	// interpolation variable; it is never read from one.
+	c, cerr := chooseModel(ctx, requireModelDir())
+	if cerr != nil {
+		fmt.Println(cerr)
+		os.Exit(exitCodeFor(cerr))
 	}
+	reportChoice(c)
+	applyChoice(c)
 
 	// (1) admit BEFORE boot — the whole point (broker / §11.4.6 fail-closed).
-	lease, err := admit(ctx)
+	// The figure is the CHOSEN option's recorded requirement, so what is
+	// admitted is what was decided.
+	lease, err := admit(ctx, needBytesFor(c))
 	if code := classifyAdmit(err); code != 0 {
 		os.Exit(code)
 	}
@@ -325,4 +465,17 @@ func cmdStatus() {
 func fatal(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "ERROR: "+format+"\n", a...)
 	os.Exit(2)
+}
+
+// joinLines renders a list one per indented line, for refusals that name every
+// option they considered.
+func joinLines(items []string) string {
+	out := ""
+	for i, s := range items {
+		if i > 0 {
+			out += "\n  "
+		}
+		out += s
+	}
+	return out
 }

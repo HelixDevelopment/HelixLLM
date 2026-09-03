@@ -31,6 +31,9 @@ package runtime_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,4 +189,60 @@ func TestBootRootsSelectUnderTheGatesMargin(t *testing.T) {
 	// quietly alter what is held back on host memory or storage.
 	require.Equal(t, selection.DefaultReserve().MemoryFraction, r.MemoryFraction)
 	require.Equal(t, selection.DefaultReserve().StorageFraction, r.StorageFraction)
+}
+
+// TestEveryBootRootSelectsUnderTheGatesMargin closes the gap the test above
+// leaves open.
+//
+// TestBootRootsSelectUnderTheGatesMargin asserts that [runtime.SelectionReserve]
+// carries the gate's margin. It does NOT assert that any binary actually passes
+// it, and that is the half that drifts: the reserve is stated in one place and
+// consumed in several, so a new lane — or a lane migrated to measured selection
+// later than the others — reintroduces the offered-then-refused band simply by
+// copying a decide() that predates the seam. That is exactly how the agent lane
+// arrived: it was the fourth boot root and the last to select at all.
+//
+// So this walks the boot roots as they exist on disk and requires each one that
+// SELECTS to also state the gate's margin.
+//
+// Honest boundary (§11.4.6): this is a source-level check, per file rather than
+// per call site. A file with two Select calls where only one carries the reserve
+// would pass here — the arithmetic agreement itself is what
+// TestSelectionOffersExactlyWhatTheBrokerAdmits proves, and this only keeps the
+// statement from being dropped as new roots appear.
+func TestEveryBootRootSelectsUnderTheGatesMargin(t *testing.T) {
+	sources, err := filepath.Glob(filepath.Join("..", "..", "cmd", "*", "*.go"))
+	require.NoError(t, err)
+
+	var selecting, missing []string
+	for _, path := range sources {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		b, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		src := string(b)
+		if !strings.Contains(src, "selection.Select(") {
+			continue
+		}
+		selecting = append(selecting, path)
+		if !strings.Contains(src, "Reserve:       runtime.SelectionReserve(),") &&
+			!strings.Contains(src, "runtime.SelectionReserve()") {
+			missing = append(missing, path)
+		}
+	}
+
+	// A glob that found nothing would pass vacuously and prove the opposite of
+	// what it claims. Four roots select today; a fifth is welcome, a drop to
+	// three is a deliberate decision someone should have to record here.
+	require.GreaterOrEqual(t, len(selecting), 4,
+		"expected at least the four selecting boot roots, found %v — if a lane was removed, "+
+			"update this floor deliberately rather than letting the guard go quiet", selecting)
+
+	require.Empty(t, missing,
+		"these boot roots ask selection what fits without telling it the admission gate's margin, "+
+			"so each can offer a model the broker will then refuse to start (the band "+
+			"TestSelectionOffersExactlyWhatTheBrokerAdmits measures): %v", missing)
+
+	t.Logf("all %d selecting boot roots state the gate's margin: %v", len(selecting), selecting)
 }

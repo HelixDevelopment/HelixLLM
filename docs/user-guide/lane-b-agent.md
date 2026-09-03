@@ -4,7 +4,8 @@ New capability — no prior user-facing doc existed under `docs/user-guide/`
 or `docs/courses/` before this document. Verified directly against
 `cmd/agentgen-boot/main.go`, `cmd/agentgen-boot/compose.agent.yml`, and
 `internal/vrambroker/broker.go`, `submodules/helix_llm` HEAD `e2ce163`,
-2026-07-11.
+2026-07-11; the model-selection section re-verified against the measured-
+selection migration, 2026-09-03.
 
 ## What this is
 
@@ -17,12 +18,13 @@ admit it safely.
 
 This is not a load-balancer or a replacement for the resident coder — it is
 an additive, independently-addressable llama-server instance with its own
-model, its own context window, and its own admission gate.
+model — decided per host by measurement, see below — its own context window,
+and its own admission gate.
 
 ## VRAM admission: the vrambroker gate (this is the load-bearing safety mechanism)
 
 Before Lane B's container is ever started, `cmd/agentgen-boot` calls
-`vrambroker.Broker.Acquire(ctx, vrambroker.ClassAgent, needBytes)`
+`vrambroker.Broker.Acquire(ctx, vrambroker.ClassAgent, needBytesFor(chosen))`
 (`internal/vrambroker/broker.go`). This is a **real, measured** admission
 check against `nvidia-smi`-reported free VRAM — never a raw
 "just start the container and hope":
@@ -56,6 +58,10 @@ Possible outcomes of the admission check:
 ```bash
 cd submodules/helix_llm/cmd/agentgen-boot
 
+# Measure this host and report which model it would serve, and why the other
+# candidates were not offered. Boots nothing, touches the card not at all:
+go run . plan
+
 # Check admission WITHOUT booting anything (lease is acquired then
 # immediately released — pure gate test):
 go run . admit-check
@@ -74,44 +80,93 @@ go run . down compose.agent.yml <project-name>
 
 ## Model selection and the VRAM footprint you are actually claiming
 
-The default model is **Mistral-Nemo-Instruct-2407 Q4_K_M** (bartowski GGUF,
-~6.96 GiB weights measured from the GGUF's HTTP `Content-Length`), with a
-default `needBytes` reservation of **9 GiB** (weights + a modest 16384-ctx /
-4-parallel-slot / q8_0-KV budget + activation headroom —
-`cmd/agentgen-boot/main.go: defaultNeedBytes` comment).
+**Which model runs is measured, not configured.** This harness has no default
+model and cannot be told which one to run. Every `plan` / `admit-check` / `boot`
+measures this host, joins the measurement against the recorded catalogue
+(`internal/catalogue/data/text.yaml`) under your declared usage, and serves an
+option the host was proven able to run — or refuses, naming what was short.
+
+Use `plan` to see the answer without touching the card:
 
 ```bash
-# Model artefact path (gitignored, lives outside the repo — §11.4.30):
-export AGENTGEN_MODEL_DIR=$HOME/models         # same cache dir the resident coder uses; auto-defaulted to ~/models if unset
-export AGENTGEN_MODEL_GGUF=Mistral-Nemo-Instruct-2407-Q4_K_M.gguf   # default; override to select a different Lane-B candidate
+go run . plan
+```
 
-# If you select a DIFFERENT model, you MUST also override the VRAM claim —
-# the broker has no way to know a bigger model's real footprint otherwise
-# (§11.4.6/§11.4.108 — never assume a bigger model fits the smaller default):
-export AGENTGEN_NEED_BYTES=$((10 * 1024 * 1024 * 1024))   # e.g. 10 GiB for a bigger candidate
+### What changed, and why
 
-# Other compose.agent.yml-injected tuning knobs (all env-overridable,
-# none hardcoded in the compose file itself — §CONST-045/§11.4.28):
+This lane used to take the model from `AGENTGEN_MODEL_GGUF` and its VRAM claim
+from `AGENTGEN_NEED_BYTES`, and those two had to be kept in agreement **by
+hand**. Forgetting was silent. Measured on a 12288 MiB card with 11781 MiB free:
+
+```
+AGENTGEN_MODEL_GGUF=Qwen3.6-27B-Q4_K_M.gguf   # a 19.5 GiB model
+# AGENTGEN_NEED_BYTES left at its 9 GiB default
+  -> need=9216MiB   ADMIT-OK          exit=0     # agreed to run it, unchecked
+# the same binary, same card, told that model's real figure
+  -> need=19968MiB  ErrBudgetExceeded exit=10
+```
+
+How much memory a model needs was recorded in two places and only one was true.
+It is now recorded once — in the catalogue entry — and read from the entry the
+decision actually chose. On the same card the same input now refuses, saying the
+27B is short by 7289 MiB, and starts nothing.
+
+### Environment variables
+
+```bash
+# INPUT — where artefacts live (gitignored, outside the repo, §11.4.30).
+# A LOCATION, never a model: it says where to look, not what to run.
+export AGENTGEN_MODEL_DIR=$HOME/models    # auto-defaults to ~/models if unset
+
+# INPUT — how the output will be used, so licence terms can be applied.
+# Defaults to the narrowest purpose (commercial) and always reports the default.
+export HELIXLLM_DECLARED_USAGE=commercial
+
+# INPUT — options you forbid. This can only ever REMOVE a candidate the
+# measurement offered, never introduce one it did not.
+export AGENTGEN_FORBID_MODELS=some-model,another-model:variant
+
+# OUTPUT — written by the harness from the decision, for compose to
+# interpolate. A value you set here is reported and OVERWRITTEN.
+# AGENTGEN_MODEL_GGUF
+
+# NO LONGER HONOURED — a static VRAM figure implied a model. If set, it is
+# reported and ignored; the admitted figure comes from the chosen entry.
+# AGENTGEN_NEED_BYTES
+
+# Serving/host-safety knobs — these say HOW and WHERE the service runs and
+# name no model, so they keep their defaults (§CONST-045/§11.4.28):
 export AGENTGEN_CTX_SIZE=16384       # llama-server -c
 export AGENTGEN_PARALLEL=4           # llama-server --parallel
 export AGENTGEN_MEM_LIMIT=16g        # container mem_limit (§12.3/§12.6 host-safety cap)
 export AGENTGEN_SHM_SIZE=2g
 ```
 
-Documented alternative Lane-B candidates (per the plan cited in the source
-comments, not independently re-verified against the model registry in this
-pass): GLM-4.7-Flash (smallest quant, ~9.78 GiB) and DeepSeek-Coder-V2-Lite
-Q4_K_M (~9.65 GiB) — both noted as **single-slot-only** given the plan's
-headroom math, i.e. do not also raise `AGENTGEN_PARALLEL` when switching to
-one of these without re-deriving the KV-cache budget.
+### Naming a model deliberately
 
-`AGENTGEN_MODEL_GGUF` and `AGENTGEN_MODEL_DIR` are two of the two env vars
-that MUST be changed **together** when switching models
-(`AGENTGEN_NEED_BYTES` is the third — see above); changing only the model
-file without updating the VRAM claim risks either a false admission refusal
-(claim too high) or, worse, an under-claimed admission that lets a bigger
-model destabilize the resident coder's VRAM (claim too low) — the broker
-has no independent way to measure a not-yet-loaded model's real footprint.
+`--pin` is the one legitimate way to name a model, and it is a CONSTRAINT on the
+choice rather than a bypass: the host is still measured first, and the pin is
+refused — with the insufficient resource named — when this host cannot run it.
+
+```bash
+go run . plan --pin qwen3-0.6b:q4_0
+```
+
+A pin naming something the catalogue does not record is refused, not started.
+
+### When nothing is offered
+
+The three withheld reasons stay distinct all the way to your terminal, because
+each implies a different remedy: `insufficient_resources` (change the host or
+pick smaller), `unsupported_configuration` (more memory will not help), and
+`excluded_by_usage_terms` (the host could serve it; the licence forbids your
+declared usage). Selection is told the admission gate's own 2 GiB margin
+(`runtime.SelectionReserve`), so this lane cannot offer a model the broker will
+then refuse to start.
+
+Exit codes for the selection stage, distinct from the admission codes above:
+`20` host not measured, `21` measurement stale, `22` no option offered, `23`
+catalogue unreadable, `24` no offered model's weights are present on this host.
 
 ## Container + orchestration details (verified against `compose.agent.yml`)
 
@@ -121,7 +176,7 @@ has no independent way to measure a not-yet-loaded model's real footprint.
 - `command:` is llama-server ARGV (the image's `ENTRYPOINT` is already
   `["llama-server"]` — do not prepend another `llama-server` token if you
   edit this file):
-  `-m /models/<gguf> --host 0.0.0.0 --port 18435 -ngl 99 -c <ctx> --parallel <n> --cont-batching --cache-type-k q8_0 --cache-type-v q8_0 -fa on --jinja`
+  `-m /models/<the decided gguf> --host 0.0.0.0 --port 18435 -ngl 99 -c <ctx> --parallel <n> --cont-batching --cache-type-k q8_0 --cache-type-v q8_0 -fa on --jinja`
   — all layers on GPU (`-ngl 99`), q8_0 KV cache both K and V, flash
   attention on, Jinja chat templates enabled (needed for correct
   tool-calling/structured-output sampling on many models).
@@ -142,10 +197,16 @@ has no independent way to measure a not-yet-loaded model's real footprint.
 Lane B exposes the same llama-server OpenAI-compatible HTTP API as the
 resident coder, just on its own port:
 
+The model name to send is the one the boot reported as `CHOSEN`, since which
+model is serving is decided per host — `/v1/models` asks the running server
+rather than assuming:
+
 ```bash
+curl -s http://localhost:18435/v1/models
+
 curl -s http://localhost:18435/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "Mistral-Nemo-Instruct-2407-Q4_K_M", "messages": [{"role": "user", "content": "Write a Go hello-world."}]}'
+  -d '{"model": "<the CHOSEN model>", "messages": [{"role": "user", "content": "Write a Go hello-world."}]}'
 
 curl -s http://localhost:18435/health
 ```

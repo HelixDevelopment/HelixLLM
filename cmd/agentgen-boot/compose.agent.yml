@@ -11,13 +11,15 @@
 # (§11.4.74 reuse-don't-reimplement). Same image the resident coder and the
 # vision (VLM) lane already use.
 #
-# Model SELECTION is env-parameterized (§CONST-045 / §11.4.28 no-hardcoded-
-# path): AGENTGEN_MODEL_GGUF defaults to the plan's #1 Lane-B candidate —
-# Mistral-Nemo-Instruct-2407-Q4_K_M.gguf (bartowski GGUF, ~6.96 GiB weights) —
-# so `boot` works out-of-the-box once the model artefact is present. Overriding
-# the var (plus AGENTGEN_NEED_BYTES in cmd/agentgen-boot, see main.go) selects
-# a different Lane-B candidate (GLM-4.7-Flash smallest quant, DeepSeek-Coder-
-# V2-Lite Q4_K_M, ...) — never removed, just env-selectable (§11.4.122).
+# Model SELECTION IS MEASURED, NOT CONFIGURED (FR-056). AGENTGEN_MODEL_GGUF is
+# written by cmd/agentgen-boot from the decision it makes after measuring this
+# host against the recorded catalogue — it is an OUTPUT of that decision and has
+# NO default here. A default would be a model name in configuration, which is
+# exactly the static selection FR-056 forbids: it is what runs when nothing has
+# measured the host, and nothing would have checked it fits.
+#
+# Composing this file by hand without the harness therefore fails loudly on an
+# unset variable rather than starting an arbitrary model. That is deliberate.
 #
 # Model artefacts live OUTSIDE the repo (gitignored, §11.4.30) at the host dir
 # injected via ${AGENTGEN_MODEL_DIR} (defaults to ~/models — the same cache dir
@@ -30,18 +32,18 @@
 services:
   agentgen:
     image: localhost/helixllm/llamacpp-router:cuda12.8-sm120
-    # Text-only llama-server (no --mmproj): default Mistral-Nemo-12B Q4_K_M
-    # weights, all layers on GPU (-ngl 99), modest unified KV budget sized for
-    # the benchmark spike (single-stream + a few concurrent sequences), Jinja
-    # chat template enabled for tool-calling/structured-output correctness
-    # sampling. OpenAI API + /health on :18435 inside + published.
+    # Text-only llama-server (no --mmproj): the MEASURED-decision weights, all
+    # layers on GPU (-ngl 99), modest unified KV budget sized for the benchmark
+    # spike (single-stream + a few concurrent sequences), Jinja chat template
+    # enabled for tool-calling/structured-output correctness sampling. OpenAI
+    # API + /health on :18435 inside + published.
     #
     # NOTE (mirrors cmd/visiongen-boot/compose.vision.yml, same router image):
     # the image's ENTRYPOINT is already ["llama-server"] — `command:` below is
     # ARGV to that entrypoint. Do NOT re-add a leading "llama-server" token.
     command:
       - -m
-      - /models/${AGENTGEN_MODEL_GGUF:-Mistral-Nemo-Instruct-2407-Q4_K_M.gguf}
+      - /models/${AGENTGEN_MODEL_GGUF}                       # DECIDED — no default
       - --host
       - 0.0.0.0
       - --port
@@ -71,9 +73,9 @@ services:
     devices:
       - "nvidia.com/gpu=all"
     # §12.3 container hygiene + §12.6 host-safety — bounded so a first-run OOM
-    # cannot starve the developer host. Mistral-Nemo-12B Q4_K_M + modest KV
-    # measured well under this cap on the 32 GB RTX 5090 (see admit-check
-    # accounting in cmd/agentgen-boot/main.go).
+    # cannot starve the developer host. This caps HOST memory for the container;
+    # the DEVICE-memory figure is the chosen catalogue entry's, admitted by the
+    # vrambroker before this file is `up`'d (cmd/agentgen-boot).
     mem_limit: "${AGENTGEN_MEM_LIMIT:-16g}"
     shm_size: "${AGENTGEN_SHM_SIZE:-2g}"
     restart: "no"
