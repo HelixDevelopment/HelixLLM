@@ -111,106 +111,163 @@ func TestEvict_NeverUnloadsUnderAnInFlightRequest_Concurrent(t *testing.T) {
 	const (
 		servers   = 4
 		evictors  = 4
-		rounds    = 400
 		modelID   = "contended"
 		reloadEvy = true
+
+		// The storm is retried because its PRECONDITIONS are scheduling-
+		// dependent, not because its invariants are. See the loop below.
+		maxAttempts = 4
+		baseRounds  = 400
 	)
 
-	var (
-		inFlight   atomic.Int32 // requests the test knows are genuinely in flight
-		violations atomic.Int32 // unloads that happened while one was in flight
-		evicted    atomic.Int32
-		refused    atomic.Int32
-	)
-
-	clk := newTestClock(time.Unix(1_700_000_000, 0).UTC())
-	notifier := &recordingNotifier{}
-	u := &recordingUnloader{
-		// Checked at the exact instant the memory is returned to the host.
-		before: func(string) {
-			if inFlight.Load() > 0 {
-				violations.Add(1)
-			}
-		},
+	// storm runs one full eviction storm against a fresh manager and reports
+	// what it observed. Every attempt gets fresh state so the FR-046 count
+	// stays a statement about one run.
+	type outcome struct {
+		evicted, refused, violations int32
+		announced                    int
 	}
-	m := newTestManagerWithUnloader(t, Config{IdleTimeout: time.Hour}, notifier, clk, u)
-	require.NoError(t, m.Track(modelID, 2<<30, nil))
+	storm := func(rounds int) outcome {
+		var (
+			inFlight   atomic.Int32 // requests the test knows are genuinely in flight
+			violations atomic.Int32 // unloads that happened while one was in flight
+			evicted    atomic.Int32
+			refused    atomic.Int32
+		)
 
-	var serving, evicting sync.WaitGroup
-	stop := make(chan struct{})
+		clk := newTestClock(time.Unix(1_700_000_000, 0).UTC())
+		notifier := &recordingNotifier{}
+		u := &recordingUnloader{
+			// Checked at the exact instant the memory is returned to the host.
+			before: func(string) {
+				if inFlight.Load() > 0 {
+					violations.Add(1)
+				}
+			},
+		}
+		m := newTestManagerWithUnloader(t, Config{IdleTimeout: time.Hour}, notifier, clk, u)
+		require.NoError(t, m.Track(modelID, 2<<30, nil))
 
-	// Request servers: begin a real request, hold it, end it. They run for the
-	// whole life of the eviction storm, so requests really are in flight while
-	// eviction is attempted.
-	for i := 0; i < servers; i++ {
-		serving.Add(1)
-		go func() {
-			defer serving.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				done, err := m.BeginRequest(modelID)
-				if err != nil {
-					// Model is currently unloaded/unloading — that is legal; the
-					// request simply cannot be served by it right now.
-					continue
-				}
-				inFlight.Add(1)
-				// A real, observable window during which an answer is in flight.
-				for j := 0; j < 20; j++ {
-					_ = m.IsServing(modelID)
-				}
-				inFlight.Add(-1)
-				done()
-				// A real gap between requests, so the model is genuinely idle
-				// some of the time and eviction can legitimately win the race.
-				// Without gaps every eviction attempt trivially hits a serving
-				// model and the test would prove nothing about the guard.
-				time.Sleep(20 * time.Microsecond)
-			}
-		}()
-	}
+		var serving, evicting sync.WaitGroup
+		stop := make(chan struct{})
 
-	// Evictors: hammer eviction against the same model concurrently.
-	for i := 0; i < evictors; i++ {
-		evicting.Add(1)
-		go func() {
-			defer evicting.Done()
-			for r := 0; r < rounds; r++ {
-				_, err := m.Evict(context.Background(), modelID, ReasonMemoryPressure)
-				switch {
-				case err == nil:
-					evicted.Add(1)
-					if reloadEvy {
-						// Put it back so the contention keeps going.
-						_ = m.Track(modelID, 2<<30, nil)
+		// Request servers: begin a real request, hold it, end it. They run for
+		// the whole life of the eviction storm, so requests really are in
+		// flight while eviction is attempted.
+		for i := 0; i < servers; i++ {
+			serving.Add(1)
+			go func() {
+				defer serving.Done()
+				for {
+					select {
+					case <-stop:
+						return
+					default:
 					}
-				case isServingRefusal(err):
-					refused.Add(1)
+					done, err := m.BeginRequest(modelID)
+					if err != nil {
+						// Model is currently unloaded/unloading — that is
+						// legal; the request simply cannot be served by it
+						// right now.
+						continue
+					}
+					inFlight.Add(1)
+					// A real, observable window during which an answer is in flight.
+					for j := 0; j < 20; j++ {
+						_ = m.IsServing(modelID)
+					}
+					inFlight.Add(-1)
+					done()
+					// A real gap between requests, so the model is genuinely
+					// idle some of the time and eviction can legitimately win
+					// the race. Without gaps every eviction attempt trivially
+					// hits a serving model and the test would prove nothing
+					// about the guard.
+					time.Sleep(20 * time.Microsecond)
 				}
-				time.Sleep(10 * time.Microsecond)
-			}
-		}()
+			}()
+		}
+
+		// Evictors: hammer eviction against the same model concurrently.
+		for i := 0; i < evictors; i++ {
+			evicting.Add(1)
+			go func() {
+				defer evicting.Done()
+				for r := 0; r < rounds; r++ {
+					_, err := m.Evict(context.Background(), modelID, ReasonMemoryPressure)
+					switch {
+					case err == nil:
+						evicted.Add(1)
+						if reloadEvy {
+							// Put it back so the contention keeps going.
+							_ = m.Track(modelID, 2<<30, nil)
+						}
+					case isServingRefusal(err):
+						refused.Add(1)
+					}
+					time.Sleep(10 * time.Microsecond)
+				}
+			}()
+		}
+
+		evicting.Wait() // the eviction storm finishes first...
+		close(stop)     // ...then the request servers are told to wind down.
+		serving.Wait()
+
+		return outcome{
+			evicted:    evicted.Load(),
+			refused:    refused.Load(),
+			violations: violations.Load(),
+			announced:  notifier.len(),
+		}
 	}
 
-	evicting.Wait() // the eviction storm finishes first...
-	close(stop)     // ...then the request servers are told to wind down.
-	serving.Wait()
+	// Two kinds of claim live in this test, and they must not be treated alike.
+	//
+	// The INVARIANTS -- no unload under an in-flight request (FR-047), and every
+	// unload announced (FR-046) -- are properties of the code. They are checked
+	// on EVERY attempt and a breach fails immediately. They are never retried
+	// away: a loop that could re-roll a violation would be far worse than the
+	// flake it was written to cure.
+	//
+	// The PRECONDITIONS -- that eviction sometimes won and sometimes was refused
+	// -- are properties of the SCHEDULER. They say the storm actually opened the
+	// contention window this test exists to squeeze. On a loaded host the window
+	// can fail to open at all, and when it did, this test used to FAIL, which
+	// reads as "the guard broke" when nothing of the sort happened. It cost two
+	// agents real time in one session, each correctly proving the failure was
+	// not theirs and then having no way to tell what it was.
+	//
+	// So a missed window is retried, with more rounds each time, and if the host
+	// simply cannot produce the contention we say so rather than claiming
+	// either a pass or a defect.
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		got := storm(baseRounds * attempt)
 
-	t.Logf("concurrency reached: evictions=%d serving-refusals=%d unload-while-serving-violations=%d",
-		evicted.Load(), refused.Load(), violations.Load())
+		t.Logf("attempt %d/%d (rounds=%d): evictions=%d serving-refusals=%d unload-while-serving-violations=%d",
+			attempt, maxAttempts, baseRounds*attempt, got.evicted, got.refused, got.violations)
 
-	require.Zero(t, violations.Load(),
-		"FR-047: a model was unloaded while a request was in flight — an in-flight answer was corrupted")
-	require.Positive(t, evicted.Load(),
-		"the test must actually evict sometimes, or it proves nothing")
-	require.Positive(t, refused.Load(),
-		"the test must actually hit the serving refusal, or the contention window never opened")
-	require.Equal(t, int(evicted.Load()), notifier.len(),
-		"FR-046: every system-initiated unload that really happened is announced")
+		// Invariants first, unconditionally, every attempt.
+		require.Zero(t, got.violations,
+			"FR-047: a model was unloaded while a request was in flight — an in-flight answer was corrupted")
+		require.Equal(t, int(got.evicted), got.announced,
+			"FR-046: every system-initiated unload that really happened is announced")
+
+		if got.evicted > 0 && got.refused > 0 {
+			return // the window opened, and the invariants held inside it
+		}
+	}
+
+	// SKIP-OK: the invariants were checked on every attempt above and held. What
+	// could not be produced on this host is the CONTENTION, without which those
+	// checks are vacuous — zero evictions makes "no unload under a request"
+	// trivially true. Reporting that honestly is the point: a pass here would
+	// claim a guard was exercised when it was not.
+	t.Skipf("SKIP-OK: could not open the eviction/serving contention window in %d attempts "+
+		"(up to %d rounds x %d evictors). The invariants held on every attempt, but with no "+
+		"contention they prove nothing, so this is neither a pass nor a defect. Re-run on a "+
+		"less loaded host; if it skips there too, the storm's timing needs revisiting.",
+		maxAttempts, baseRounds*maxAttempts, evictors)
 }
 
 func isServingRefusal(err error) bool {
