@@ -44,19 +44,51 @@ func refusalFrom(t *testing.T, c runtime.Choice, err error) *runtime.Refusal {
 
 // --- 1. in-memory wins whenever it can, roster membership notwithstanding ----
 
+// inMemoryRosteredEntry is a roster-eligible entry whose artifact IS served in
+// memory — the shape D6 is about.
+//
+// It is derived here rather than added to the fixture set because the fixtures
+// carry no such row, and the two tests below cannot make their point without
+// one: their subject is a model that has BOTH shapes, and the fixture roster
+// member declares only the streaming one.
+//
+// The shape is real, not invented for the test. The shipped catalogue's
+// qwen3.6-35b-a3b row is exactly this: `runtime: in-memory`, `streaming_family:
+// qwen3.6` resolving to eligible, its own GGUF source and integrity value —
+// with the Colibri container of the same model kept as a SEPARATE row
+// (text.yaml, research §3 "two distinct artifact shapes per model … separate
+// catalogue rows with separate integrity values (FR-012)").
+func inMemoryRosteredEntry() catalogue.Entry {
+	e := catfixtures.StreamingRosterMemberEntry()
+	e.Runtime = catalogue.RuntimeInMemory
+	return e
+}
+
 // TestFitsInMemoryChoosesInMemoryEvenWhenOnTheStreamingRoster.
 //
 // Streaming trades throughput for feasibility by orders of magnitude, so it is
-// a fallback and never a preference (D6). The rostered fixture entry fits this
-// host's memory many times over; choosing streaming for it would be a real,
-// user-visible slowdown chosen for no reason. Roster membership is what makes
-// the fallback POSSIBLE, never what makes it desirable.
+// a fallback and never a preference (D6). This entry is on the roster AND has
+// an in-memory shape that fits this host's memory many times over; choosing
+// streaming for it would be a real, user-visible slowdown chosen for no reason.
+// Roster membership is what makes the fallback POSSIBLE, never what makes it
+// desirable.
+//
+// Reconciled per §11.4.120: this previously used the fixture roster member,
+// whose only artifact shape is the streaming one. Reading its recorded memory
+// figure — the streaming runtime's own minimum RAM — as an in-memory footprint
+// is the CRITICAL-2 defect, so a streaming-only row can no longer answer
+// in-memory. D6 itself is unchanged and is asserted here on the row that
+// actually has the choice D6 is about.
 func TestFitsInMemoryChoosesInMemoryEvenWhenOnTheStreamingRoster(t *testing.T) {
 	host := fixtures.DualAccelerator() // 96 GiB free memory, 2 TiB free disk
-	entry := catfixtures.StreamingRosterMemberEntry()
+	entry := inMemoryRosteredEntry()
 
 	require.True(t, entry.StreamingEligible(),
 		"fixture precondition: this entry must be on the streaming roster, or the test proves nothing")
+	require.Equal(t, catalogue.RuntimeInMemory, entry.Runtime,
+		"fixture precondition: the entry must HAVE an in-memory shape for D6 to be a choice at all")
+	require.LessOrEqual(t, entry.MemoryRequiredBytes, uint64(host.MemoryAvailable),
+		"fixture precondition: it must fit, or in-memory is not on the table")
 
 	choice, err := chooser().Choose(host, entry, now())
 
@@ -66,21 +98,45 @@ func TestFitsInMemoryChoosesInMemoryEvenWhenOnTheStreamingRoster(t *testing.T) {
 	require.Nil(t, choice.Tradeoff, "nothing is traded when the preferred path is taken")
 }
 
-// TestDeclaredEntryRuntimeDoesNotOverrideTheMeasuredChoice.
+// TestDeclaredEntryRuntimeNeverMakesStreamingAPreference.
 //
-// The rostered fixture records Runtime: streaming in the catalogue. If Choose
-// read that field it would serve this model from disk on a host with 96 GiB
-// free — the exact "streaming as a preference" error D6 forbids. The path comes
-// from the measurement and the roster, never from the entry's declared runtime.
-func TestDeclaredEntryRuntimeDoesNotOverrideTheMeasuredChoice(t *testing.T) {
-	entry := catfixtures.StreamingRosterMemberEntry()
-	require.Equal(t, catalogue.RuntimeStreaming, entry.Runtime,
-		"fixture precondition: the entry must DECLARE streaming for this test to mean anything")
+// Reconciled per §11.4.120 from TestDeclaredEntryRuntimeDoesNotOverrideTheMeasuredChoice,
+// which asserted that a `runtime: streaming` row on a 96 GiB host answers
+// in-memory. That is the CRITICAL-2 defect: the row's recorded figure is the
+// streaming runtime's stated minimum RAM, not a footprint, and its artifact is
+// a Colibri-specific container the in-memory engine cannot open (research §1.8,
+// §3). Its 372 GiB weight set was never going to be resident in 20 GiB.
+//
+// The concern the old test protected is real and is asserted here instead, in
+// the form that survives: the declared runtime is read ONLY to know whether an
+// in-memory shape exists, and NEVER as a preference for streaming. Both halves
+// are pinned in one test, because the two together are the invariant — either
+// alone is satisfiable by a wrong implementation.
+func TestDeclaredEntryRuntimeNeverMakesStreamingAPreference(t *testing.T) {
+	host := fixtures.DualAccelerator() // 96 GiB free memory, 2 TiB free disk
 
-	choice, err := chooser().Choose(fixtures.DualAccelerator(), entry, now())
+	// (i) A row that DECLARES streaming and has no in-memory shape is served by
+	//     streaming even on a host with memory to spare — there is no faster
+	//     path for that artifact to be forgone.
+	streamingOnly := catfixtures.StreamingRosterMemberEntry()
+	require.Equal(t, catalogue.RuntimeStreaming, streamingOnly.Runtime,
+		"fixture precondition: the entry must DECLARE streaming for this half to mean anything")
 
+	choice, err := chooser().Choose(host, streamingOnly, now())
 	require.NoError(t, err)
-	require.Equal(t, catalogue.RuntimeInMemory, choice.Runtime)
+	require.Equal(t, catalogue.RuntimeStreaming, choice.Runtime,
+		"a Colibri-container row has one shape; answering in-memory offers an artifact that engine cannot open")
+
+	// (ii) The SAME model's in-memory shape, on the SAME host, is served from
+	//      memory. So reading the declared runtime did not turn streaming into a
+	//      preference — it selected between two artifacts, which is what the
+	//      field records.
+	inMemory := inMemoryRosteredEntry()
+	choice, err = chooser().Choose(host, inMemory, now())
+	require.NoError(t, err)
+	require.Equal(t, catalogue.RuntimeInMemory, choice.Runtime,
+		"an in-memory shape that fits is served from memory; streaming is never preferred over it (D6)")
+	require.Nil(t, choice.Tradeoff, "nothing is traded when the preferred path is taken")
 }
 
 // --- 2. the D1 trap: architecture is not eligibility -------------------------
@@ -124,43 +180,80 @@ func TestUnrosteredMoEThatDoesNotFitIsUnsupportedConfigurationNotStreaming(t *te
 // TestRosterAloneSeparatesTwoIdenticalArchitectures.
 //
 // The paired form of the test above: the same host, two entries that agree on
-// architecture and on memory requirement, differing only in roster membership.
-// If those two produce the same outcome, eligibility is not being read from the
+// architecture and on memory figure, differing only in roster membership. If
+// those two produce the same outcome, eligibility is not being read from the
 // roster — whatever the code says it reads.
+//
+// Reconciled per §11.4.120. The host is now BELOW both figures, and the
+// separation is read from the two refusal REASONS rather than from
+// streaming-vs-refusal. The previous 12 GiB host produced streaming for the
+// rostered row only because the floor was being computed as a quarter of the
+// recorded figure — a bound beneath the streaming runtime's own stated minimum,
+// which is the CRITICAL-2 defect. With the floor corrected to the recorded
+// figure, no single host can both clear the rostered row's floor and fail the
+// unrostered row's footprint while the two numbers are equal: the figures now
+// MEAN different things (a runtime floor vs an in-memory footprint) even where
+// they coincide numerically.
+//
+// Reading the reasons is the sharper assertion anyway. It pins the property
+// FR-055 / D6 actually care about — the two rows ASK THE USER FOR DIFFERENT
+// THINGS. The rostered row is short of a resource on a path that exists
+// (remedy: a bigger host); the unrostered row has no path at all (remedy: a
+// different model). An implementation that ignored the roster would give both
+// the same answer.
 func TestRosterAloneSeparatesTwoIdenticalArchitectures(t *testing.T) {
-	host := withMemoryAvailable(fixtures.SingleAccelerator(), 12*capability.GiB)
+	host := withMemoryAvailable(fixtures.SingleAccelerator(), 19*capability.GiB)
 	rostered := catfixtures.StreamingRosterMemberEntry()
 	unrostered := catfixtures.StreamingIneligibleMoEEntry()
 
 	require.Equal(t, rostered.Architecture, unrostered.Architecture,
 		"fixture precondition: identical architecture")
 	require.Equal(t, rostered.MemoryRequiredBytes, unrostered.MemoryRequiredBytes,
-		"fixture precondition: identical memory requirement")
+		"fixture precondition: identical memory figure")
+	require.Greater(t, rostered.MemoryRequiredBytes, uint64(host.MemoryAvailable),
+		"fixture precondition: the host must be below both figures, so neither row is admitted")
 
 	rosteredChoice, rosteredErr := chooser().Choose(host, rostered, now())
-	require.NoError(t, rosteredErr)
-	require.Equal(t, catalogue.RuntimeStreaming, rosteredChoice.Runtime)
+	rr := refusalFrom(t, rosteredChoice, rosteredErr)
+	require.Equal(t, runtime.ReasonInsufficientResources, rr.Reason,
+		"the rostered row has a path; this host is too small for it")
+	require.Equal(t, runtime.RemedyChangeHostOrPickSmaller, rr.Reason.Remedy())
 
 	unrosteredChoice, unrosteredErr := chooser().Choose(host, unrostered, now())
-	r := refusalFrom(t, unrosteredChoice, unrosteredErr)
-	require.Equal(t, runtime.ReasonUnsupportedConfiguration, r.Reason)
+	ur := refusalFrom(t, unrosteredChoice, unrosteredErr)
+	require.Equal(t, runtime.ReasonUnsupportedConfiguration, ur.Reason,
+		"the unrostered row has no path anywhere; more memory would not create one")
+	require.Equal(t, runtime.RemedyDifferentApproach, ur.Reason.Remedy())
+
+	require.NotEqual(t, rr.Reason, ur.Reason,
+		"roster membership alone must separate two rows identical in every other respect")
+	require.NotEqual(t, rr.Reason.Remedy(), ur.Reason.Remedy(),
+		"and it must separate them in what they ASK OF THE USER, not merely in a label")
 }
 
 // --- 3. the fallback is taken, and says what it costs ------------------------
 
 // TestRosteredEntryThatDoesNotFitChoosesStreamingAndRecordsTheTradeoff.
 //
-// All three conditions hold: it does not fit memory, it is on the roster, and
-// it meets the streaming runtime's own floors. The choice must also carry what
-// was traded — a path chosen for feasibility at a large throughput cost is not
-// the same offer as the fast one, and a caller that cannot see the difference
-// cannot tell the user.
+// All conditions for the streaming path hold: the in-memory path is out, the
+// entry is on the roster, and the host meets the streaming runtime's own floors
+// on both axes. The choice must also carry what was traded — a path chosen for
+// feasibility at a large throughput cost is not the same offer as the fast one,
+// and a caller that cannot see the difference cannot tell the user.
+//
+// Reconciled per §11.4.120: the host was 12 GiB, which cleared the old bound
+// only because it was a quarter of the recorded figure. The corrected floor IS
+// the recorded figure, so the host now has to meet it. The precondition changes
+// with it — for this row the in-memory path is out because the row has no
+// in-memory shape, not because a footprint did not fit.
 func TestRosteredEntryThatDoesNotFitChoosesStreamingAndRecordsTheTradeoff(t *testing.T) {
-	host := withMemoryAvailable(fixtures.SingleAccelerator(), 12*capability.GiB)
+	host := withMemoryAvailable(fixtures.SingleAccelerator(), 24*capability.GiB)
 	entry := catfixtures.StreamingRosterMemberEntry()
 
-	require.Greater(t, entry.MemoryRequiredBytes, uint64(host.MemoryAvailable),
-		"fixture precondition: the entry must NOT fit in memory, or the fallback is never reached")
+	require.Equal(t, catalogue.RuntimeStreaming, entry.Runtime,
+		"fixture precondition: this row's only artifact shape is the streaming one, so in-memory is not on the table")
+	require.LessOrEqual(t, entry.MemoryRequiredBytes, uint64(host.MemoryAvailable),
+		"fixture precondition: the host must meet the streaming runtime's stated floor, or the path is refused")
 	require.LessOrEqual(t, entry.StorageRequiredBytes, uint64(host.StorageAvailable),
 		"fixture precondition: the streaming footprint must fit the free disk")
 

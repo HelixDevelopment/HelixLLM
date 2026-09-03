@@ -216,7 +216,12 @@ func TestTheDiskMinimumIsTheFullFootprintAndIsNeverDerivedFromMemory(t *testing.
 
 	// One byte short of the footprint refuses; exactly the footprint admits.
 	// This pins the comparison itself, not merely its sign on a distant value.
-	host := withMemoryAvailable(fixtures.DualAccelerator(), 12*capability.GiB)
+	//
+	// The host must clear the entry's MEMORY floor so the storage axis is the
+	// one under test: Admit reports memory first, so a memory-short host would
+	// answer this test's storage probes with a memory shortfall. (Reconciled per
+	// §11.4.120 — the floor is now the recorded figure, not a quarter of it.)
+	host := withMemoryAvailable(fixtures.DualAccelerator(), 24*capability.GiB)
 
 	short := m.Admit(withStorageAvailable(host, capability.Bytes(e.StorageRequiredBytes-1)), e)
 	require.False(t, short.Admitted)
@@ -270,7 +275,9 @@ func TestZeroMinimumsFailClosed(t *testing.T) {
 // TestAdmittedVerdictCarriesNoRefusalDetail.
 func TestAdmittedVerdictCarriesNoRefusalDetail(t *testing.T) {
 	e := catfixtures.StreamingRosterMemberEntry()
-	host := withMemoryAvailable(fixtures.SingleAccelerator(), 12*capability.GiB)
+	// 24 GiB clears the entry's recorded streaming floor, so this is an
+	// admission and the test is about an admitted verdict's SHAPE (§11.4.120).
+	host := withMemoryAvailable(fixtures.SingleAccelerator(), 24*capability.GiB)
 
 	v := runtime.DefaultStreamingMinimums().Admit(host, e)
 
@@ -441,7 +448,11 @@ func launcher(a runtime.Admitter, h runtime.HealthProbe, budget time.Duration) r
 func streamingChoice(t *testing.T) (runtime.Choice, catalogue.Entry) {
 	t.Helper()
 	e := catfixtures.StreamingRosterMemberEntry()
-	c, err := chooser().Choose(withMemoryAvailable(fixtures.SingleAccelerator(), 12*capability.GiB), e, now())
+	// 24 GiB clears the entry's recorded streaming floor. Reconciled per
+	// §11.4.120: the former 12 GiB cleared only the discounted bound that
+	// CRITICAL-2 removed, so every launch test below was starting from a choice
+	// the corrected chooser refuses.
+	c, err := chooser().Choose(withMemoryAvailable(fixtures.SingleAccelerator(), 24*capability.GiB), e, now())
 	require.NoError(t, err)
 	require.Equal(t, catalogue.RuntimeStreaming, c.Runtime, "precondition: this must be the streaming path")
 	return c, e
@@ -471,10 +482,25 @@ func TestLaunchAdmitsBeforeStartingAndProbesAfter(t *testing.T) {
 
 // TestLaunchAsksAdmissionForTheResidentWorkingSet.
 //
-// The admission figure is what the streaming path actually holds in memory —
-// not the model's full in-memory requirement, which is precisely what it does
-// not need, and not the disk footprint, which is not memory at all. Asking for
-// either would refuse hosts this path exists to serve.
+// The admission figure is the ONE figure the streaming policy states, and it is
+// not the disk footprint — that is not memory at all. Asking the broker for the
+// footprint would refuse hosts this path exists to serve; asking it for less
+// than the policy states would reserve too little for a process selection has
+// already admitted, so the two must be the same number from one source.
+//
+// Reconciled per §11.4.120. This previously also asserted
+// `resident < entry.MemoryRequiredBytes` — that a discount is always applied —
+// on the rationale that "asking for the whole requirement refuses hosts it
+// could serve". Investigated before changing: that rationale holds only if the
+// recorded figure were an in-memory footprint streaming genuinely reduces.
+// Research §1.8 records it as the streaming runtime's own stated MINIMUM RAM
+// ("16 GB min" for glm-5.2, "24 GB RAM minimum" for qwen3.6), so asking for it
+// whole asks for exactly the runtime's minimum and refuses only hosts the
+// runtime itself cannot serve. No over-refusal occurs — the boundary is pinned
+// from both sides by TestTheFloorAdmitsExactlyAtTheRuntimesStatedMinimum and
+// TestOneByteBelowTheFloorIsRefusedAndTheFloorItselfIsNot. The stale assertion
+// is replaced below by the invariants that DO hold, plus proof the
+// resident-share mechanism is still wired for a caller who has measured one.
 func TestLaunchAsksAdmissionForTheResidentWorkingSet(t *testing.T) {
 	choice, entry := streamingChoice(t)
 	minimums := runtime.DefaultStreamingMinimums()
@@ -482,9 +508,18 @@ func TestLaunchAsksAdmissionForTheResidentWorkingSet(t *testing.T) {
 	plan, err := runtime.NewChooser().PlanLaunch(choice, entry, vrambroker.ClassCoder)
 	require.NoError(t, err)
 
-	require.Equal(t, minimums.ResidentMemoryBytes(entry), plan.ResidentMemoryBytes)
-	require.Less(t, plan.ResidentMemoryBytes, entry.MemoryRequiredBytes,
-		"streaming holds a share resident; asking for the whole requirement refuses hosts it could serve")
+	require.Equal(t, minimums.ResidentMemoryBytes(entry), plan.ResidentMemoryBytes,
+		"the plan carries the policy's figure; a second computation here could drift from the admitted one")
+	require.NotEqual(t, entry.StorageRequiredBytes, plan.ResidentMemoryBytes,
+		"the resident set is never the disk footprint — that axis is not memory (D2)")
+
+	// The resident-share seam is still real, not vestigial: a caller with a
+	// MEASURED share gets a smaller figure. The project supplies no such
+	// measurement, which is why its default credits no reduction.
+	measured := runtime.StreamingMinimums{ResidentMemoryFraction: 0.5}
+	require.Less(t, measured.ResidentMemoryBytes(entry), minimums.ResidentMemoryBytes(entry),
+		"a caller-supplied measured share must still reduce the resident figure")
+
 	require.Equal(t, entry.StorageRequiredBytes, plan.StorageBytes,
 		"the disk figure travels too, and it is the full footprint")
 

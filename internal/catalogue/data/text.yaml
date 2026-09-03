@@ -11,7 +11,7 @@
 #   § "Model Option".
 #
 # ---------------------------------------------------------------------------
-# THREE INVARIANTS THIS FILE ENCODES — each one is a defect already found and
+# FOUR INVARIANTS THIS FILE ENCODES — each one is a defect already found and
 # must not be reintroduced by a later edit.
 # ---------------------------------------------------------------------------
 #
@@ -37,7 +37,27 @@
 #     memory figure, and in no way implied by it. Any code that checks only
 #     memory headroom will offer that model to a host that cannot store it.
 #
-#  3. UNVERIFIED FIGURES ARE NEVER RESOLVED INTO A CONFIDENT NUMBER. An
+#  3. ON A `runtime: streaming` ROW, `memory_required_bytes` IS THE STREAMING
+#     RUNTIME'S OWN STATED MINIMUM RAM — NOT AN IN-MEMORY FOOTPRINT. Research
+#     §1.8 records a per-family "Min RAM (Colibri)" for every roster member and
+#     that is the figure carried here (glm-5.2 "16 GB min"; qwen3.6 "24 GB RAM
+#     minimum"; olmoe "8 GB RAM"). Two consequences, each a defect already
+#     found (CRITICAL-2) and not to be reintroduced:
+#       (a) it is a FLOOR, so it is never scaled DOWN to derive an admission
+#           bound. Selection once multiplied it by a 0.25 "resident fraction",
+#           admitting a 4 GiB host for glm-5.2 and a 6 GiB host for qwen3.6 —
+#           offering a path the runtime itself will not start (FR-027).
+#       (b) it must NOT be compared against free memory to ask "does this model
+#           fit in memory?". It never answered that question. The artifact a
+#           streaming row names is a Colibri-specific pre-converted container
+#           (research §3, FR-012) that the in-memory engine cannot open, and an
+#           MoE model held in memory needs "the full weight set resident in RAM"
+#           — for glm-5.2 that is the ~372 GiB storage figure, not 16 GiB. A row
+#           whose artifact has BOTH shapes carries them as SEPARATE entries with
+#           their own source and integrity values; qwen3.6 below is the pattern
+#           (GGUF row `runtime: in-memory`, Colibri row deferred).
+#
+#  4. UNVERIFIED FIGURES ARE NEVER RESOLVED INTO A CONFIDENT NUMBER. An
 #     invented figure here becomes a wrong selection decision later.
 #     This wire format has no way to say "absent": `memory_required_bytes` and
 #     `storage_required_bytes` are unsigned integers and zero is refused by
@@ -146,7 +166,7 @@
 #
 # The five families with no catalogue entry are ON the roster but have NO entry
 # below: the research recorded no RAM or disk figure for them, and inventing one
-# would violate invariant 3. They are rostered, not offerable — recorded here so
+# would violate invariant 4. They are rostered, not offerable — recorded here so
 # the gap is visible rather than silent.
 # ---------------------------------------------------------------------------
 
@@ -382,6 +402,7 @@ entries:
       size_bytes: 399431958528
     notes:
       - "INVARIANT 2 — THE PROOF CASE. Memory 16 GiB, storage ~372 GiB: the storage figure is over twenty times the memory figure and is in no way implied by it. Any code that checks only memory headroom will offer this model to a host that cannot store it."
+      - "INVARIANT 3 — THE PROOF CASE. `memory_required_bytes: 17179869184` is the STREAMING RUNTIME'S STATED MINIMUM RAM (\"16 GB min\"), not this model's in-memory footprint — its 744B weight set is the ~372 GiB storage figure. So the number is a FLOOR: never scale it down to derive an admission bound (a 0.25 factor once admitted a 4 GiB host — CRITICAL-2), and never compare it against free memory to decide the model \"fits in memory\" (this row's artifact is a Colibri container the in-memory engine cannot open). Both readings offered a path that cannot start."
       - "Research §1.7, quoted from the runtime's own repository: 'GLM-5.2 (744B): 16 GB min, 24 GB comfortable RAM; ~372 GB disk storage. Dense layers (~17B parameters) stay resident in RAM at int4 (~9.9 GB); the ~19,456 routed experts stream from disk on-demand.'"
       - "UNVERIFIED: context window — 'not directly re-confirmed'. No `context_tokens` is stated rather than a guessed one."
       - "UNVERIFIED: no measured throughput figure."
@@ -421,7 +442,7 @@ entries:
 #
 # ---------------------------------------------------------------------------
 # 1. qwen3-1.7b (q4_k_m)
-#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced (4294967296 B); storage is not, and the research's own linear-scaling estimate is not committed (invariant 3).
+#    NEEDS: a sourced Q4_K_M weight-file size. Memory IS sourced (4294967296 B); storage is not, and the research's own linear-scaling estimate is not committed (invariant 4).
 #
 #   - model_id: qwen3-1.7b
 #     variant: q4_k_m
@@ -437,7 +458,7 @@ entries:
 #     memory_required_bytes: 4294967296     # "~4 GB, usable" (CPU-only)
 #     # UNVERIFIED: research gives "~1.1 GB (est. from linear scaling of 0.6B/8B
 #     # points)" and states "exact Q4_K_M byte count not directly sourced".
-#     # Held null rather than committing the estimate (invariant 3).
+#     # Held null rather than committing the estimate (invariant 4).
 #     storage_required_bytes: null
 #     requires_accelerator: false
 #     usage_terms:
@@ -1443,7 +1464,7 @@ entries:
 #       specialisations: [general, instruction-following, reasoning]
 #     # UNVERIFIED: research gives only "Comparable footprint class to Qwen3-14B /
 #     # Mistral NeMo". Copying a comparable model's figure across would be exactly
-#     # the silent resolution invariant 3 forbids.
+#     # the silent resolution invariant 4 forbids.
 #     memory_required_bytes: null
 #     storage_required_bytes: null
 #     requires_accelerator: false

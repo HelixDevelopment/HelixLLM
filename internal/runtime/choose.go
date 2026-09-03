@@ -249,20 +249,43 @@ type Choice struct {
 // under it. A forgotten configuration therefore refuses rather than silently
 // admitting a path the host may not sustain.
 type StreamingMinimums struct {
-	// ResidentMemoryFraction is the share of the model's in-memory requirement
-	// that must still be resident while the remainder streams from disk.
-	// Streaming reduces the memory a model needs; it does not remove it.
+	// ResidentMemoryFraction scales the entry's recorded memory figure to reach
+	// the working set the streaming runtime must hold resident.
 	//
-	// Values outside (0,1) are treated as "no reduction credited" — the full
-	// in-memory requirement must be available. That covers the zero value and
-	// any nonsense value with the same fail-closed behaviour.
+	// It exists for the case where a caller has a MEASURED in-memory footprint
+	// and a MEASURED resident share of it — two separate figures, only the
+	// second of which is a fraction of the first. It is NOT a way to guess a
+	// floor from a number that is already one.
+	//
+	// Values outside (0,1) are treated as "no reduction credited" — the recorded
+	// figure is used whole. That covers the zero value and any nonsense value
+	// with the same fail-closed behaviour, and it is the project default: see
+	// defaultResidentMemoryFraction for why.
 	ResidentMemoryFraction float64
 }
 
-// defaultResidentMemoryFraction is a project policy choice, not a measured
-// threshold. It is named and exposed through DefaultStreamingMinimums so it can
-// be replaced by a caller with a measured figure of its own.
-const defaultResidentMemoryFraction = 0.25
+// defaultResidentMemoryFraction credits streaming with NO memory reduction, so
+// ResidentMemoryBytes returns the entry's recorded memory figure whole.
+//
+// This is not caution for its own sake — it is what the catalogue's figures
+// MEAN. For every family on the streaming runtime's roster, research §1.8
+// records a per-family "Min RAM (Colibri)" and the catalogue carries THAT as
+// memory_required_bytes:
+//
+//	glm-5.2  17179869184 B  "16 GB min, 24 GB comfortable"
+//	qwen3.6  25769803776 B  "24 GB RAM minimum"
+//	olmoe     8589934592 B  "8 GB RAM"
+//
+// Those are the runtime's own floors — the number below which it will not run
+// the model. Scaling one DOWN produces an admission bound beneath the runtime's
+// stated minimum, which is the defect this constant used to cause: at the
+// former 0.25 a 4 GiB host was admitted for glm-5.2 ("16 GB min") and a 6 GiB
+// host for qwen3.6 ("24 GB RAM minimum") — a path offered to a user whose
+// machine cannot start it (FR-027).
+//
+// A caller with a genuinely measured resident share may still supply one
+// through ResidentMemoryFraction. The project does not invent one.
+const defaultResidentMemoryFraction = 1.0
 
 // DefaultStreamingMinimums is the project's stated streaming floor policy.
 func DefaultStreamingMinimums() StreamingMinimums {
@@ -317,11 +340,39 @@ func NewChooser() Chooser {
 // refusal: that is a data defect with a research remedy, not a statement about
 // this host.
 //
-// The entry's own declared Runtime is deliberately NOT read. It records which
-// runtime the catalogue expects to serve the model; honouring it here would
-// make streaming a preference for every entry that declares it, serving from
-// disk on a host with memory to spare. The path comes from the measurement and
-// the roster.
+// The entry's declared Runtime is read for ONE purpose: to know whether the row
+// has an in-memory shape at all. It is never read as a PREFERENCE.
+//
+// A row's figures are denominated in the terms of the runtime that serves its
+// artifact, and the two artifact shapes are different files. Research §3: a
+// vendor GGUF/safetensors release and a "Colibri-specific pre-converted
+// container" are distinct artifacts needing "separate catalogue rows with
+// separate integrity values (FR-012) even when they represent 'the same model'
+// to the end user". So on a `runtime: streaming` row:
+//
+//   - MemoryRequiredBytes is the streaming runtime's own stated minimum RAM
+//     (research §1.8's per-family "Min RAM (Colibri)" column), NOT an
+//     in-memory footprint. Comparing it against free memory in step (a) asks
+//     "does this model fit in memory?" of a number that never answered that.
+//   - the artifact is Colibri-specific, and the in-memory engine cannot open
+//     it. There is no in-memory path to prefer.
+//
+// Reading the field therefore forgoes NOTHING: a model's fast path is its OWN
+// in-memory row (the qwen3.6 pattern — GGUF row `runtime: in-memory`, Colibri
+// row `runtime: streaming`), and Choose picks that row whenever it fits. The
+// "streaming as a preference, serving from disk on a host with memory to spare"
+// error remains forbidden and remains enforced, on the rows where an in-memory
+// alternative actually exists: a `runtime: in-memory` row that is ALSO on the
+// roster is served from memory whenever it fits, roster membership
+// notwithstanding (D6).
+//
+// Left unread, the field produced the inverse defect: a 744B model whose weight
+// set is 372 GiB was reported servable IN MEMORY on any host with 16 GiB free,
+// because its recorded 16 GiB streaming floor was read as its footprint. MoE
+// models in memory need "the full weight set resident in RAM" (research §3).
+//
+// Eligibility is still roster membership and only roster membership (D1), and
+// the host's two axes are still measured, never declared.
 //
 // Host-responsiveness headroom is not applied here. This answers which path CAN
 // serve; holding memory back so the machine stays usable while it does is the
@@ -352,8 +403,15 @@ func (c Chooser) Choose(host capability.HostCapabilityProfile, e catalogue.Entry
 
 	basis := basisOf(host, e)
 
-	// (a) The preferred path, tried first and always.
-	if e.MemoryRequiredBytes <= uint64(host.MemoryAvailable) {
+	// (a) The preferred path, tried first for every row that HAS one.
+	//
+	// A streaming-only row is skipped past it rather than compared: its memory
+	// figure is the streaming runtime's floor, so the comparison below would
+	// read a floor as a footprint and answer a question it was never measured
+	// for. See the doc comment — this forgoes no faster path, because the
+	// artifact this row names is one the in-memory engine cannot open.
+	inMemoryShapeExists := e.Runtime != catalogue.RuntimeStreaming
+	if inMemoryShapeExists && e.MemoryRequiredBytes <= uint64(host.MemoryAvailable) {
 		// Memory fits. Storage is still checked in its own right — the weights
 		// have to be on disk whichever runtime reads them, and a host can have
 		// abundant memory and no room for the file (D2).
@@ -371,8 +429,15 @@ func (c Chooser) Choose(host capability.HostCapabilityProfile, e catalogue.Entry
 		}, nil
 	}
 
-	// The model does not fit in memory. From here the only question is whether
-	// a fallback path exists — not how much memory is missing.
+	// The in-memory path is out — either the model does not fit it, or this row
+	// has no in-memory shape to fit. From here the only question is whether the
+	// streaming path exists and this host meets it — not how much memory is
+	// missing.
+	//
+	// Fallback stays true for both cases: it reports that the preferred path is
+	// unavailable, which holds whether that is because the model is too large or
+	// because no in-memory artifact of it exists. The throughput Tradeoff is
+	// likewise real either way, and FR-027 requires it be labelled.
 
 	// (b) and (c) belong to the streaming path itself and live with it, in
 	// streaming.go: eligibility is roster membership and only roster membership
